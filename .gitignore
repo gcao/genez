@@ -1,0 +1,24 @@
+# Ignore all
+*
+
+# Unignore all with extensions
+!*/
+!*.*
+!Makefile
+!LICENSE
+!Vagrantfile
+
+.DS_Store
+*.out
+.vagrant
+.Xauthority
+*.dSYM/
+tmp/
+bin/
+build/
+.zig-cache/
+benchmark-results/
+.lsp/
+*.dylib
+callgrind.out*
+scratch*
