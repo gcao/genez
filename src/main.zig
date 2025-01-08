@@ -3,23 +3,37 @@ const parser = @import("parser.zig");
 const typechecker = @import("typechecker.zig");
 const bytecode = @import("bytecode.zig");
 const vm_mod = @import("vm.zig");
+const builtin = @import("builtin");
 
-// main.zig
+// WASM exports
 pub export fn initInterpreter() void {
     // Possibly create global data, or do some init
 }
 
 pub export fn runGeneCode(code_ptr: [*:0]const u8, code_len: usize) void {
-    // “Interpret” the code string from JavaScript
-    // parse -> typecheck -> bytecode -> run
+    _ = code_ptr; // Silence unused parameter warning
+    _ = code_len; // Silence unused parameter warning
+    // TODO: Implement the function
 }
 
+// Native entry point
 pub fn main() !void {
-    var alloc = std.heap.page_allocator;
+    if (comptime builtin.target.cpu.arch == .wasm32) {
+        return; // Exit early for WASM builds
+    }
+
+    // Only import these for non-WASM builds
+    const process = std.process;
+    const fs = std.fs;
+
+    // Get allocator pointer instead of the allocator itself
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    var allocator = gpa.allocator();
 
     // parse arguments
-    const args = std.process.argsAlloc(alloc) catch return;
-    defer std.process.argsFree(alloc, args) catch {};
+    const args = try process.argsAlloc(allocator);
+    defer process.argsFree(allocator, args);
 
     if (args.len < 2) {
         std.debug.print("Usage: {s} <file.gene>\n", .{args[0]});
@@ -27,17 +41,22 @@ pub fn main() !void {
     }
 
     const file_name = args[1];
-    const source = try std.fs.cwd().readFileAlloc(alloc, file_name, 4096);
-    defer alloc.free(source);
+    const source = try fs.cwd().readFileAlloc(allocator, file_name, 4096);
+    defer allocator.free(source);
 
+    try runSource(&allocator, source);
+}
+
+// Separate function to handle the source code processing
+fn runSource(allocator: *std.mem.Allocator, source: []const u8) !void {
     // 1) parse
-    const ast_nodes = try parser.parseGeneSource(alloc, source);
+    const ast_nodes = try parser.parseGeneSource(allocator, source);
 
     // 2) typecheck
     try typechecker.checkProgram(ast_nodes);
 
     // 3) to bytecode
-    const module = try bytecode.lowerToBytecode(alloc);
+    const module = try bytecode.lowerToBytecode(allocator);
 
     // 4) create VM and run
     var my_vm = vm_mod.VM.init();

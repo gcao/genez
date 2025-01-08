@@ -1,35 +1,52 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    // Use standardOptimizeOption for optimization modes
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    // 1) Create an executable named 'gene', entry at src/main.zig
+    // 1) Native build
     const exe = b.addExecutable(.{
         .name = "gene",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    // Install the executable
     b.installArtifact(exe);
 
-    // 2) Create a 'run' step for `zig build run`
+    // Run command for native build
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    // 3) Add test step for main.zig
+    // 2) WASM build with special options
+    const wasm = b.addExecutable(.{
+        .name = "gene-wasm",
+        .root_source_file = b.path("src/main.zig"),
+        .optimize = optimize,
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+            .abi = .none,
+        }),
+    });
+    // Add special options for WASM build
+    wasm.rdynamic = true;
+    wasm.import_memory = true;
+    wasm.initial_memory = 65536;
+    wasm.max_memory = 65536;
+    wasm.stack_size = 32768;
+
+    // Install WASM artifact
+    b.installArtifact(wasm);
+
+    // 3) Tests
     const main_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Add test steps for other test files
     const parser_tests = b.addTest(.{
         .root_source_file = b.path("tests/parser_tests.zig"),
         .target = target,
@@ -46,18 +63,4 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&main_tests.step);
     test_step.dependOn(&parser_tests.step);
     test_step.dependOn(&vm_tests.step);
-
-    // 4) WASM build
-    const wasm_target = std.Target.Query{
-        .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
-    };
-    const exe_wasm = b.addExecutable(.{
-        .name = "gene-wasm",
-        .root_source_file = b.path("src/main.zig"),
-        .optimize = optimize,
-        .target = b.resolveTargetQuery(wasm_target),
-    });
-
-    b.installArtifact(exe_wasm);
 }
