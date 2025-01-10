@@ -33,8 +33,8 @@ pub fn build(b: *std.Build) void {
     // Add special options for WASM build
     wasm.rdynamic = true;
     wasm.import_memory = true;
-    wasm.initial_memory = 65536;
-    wasm.max_memory = 65536;
+    wasm.initial_memory = 1;
+    wasm.max_memory = 1;
     wasm.stack_size = 32768;
 
     // Install WASM artifact
@@ -48,16 +48,18 @@ pub fn build(b: *std.Build) void {
     });
 
     const parser_tests = b.addTest(.{
-        .root_source_file = b.path("src/parser_tests.zig"),
+        .root_source_file = b.path("tests/parser_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
+    parser_tests.addIncludePath(b.path("src"));
 
     const vm_tests = b.addTest(.{
-        .root_source_file = b.path("src/vm_tests.zig"),
+        .root_source_file = b.path("tests/vm_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
+    vm_tests.addIncludePath(b.path("src"));
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&main_tests.step);

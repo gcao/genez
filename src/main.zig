@@ -5,15 +5,19 @@ pub const bytecode = @import("bytecode.zig");
 pub const vm = @import("vm.zig");
 pub const builtin = @import("builtin");
 
+const wasm = struct {
+    extern "env" fn log(n: i32) void;
+    extern "env" fn log_str(ptr: [*]const u8, len: usize) void;
+};
+
 // WASM exports
 pub export fn initInterpreter() void {
-    // Possibly create global data, or do some init
+    wasm.log(42); // Test logging
 }
 
 pub export fn runGeneCode(code_ptr: [*:0]const u8, code_len: usize) void {
-    _ = code_ptr; // Silence unused parameter warning
-    _ = code_len; // Silence unused parameter warning
-    // TODO: Implement the function
+    wasm.log_str(code_ptr, code_len);
+    // TODO: Implement actual code running
 }
 
 // Native entry point

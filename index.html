@@ -1,33 +1,44 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>Static Gene in WASM</title>
+    <title>Gene Language</title>
 </head>
 <body>
-<script>
-(async () => {
-    // 1) Fetch the WASM module
-    const response = await fetch('gene-wasm.wasm');
-    const bytes = await response.arrayBuffer();
+    <h1>Gene Language WASM Demo</h1>
+    <script>
+        // Define the imports object that WASM expects
+        const importObject = {
+            env: {
+                // Add any functions that WASM needs to import
+                memory: new WebAssembly.Memory({ 
+                    initial: 1,
+                    maximum: 1
+                }),
+                
+                // Console logging functions
+                log: function(n) { console.log(n); },
+                log_str: function(ptr, len) {
+                    // TODO: Implement string logging from WASM memory
+                },
+            }
+        };
 
-    // 2) Instantiate
-    const { instance } = await WebAssembly.instantiate(bytes, {
-        // optionally pass "env" or other imports if needed
-    });
-
-    // 3) Call the exported functions
-    // e.g. init
-    instance.exports.initInterpreter?.();
-
-    // for runGeneCode, we pass pointer/length or define a custom approach
-    // you'd likely do a separate function to handle passing strings in memory
-    // but let's do a trivial example if your function takes no arguments
-    // or we can show how to pass strings in memory, which is more advanced
-    instance.exports.runGeneCode?.( /* pointer, length */ );
-
-    console.log("WASM loaded and run");
-})();
-</script>
+        // Load and instantiate the WASM module
+        WebAssembly.instantiateStreaming(
+            fetch('zig-out/bin/gene-wasm.wasm'),
+            importObject
+        ).then(obj => {
+            // Store the instance for later use
+            window.geneInstance = obj.instance;
+            
+            // Test the WASM functions
+            console.log("WASM module loaded!");
+            if (obj.instance.exports.initInterpreter) {
+                obj.instance.exports.initInterpreter();
+            }
+        }).catch(e => {
+            console.error("Failed to load WASM:", e);
+        });
+    </script>
 </body>
 </html>
