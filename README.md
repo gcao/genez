@@ -19,9 +19,6 @@ zig build run
 
 # Run tests
 zig build test
-
-# Build WebAssembly target
-zig build wasm
 ```
 
 ## Project Structure
@@ -31,8 +28,7 @@ src/
 ├── main.zig         # Main entry point + WASM exports
 ├── parser.zig       # Parser implementation
 ├── bytecode.zig     # Bytecode generation
-├── vm.zig          # Virtual machine
-└── tests/          # Test files
+├── vm.zig           # Virtual machine
 ```
 
 ## Status
