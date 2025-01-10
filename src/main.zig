@@ -1,5 +1,6 @@
 const std = @import("std");
 pub const parser = @import("parser.zig");
+pub const ast = @import("ast.zig");
 pub const typechecker = @import("typechecker.zig");
 pub const bytecode = @import("bytecode.zig");
 pub const vm = @import("vm.zig");
