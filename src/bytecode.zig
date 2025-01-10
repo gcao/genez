@@ -1,11 +1,20 @@
 const std = @import("std");
 
-pub const Module = struct {
-    functions: []Function,
+pub const BytecodeInstr = struct {
+    code: InstructionCode,
+};
+
+pub const InstructionCode = union(enum) {
+    LoadInt: struct { value: i64 },
+    Print,
 };
 
 pub const Function = struct {
-    // TODO: Add function fields
+    instructions: []const BytecodeInstr,
+};
+
+pub const Module = struct {
+    functions: []Function,
 };
 
 pub fn lowerToBytecode(allocator: *std.mem.Allocator) !Module {

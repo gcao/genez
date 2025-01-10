@@ -48,13 +48,13 @@ pub fn build(b: *std.Build) void {
     });
 
     const parser_tests = b.addTest(.{
-        .root_source_file = b.path("tests/parser_tests.zig"),
+        .root_source_file = b.path("src/parser_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const vm_tests = b.addTest(.{
-        .root_source_file = b.path("tests/vm_tests.zig"),
+        .root_source_file = b.path("src/vm_tests.zig"),
         .target = target,
         .optimize = optimize,
     });

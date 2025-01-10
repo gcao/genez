@@ -1,9 +1,9 @@
 const std = @import("std");
-const parser = @import("parser.zig");
-const typechecker = @import("typechecker.zig");
-const bytecode = @import("bytecode.zig");
-const vm_mod = @import("vm.zig");
-const builtin = @import("builtin");
+pub const parser = @import("parser.zig");
+pub const typechecker = @import("typechecker.zig");
+pub const bytecode = @import("bytecode.zig");
+pub const vm = @import("vm.zig");
+pub const builtin = @import("builtin");
 
 // WASM exports
 pub export fn initInterpreter() void {
@@ -59,7 +59,7 @@ fn runSource(allocator: *std.mem.Allocator, source: []const u8) !void {
     const module = try bytecode.lowerToBytecode(allocator);
 
     // 4) create VM and run
-    var my_vm = vm_mod.VM.init();
+    var my_vm = vm.VM.init();
     if (module.functions.len > 0) {
         try my_vm.runFunction(module.functions[0]);
     }

@@ -1,15 +1,16 @@
 const std = @import("std");
-const vm_mod = @import("../src/vm.zig");
-const bc = @import("../src/bytecode.zig");
+const main = @import("main.zig");
+const vm = main.vm;
+const bytecode = main.bytecode;
 
 test "vm basic run function" {
-    var my_vm = vm_mod.VM.init();
+    var my_vm = vm.VM.init();
 
-    var instrs: [2]bc.BytecodeInstr = .{
-        .{ .code = .LoadInt = .{ .value = 10 } },
+    var instrs: [2]bytecode.BytecodeInstr = .{
+        .{ .code = .{ .LoadInt = .{ .value = 10 } } },
         .{ .code = .Print },
     };
-    const func = bc.BytecodeFunction{
+    const func = bytecode.Function{
         .instructions = instrs[0..],
     };
     try my_vm.runFunction(func);
