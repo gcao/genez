@@ -11,14 +11,21 @@
         async function init() {
             const wasm = await WebAssembly.instantiateStreaming(
                 fetch('gene.wasm'),
-                {}
+                {
+                    env: {
+                        memory: new WebAssembly.Memory({
+                            initial: 2,
+                            maximum: 2
+                        })
+                    }
+                }
             );
-            
+
             // Call the exported add function
             const result = wasm.instance.exports.add(2, 3);
             document.getElementById('result').textContent = result;
         }
-        
+
         init();
     </script>
 </body>
