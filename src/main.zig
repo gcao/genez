@@ -1,7 +1,7 @@
 const std = @import("std");
-const vm = @import("vm.zig");
-const parser = @import("parser.zig");
-const bytecode = @import("bytecode.zig");
+pub const vm = @import("vm.zig");
+pub const parser = @import("parser.zig");
+pub const bytecode = @import("bytecode.zig");
 
 pub fn main() !void {
     std.debug.print("Gene VM starting...\n", .{});
