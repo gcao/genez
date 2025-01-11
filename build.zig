@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
         .name = "gene",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = .Debug, // Force debug mode for development
     });
     b.installArtifact(exe);
 
@@ -43,11 +43,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(wasm);
 
     // Add a step to copy WASM file to web directory
-    const copy_wasm = b.addInstallFileWithDir(
-        wasm.getEmittedBin(),
-        .prefix,
-        "../public/gene.wasm"
-    );
+    const copy_wasm = b.addInstallFileWithDir(wasm.getEmittedBin(), .prefix, "../public/gene.wasm");
     const copy_step = b.step("copy-wasm", "Copy WASM file to web directory");
     copy_step.dependOn(&copy_wasm.step);
 

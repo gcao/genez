@@ -5,14 +5,97 @@ pub fn ParseError() type {
     return error{
         UnexpectedToken,
         IncompleteInput,
-        // ...
+        InvalidSyntax,
+        InvalidStringLiteral,
+        UnknownToken,
     };
 }
 
 pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast.AstNode {
-    _ = source; // Acknowledge source parameter until we implement parsing
+    var nodes = std.ArrayList(ast.AstNode).init(allocator.*);
+    defer nodes.deinit();
 
-    // Changed var to const since it's not mutated
-    const result = try allocator.alloc(ast.AstNode, 0); // empty for example
-    return result;
+    var in_string = false;
+    var current_token = std.ArrayList(u8).init(allocator.*);
+    defer current_token.deinit();
+
+    var i: usize = 0;
+    while (i < source.len) : (i += 1) {
+        const c = source[i];
+        if (c == '"') {
+            if (in_string) {
+                // End of string
+                try current_token.append('"');
+                const value = current_token.items[1 .. current_token.items.len - 1];
+                const value_copy = try allocator.dupe(u8, value);
+                std.debug.print("Creating print node with value: {s}\n", .{value_copy});
+                try nodes.append(ast.AstNode{
+                    .Stmt = ast.Stmt{
+                        .ExprStmt = ast.Expr{
+                            .StrLit = value_copy,
+                        },
+                    },
+                });
+                current_token = std.ArrayList(u8).init(allocator.*);
+                in_string = false;
+            } else {
+                // Start of string
+                if (current_token.items.len > 0) {
+                    try nodes.append(ast.AstNode{
+                        .Stmt = ast.Stmt{
+                            .ExprStmt = ast.Expr{
+                                .Ident = try current_token.toOwnedSlice(),
+                            },
+                        },
+                    });
+                    current_token = std.ArrayList(u8).init(allocator.*);
+                }
+                try current_token.append('"');
+                in_string = true;
+            }
+        } else if (in_string) {
+            try current_token.append(c);
+        } else if (std.mem.indexOfScalar(u8, " \n\r\t", c) != null) {
+            if (current_token.items.len > 0) {
+                const token = try current_token.toOwnedSlice();
+                if (std.mem.eql(u8, token, "print")) {
+                    try nodes.append(ast.AstNode{
+                        .Stmt = ast.Stmt{
+                            .ExprStmt = ast.Expr{
+                                .Ident = "print",
+                            },
+                        },
+                    });
+                } else {
+                    try nodes.append(ast.AstNode{
+                        .Stmt = ast.Stmt{
+                            .ExprStmt = ast.Expr{
+                                .Ident = token,
+                            },
+                        },
+                    });
+                }
+                current_token = std.ArrayList(u8).init(allocator.*);
+            }
+        } else {
+            try current_token.append(c);
+        }
+    }
+
+    if (current_token.items.len > 0) {
+        const token = try current_token.toOwnedSlice();
+        try nodes.append(ast.AstNode{
+            .Stmt = ast.Stmt{
+                .ExprStmt = ast.Expr{
+                    .Ident = token,
+                },
+            },
+        });
+    }
+
+    if (nodes.items.len == 0) {
+        return ParseError().IncompleteInput;
+    }
+
+    return nodes.toOwnedSlice();
 }
