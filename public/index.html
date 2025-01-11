@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gene WASM Demo</title>
+</head>
+<body>
+    <h1>Gene WASM Demo</h1>
+    <p>Result of add(2, 3): <span id="result"></span></p>
+
+    <script>
+        async function init() {
+            const wasm = await WebAssembly.instantiateStreaming(
+                fetch('gene.wasm'),
+                {}
+            );
+            
+            // Call the exported add function
+            const result = wasm.instance.exports.add(2, 3);
+            document.getElementById('result').textContent = result;
+        }
+        
+        init();
+    </script>
+</body>
+</html>

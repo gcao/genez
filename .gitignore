@@ -22,3 +22,4 @@ benchmark-results/
 *.dylib
 callgrind.out*
 scratch*
+gene.wasm

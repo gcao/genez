@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
     // 2) WASM build with special options
     const wasm = b.addExecutable(.{
         .name = "gene-wasm",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/wasm.zig"),
         .optimize = optimize,
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) void {
             .abi = .none,
         }),
     });
-    // Add special options for WASM build
+    wasm.entry = .disabled; // Disable entry point for WASM
     wasm.rdynamic = true;
     wasm.import_memory = true;
     const page_size = 65536;
@@ -41,6 +41,15 @@ pub fn build(b: *std.Build) void {
 
     // Install WASM artifact
     b.installArtifact(wasm);
+
+    // Add a step to copy WASM file to web directory
+    const copy_wasm = b.addInstallFileWithDir(
+        wasm.getEmittedBin(),
+        .prefix,
+        "../public/gene.wasm"
+    );
+    const copy_step = b.step("copy-wasm", "Copy WASM file to web directory");
+    copy_step.dependOn(&copy_wasm.step);
 
     // 3) Tests
     const main_tests = b.addTest(.{
