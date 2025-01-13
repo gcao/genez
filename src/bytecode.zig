@@ -6,16 +6,34 @@ pub const BytecodeInstr = struct {
 };
 
 pub const InstructionCode = union(enum) {
-    LoadString: struct { value: []const u8 },
+    LoadString: struct { value: []const u8, owned: bool = false },
     Print,
 };
 
 pub const Function = struct {
     instructions: []const BytecodeInstr,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *Function) void {
+        for (self.instructions) |instr| {
+            if (instr.code == .LoadString and instr.code.LoadString.owned) {
+                self.allocator.free(instr.code.LoadString.value);
+            }
+        }
+        self.allocator.free(self.instructions);
+    }
 };
 
 pub const Module = struct {
     functions: []Function,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *Module) void {
+        for (self.functions) |*func| {
+            func.deinit();
+        }
+        self.allocator.free(self.functions);
+    }
 };
 
 pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Module {
@@ -33,8 +51,11 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                 .ExprStmt => |expr| switch (expr) {
                     .StrLit => |value| {
                         std.debug.print("  Generating bytecode for string literal: {s}\n", .{value});
+                        // Allocate and copy the string
+                        const owned_value = try allocator.alloc(u8, value.len);
+                        @memcpy(owned_value, value);
                         try instructions.append(BytecodeInstr{
-                            .code = .{ .LoadString = .{ .value = value } },
+                            .code = .{ .LoadString = .{ .value = owned_value, .owned = true } },
                         });
                         try instructions.append(BytecodeInstr{
                             .code = .Print,
@@ -62,16 +83,25 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
         }
     }
 
+    const instruction_count = instructions.items.len;
+    const function_instructions = try instructions.toOwnedSlice();
+
+    if (instruction_count == 0) {
+        return error.NoInstructionsGenerated;
+    }
+
     try functions.append(Function{
-        .instructions = try instructions.toOwnedSlice(),
+        .instructions = function_instructions,
+        .allocator = allocator.*,
     });
 
     std.debug.print("Generated {} functions with {} total instructions\n", .{
         functions.items.len,
-        instructions.items.len,
+        instruction_count,
     });
 
     return Module{
         .functions = try functions.toOwnedSlice(),
+        .allocator = allocator.*,
     };
 }

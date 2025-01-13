@@ -8,12 +8,16 @@ pub fn main() !void {
     std.debug.print("Gene VM starting...\n", .{});
     std.debug.print("", .{}); // Force flush
 
-    // Initialize VM
-    var my_vm = vm.VM.init();
+    // Initialize VM with error handling
+    var my_vm = try vm.VM.init();
+    defer my_vm.deinit();
 
     // Create an allocator for parser
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{
+        .verbose_log = false,
+        .safety = false,
+        .never_unmap = false,
+    }){};
     var allocator = gpa.allocator();
 
     // Read input file and debug print arguments
@@ -80,7 +84,8 @@ pub fn main() !void {
         idx += 1;
     }
 
-    const module = try bytecode.lowerToBytecode(&allocator, parsed);
+    var module = try bytecode.lowerToBytecode(&allocator, parsed);
+    defer module.deinit();
 
     std.debug.print("Generated {d} functions:\n", .{module.functions.len});
     for (module.functions) |func| {
@@ -93,12 +98,6 @@ pub fn main() !void {
         }
     }
 
-    if (module.functions.len == 0) {
-        return error.NoFunctionsGenerated;
-    }
-
-    // Run the first function
-    try my_vm.runFunction(module.functions[0]);
-
+    try my_vm.runModule(&module);
     std.debug.print("Program completed.\n", .{});
 }

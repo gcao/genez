@@ -2,28 +2,76 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 
 pub const VM = struct {
-    stack: std.ArrayList([]const u8),
-    allocator: std.mem.Allocator,
+    stack: std.ArrayList([]align(16) const u8),
+    arena: std.heap.ArenaAllocator,
+    temp_allocator: std.heap.FixedBufferAllocator,
 
-    pub fn init() VM {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    pub fn init() !VM {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        var stack = std.ArrayList([]align(16) const u8).init(arena.allocator());
+        try stack.ensureTotalCapacity(1024);
+
+        var temp_buffer: [65536]u8 align(16) = undefined;
+        const temp_allocator = std.heap.FixedBufferAllocator.init(&temp_buffer);
+        std.debug.print("Initialized temp allocator with buffer at: {*}\n", .{temp_buffer[0..].ptr});
+
         return VM{
-            .stack = std.ArrayList([]const u8).init(gpa.allocator()),
-            .allocator = gpa.allocator(),
+            .arena = arena,
+            .stack = stack,
+            .temp_allocator = temp_allocator,
         };
     }
 
-    pub fn runFunction(self: *VM, function: bytecode.Function) !void {
+    pub fn deinit(self: *VM) void {
+        self.stack.clearAndFree();
+        self.stack.deinit();
+        _ = self.arena.deinit();
+    }
+
+    pub fn runModule(self: *VM, module: *const bytecode.Module) !void {
+        if (module.functions.len == 0) {
+            return error.NoFunctionsToRun;
+        }
+        try self.runFunction(&module.functions[0]);
+    }
+
+    fn runFunction(self: *VM, function: *const bytecode.Function) !void {
+        std.debug.print("Running function with {d} instructions\n", .{function.instructions.len});
+
         for (function.instructions) |instr| {
             switch (instr.code) {
                 .LoadString => |load| {
-                    try self.stack.append(load.value);
+                    std.debug.print("Loading string: {s} (len: {d})\n", .{ load.value, load.value.len });
+                    if (load.value.len > 4096) {
+                        return error.StringTooLarge;
+                    }
+
+                    self.temp_allocator.reset();
+                    const allocator = self.temp_allocator.allocator();
+                    const len = load.value.len;
+                    const str_copy = try allocator.alloc(u8, len);
+
+                    @memcpy(str_copy, load.value);
+                    std.debug.print("Copied {d} bytes from {*} to {*}\n", .{ len, load.value.ptr, str_copy.ptr });
+
+                    const aligned_str: []align(16) const u8 = @alignCast(str_copy);
+                    try self.stack.append(aligned_str);
+                    std.debug.print("Stack size: {d}, top: {*} (aligned: {*})\n", .{ self.stack.items.len, str_copy.ptr, aligned_str.ptr });
                 },
                 .Print => {
+                    if (self.stack.items.len == 0) {
+                        return error.StackUnderflow;
+                    }
                     const value = self.stack.pop();
+                    std.debug.print("Printing value: {s}\n", .{value});
                     std.debug.print("{s}\n", .{value});
+                    std.debug.print("Stack size after print: {d}\n", .{self.stack.items.len});
                 },
             }
+        }
+
+        while (self.stack.popOrNull()) |value| {
+            std.debug.print("Cleaning up stack value: {s}\n", .{value});
         }
     }
 };
