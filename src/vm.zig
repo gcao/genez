@@ -35,7 +35,7 @@ pub const VM = struct {
         try self.runFunction(&module.functions[0]);
     }
 
-    fn runFunction(self: *VM, function: *const bytecode.Function) !void {
+    pub fn runFunction(self: *VM, function: *const bytecode.Function) !void {
         std.debug.print("Running function with {d} instructions\n", .{function.instructions.len});
 
         for (function.instructions) |instr| {
@@ -57,6 +57,14 @@ pub const VM = struct {
                     const aligned_str: []align(16) const u8 = @alignCast(str_copy);
                     try self.stack.append(aligned_str);
                     std.debug.print("Stack size: {d}, top: {*} (aligned: {*})\n", .{ self.stack.items.len, str_copy.ptr, aligned_str.ptr });
+                },
+                .LoadInt => |load| {
+                    std.debug.print("Loading integer: {d}\n", .{load.value});
+                    const int_ptr = try self.temp_allocator.allocator().create(i64);
+                    int_ptr.* = load.value;
+                    const aligned_int: []align(16) const u8 = @alignCast(@as([*]u8, @ptrCast(int_ptr))[0..@sizeOf(i64)]);
+                    try self.stack.append(aligned_int);
+                    std.debug.print("Stack size: {d}, top: {*}\n", .{ self.stack.items.len, int_ptr });
                 },
                 .Print => {
                     if (self.stack.items.len == 0) {

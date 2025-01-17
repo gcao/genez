@@ -7,6 +7,7 @@ pub const BytecodeInstr = struct {
 
 pub const InstructionCode = union(enum) {
     LoadString: struct { value: []const u8, owned: bool = false },
+    LoadInt: struct { value: i64 },
     Print,
 };
 

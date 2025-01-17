@@ -96,6 +96,7 @@ pub fn main() !void {
         for (func.instructions) |instr| {
             switch (instr.code) {
                 .LoadString => |load| std.debug.print("    LOAD_STRING {s}\n", .{load.value}),
+                .LoadInt => |load| std.debug.print("    LOAD_INT {d}\n", .{load.value}),
                 .Print => std.debug.print("    PRINT\n", .{}),
             }
         }
