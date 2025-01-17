@@ -1,0 +1,11 @@
+(Class Greeter
+  ^props {
+    ^msg (Property ^^required ^type String)
+  }
+)
+
+(fn greet [g : Greeter]
+  (print g/msg))
+
+(var g (Greeter ^msg "Hello Gene!"))
+(greet g)

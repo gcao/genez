@@ -9,6 +9,10 @@ pub const InstructionCode = union(enum) {
     LoadString: struct { value: []const u8, owned: bool = false },
     LoadInt: struct { value: i64 },
     Print,
+    NewClass: struct { class_name: []const u8 },
+    GetProperty: struct { property_name: []const u8 },
+    SetProperty: struct { property_name: []const u8 },
+    CallMethod: struct { method_name: []const u8, arg_count: u32 },
 };
 
 pub const Function = struct {
@@ -77,6 +81,22 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                 else => {
                     std.debug.print("  Unknown statement type\n", .{});
                 },
+            },
+            .ClassDecl => |class_decl| {
+                std.debug.print("  Generating bytecode for class: {s}\n", .{class_decl.name});
+                // Generate instructions for class definition
+                const class_name = try allocator.alloc(u8, class_decl.name.len);
+                @memcpy(class_name, class_decl.name);
+
+                // Generate property initialization
+                for (class_decl.props) |prop| {
+                    const prop_name = try allocator.alloc(u8, prop.name.len);
+                    @memcpy(prop_name, prop.name);
+
+                    try instructions.append(BytecodeInstr{
+                        .code = .{ .SetProperty = .{ .property_name = prop_name } },
+                    });
+                }
             },
             else => {
                 std.debug.print("  Unknown node type\n", .{});
