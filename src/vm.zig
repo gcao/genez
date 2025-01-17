@@ -32,10 +32,11 @@ pub const VM = struct {
         if (module.functions.len == 0) {
             return error.NoFunctionsToRun;
         }
-        try self.runFunction(&module.functions[0]);
+        const stdout = std.io.getStdOut();
+        try self.runFunction(&module.functions[0], @TypeOf(stdout.writer()), .{ .writer = stdout.writer() });
     }
 
-    pub fn runFunction(self: *VM, function: *const bytecode.Function) !void {
+    pub fn runFunction(self: *VM, function: *const bytecode.Function, comptime Writer: type, options: struct { writer: Writer }) !void {
         std.debug.print("Running function with {d} instructions\n", .{function.instructions.len});
 
         for (function.instructions) |instr| {
@@ -72,7 +73,7 @@ pub const VM = struct {
                     }
                     const value = self.stack.pop();
                     std.debug.print("Printing value: {s}\n", .{value});
-                    std.debug.print("{s}\n", .{value});
+                    try options.writer.print("{s}\n", .{value});
                     std.debug.print("Stack size after print: {d}\n", .{self.stack.items.len});
                 },
             }

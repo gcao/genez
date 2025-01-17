@@ -6,6 +6,31 @@ pub const bytecode = @import("bytecode.zig");
 pub const hir = @import("hir.zig");
 pub const mir = @import("mir.zig");
 
+const VERSION = "0.1.0";
+
+const Command = enum {
+    run,
+    compile,
+    help,
+    version,
+};
+
+const CommandInfo = struct {
+    description: []const u8,
+};
+
+const CommandMap = std.StringHashMap(CommandInfo);
+
+fn printHelp(writer: anytype) !void {
+    try writer.print("Gene Programming Language CLI v{s}\n", .{VERSION});
+    try writer.print("\nUsage: gene <command> [options]\n", .{});
+    try writer.print("\nAvailable Commands:\n", .{});
+    try writer.print("  run       Run a Gene source file\n", .{});
+    try writer.print("  compile   Compile a Gene source file\n", .{});
+    try writer.print("  help      Show this help message\n", .{});
+    try writer.print("  version   Show the current version\n", .{});
+}
+
 fn astToHir(allocator: *std.mem.Allocator, nodes: []const ast.AstNode) !hir.HIR {
     return try hir.HIR.astToHir(allocator.*, nodes);
 }
@@ -14,94 +39,95 @@ fn hirToMir(allocator: *std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
     return try mir.MIR.hirToMir(allocator.*, hir_prog);
 }
 
-pub fn main() !void {
-    std.debug.print("DEBUG: Entering main function\n", .{});
-    std.debug.print("Gene VM starting...\n", .{});
-    std.debug.print("", .{}); // Force flush
-
-    // Initialize VM with error handling
+fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
+    // Initialize VM
     var my_vm = try vm.VM.init();
     defer my_vm.deinit();
 
-    // Create an allocator for parser
+    // Read input file
+    const input = std.fs.cwd().readFileAlloc(allocator.*, file_path, std.math.maxInt(usize)) catch |err| {
+        std.debug.print("Failed to read file: {any}\n", .{err});
+        return err;
+    };
+    defer allocator.free(input);
+
+    // Parse source
+    const parsed = try parser.parseGeneSource(allocator, input);
+    defer allocator.free(parsed);
+
+    // Convert to bytecode
+    var module = try bytecode.lowerToBytecode(allocator, parsed);
+    defer module.deinit();
+
+    // Run the module
+    try my_vm.runModule(&module);
+}
+
+fn compileFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
+    // Read input file
+    const input = std.fs.cwd().readFileAlloc(allocator.*, file_path, std.math.maxInt(usize)) catch |err| {
+        std.debug.print("Failed to read file: {any}\n", .{err});
+        return err;
+    };
+    defer allocator.free(input);
+
+    // Parse source
+    const parsed = try parser.parseGeneSource(allocator, input);
+    defer allocator.free(parsed);
+
+    // Convert to bytecode
+    var module = try bytecode.lowerToBytecode(allocator, parsed);
+    defer module.deinit();
+
+    std.debug.print("Compilation successful. Generated {d} functions.\n", .{module.functions.len});
+}
+
+pub fn main() !void {
+    // Create an allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{
         .verbose_log = false,
         .safety = false,
         .never_unmap = false,
     }){};
     var allocator = gpa.allocator();
+    defer _ = gpa.deinit();
 
-    // Read input file and debug print arguments
+    // Parse command-line arguments
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    std.debug.print("Arguments: {any}\n", .{args});
 
-    if (args.len < 2) {
-        std.debug.print("Usage: gene <file.gene>\n", .{});
-        return error.InvalidArguments;
-    }
+    // Determine command
+    const command: Command = blk: {
+        if (args.len < 2) break :blk .help;
 
-    std.debug.print("Attempting to read file: {s}\n", .{args[1]});
-    const input = std.fs.cwd().readFileAlloc(allocator, args[1], std.math.maxInt(usize)) catch |err| {
-        std.debug.print("Failed to read file: {any}\n", .{err});
-        return err;
+        const cmd_str = args[1];
+        if (std.mem.eql(u8, cmd_str, "run")) break :blk .run;
+        if (std.mem.eql(u8, cmd_str, "compile")) break :blk .compile;
+        if (std.mem.eql(u8, cmd_str, "help")) break :blk .help;
+        if (std.mem.eql(u8, cmd_str, "version")) break :blk .version;
+
+        break :blk .help;
     };
-    defer allocator.free(input);
 
-    std.debug.print("Successfully read file content:\n{s}\n", .{input});
-    std.debug.print("", .{}); // Force flush
-    std.debug.print("Input length: {d}\n", .{input.len});
-    std.debug.print("First 10 bytes: {x}\n", .{input[0..@min(10, input.len)]});
-    std.debug.print("Last 10 bytes: {x}\n", .{input[@max(0, input.len - 10)..input.len]});
-
-    std.debug.print("\nStarting parsing...\n", .{});
-    std.debug.print("", .{}); // Force flush
-    const parsed = try parser.parseGeneSource(&allocator, input);
-    defer allocator.free(parsed);
-
-    std.debug.print("\nParsed {d} nodes:\n", .{parsed.len});
-    std.debug.print("", .{}); // Force flush
-    for (parsed) |node| {
-        switch (node) {
-            .Stmt => |stmt| switch (stmt) {
-                .ExprStmt => |expr| switch (expr) {
-                    .StrLit => |value| std.debug.print("  String literal: {s}\n", .{value}),
-                    .Ident => |value| std.debug.print("  Identifier: {s}\n", .{value}),
-                    else => std.debug.print("  Unknown expression type\n", .{}),
-                },
-                else => std.debug.print("  Unknown statement type\n", .{}),
-            },
-            else => std.debug.print("  Unknown node type\n", .{}),
-        }
-    }
-
-    // Convert AST to HIR
-    std.debug.print("\nLowering AST to HIR...\n", .{});
-    var hir_prog = try astToHir(&allocator, parsed);
-    defer hir_prog.deinit();
-
-    // Convert HIR to MIR
-    std.debug.print("\nLowering HIR to MIR...\n", .{});
-    var mir_prog = try hirToMir(&allocator, hir_prog);
-    defer mir_prog.deinit();
-
-    // Convert MIR to bytecode
-    std.debug.print("\nGenerating bytecode from MIR...\n", .{});
-    var module = try bytecode.lowerToBytecode(&allocator, parsed);
-    defer module.deinit();
-
-    std.debug.print("Generated {d} functions:\n", .{module.functions.len});
-    for (module.functions) |func| {
-        std.debug.print("  Function with {d} instructions:\n", .{func.instructions.len});
-        for (func.instructions) |instr| {
-            switch (instr.code) {
-                .LoadString => |load| std.debug.print("    LOAD_STRING {s}\n", .{load.value}),
-                .LoadInt => |load| std.debug.print("    LOAD_INT {d}\n", .{load.value}),
-                .Print => std.debug.print("    PRINT\n", .{}),
+    // Execute command
+    switch (command) {
+        .run => {
+            if (args.len < 3) {
+                std.debug.print("Error: Please provide a file to run.\n", .{});
+                try printHelp(std.io.getStdErr().writer());
+                return error.InvalidArguments;
             }
-        }
+            try runFile(&allocator, args[2]);
+        },
+        .compile => {
+            if (args.len < 3) {
+                std.debug.print("Error: Please provide a file to compile.\n", .{});
+                try printHelp(std.io.getStdErr().writer());
+                return error.InvalidArguments;
+            }
+            try compileFile(&allocator, args[2]);
+        },
+        .help => try printHelp(std.io.getStdOut().writer()),
+        .version => std.debug.print("Gene Programming Language v{s}\n", .{VERSION}),
     }
-
-    try my_vm.runModule(&module);
-    std.debug.print("Program completed.\n", .{});
 }
