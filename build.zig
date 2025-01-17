@@ -70,4 +70,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&main_tests.step);
     test_step.dependOn(&parser_tests.step);
     test_step.dependOn(&vm_tests.step);
+
+    // Clean step - temporarily disabled
+    // const clean_step = b.step("clean", "Remove build artifacts");
+    // clean_step.dependOn(@as(*std.Build.Step, b.addRemoveDirTree(b.path("zig-cache").getPath(b))));
+    // clean_step.dependOn(@as(*std.Build.Step, b.addRemoveDirTree(b.path("zig-out").getPath(b))));
 }

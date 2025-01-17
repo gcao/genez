@@ -1,25 +1,41 @@
 const std = @import("std");
-const main = @import("main.zig");
-const parser = main.parser;
-const ast = main.ast;
+const parser = @import("parser.zig");
+const ast = @import("ast.zig");
 
-test "parse simple class" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var allocator = gpa.allocator();
-
-    const source = "(Class ^name MyClass ^props { ^a (Property ^^required ^type Int) })";
+test "basic string parsing" {
+    var allocator = std.testing.allocator;
+    const source = "\"hello world\"";
 
     const result = parser.parseGeneSource(&allocator, source) catch @panic("parse error");
-    try std.testing.expect(result.len == 1);
+    defer allocator.free(result);
 
-    // check it's a ClassDecl if your parser does that
-    // e.g. match on union
-    switch (result[0]) {
-        .ClassDecl => |cd| {
-            try std.testing.expectEqualStrings("MyClass", cd.name);
-            try std.testing.expect(cd.props.len == 1);
-        },
-        else => @panic("expected ClassDecl node"),
-    }
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expect(result[0].Stmt.ExprStmt == .StrLit);
+    try std.testing.expectEqualStrings("hello world", result[0].Stmt.ExprStmt.StrLit);
+}
+
+test "basic identifier parsing" {
+    var allocator = std.testing.allocator;
+    const source = "test";
+
+    const result = parser.parseGeneSource(&allocator, source) catch @panic("parse error");
+    defer allocator.free(result);
+
+    try std.testing.expectEqual(@as(usize, 1), result.len);
+    try std.testing.expect(result[0].Stmt.ExprStmt == .Ident);
+    try std.testing.expectEqualStrings("test", result[0].Stmt.ExprStmt.Ident);
+}
+
+test "print statement parsing" {
+    var allocator = std.testing.allocator;
+    const source = "print \"hello\"";
+
+    const result = parser.parseGeneSource(&allocator, source) catch @panic("parse error");
+    defer allocator.free(result);
+
+    try std.testing.expectEqual(@as(usize, 2), result.len);
+    try std.testing.expect(result[0].Stmt.ExprStmt == .Ident);
+    try std.testing.expectEqualStrings("print", result[0].Stmt.ExprStmt.Ident);
+    try std.testing.expect(result[1].Stmt.ExprStmt == .StrLit);
+    try std.testing.expectEqualStrings("hello", result[1].Stmt.ExprStmt.StrLit);
 }

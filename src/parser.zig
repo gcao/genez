@@ -1,15 +1,15 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 
-pub fn ParseError() type {
-    return error{
-        UnexpectedToken,
-        IncompleteInput,
-        InvalidSyntax,
-        InvalidStringLiteral,
-        UnknownToken,
-    };
-}
+pub const ParseError = error{
+    UnexpectedToken,
+    IncompleteInput,
+    InvalidSyntax,
+    InvalidStringLiteral,
+    UnknownToken,
+    MemoryAllocationFailed,
+    OutOfMemory,
+};
 
 pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast.AstNode {
     var nodes = std.ArrayList(ast.AstNode).init(allocator.*);
@@ -27,8 +27,11 @@ pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast
                 // End of string
                 try current_token.append('"');
                 const value = current_token.items[1 .. current_token.items.len - 1];
-                const value_copy = try allocator.dupe(u8, value);
-                std.debug.print("Creating print node with value: {s}\n", .{value_copy});
+                const value_copy = try allocator.alloc(u8, value.len);
+                var index: usize = 0;
+                while (index < value.len) : (index += 1) {
+                    value_copy[index] = value[index];
+                }
                 try nodes.append(ast.AstNode{
                     .Stmt = ast.Stmt{
                         .ExprStmt = ast.Expr{
@@ -94,7 +97,7 @@ pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast
     }
 
     if (nodes.items.len == 0) {
-        return ParseError().IncompleteInput;
+        return error.IncompleteInput;
     }
 
     return nodes.toOwnedSlice();
