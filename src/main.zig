@@ -1,7 +1,18 @@
 const std = @import("std");
+pub const ast = @import("ast.zig");
 pub const vm = @import("vm.zig");
 pub const parser = @import("parser.zig");
 pub const bytecode = @import("bytecode.zig");
+pub const hir = @import("hir.zig");
+pub const mir = @import("mir.zig");
+
+fn astToHir(allocator: *std.mem.Allocator, nodes: []const ast.AstNode) !hir.HIR {
+    return try hir.HIR.astToHir(allocator.*, nodes);
+}
+
+fn hirToMir(allocator: *std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
+    return try mir.MIR.hirToMir(allocator.*, hir_prog);
+}
 
 pub fn main() !void {
     std.debug.print("DEBUG: Entering main function\n", .{});
@@ -64,26 +75,18 @@ pub fn main() !void {
         }
     }
 
-    // Convert AST to bytecode
-    std.debug.print("\nStarting bytecode generation...\n", .{});
-    std.debug.print("", .{}); // Force flush
-    std.debug.print("AST before bytecode generation:\n", .{});
-    var idx: usize = 0;
-    for (parsed) |node| {
-        switch (node) {
-            .Stmt => |stmt| switch (stmt) {
-                .ExprStmt => |expr| switch (expr) {
-                    .StrLit => |value| std.debug.print("  [{}] String literal: {s}\n", .{ idx, value }),
-                    .Ident => |value| std.debug.print("  [{}] Identifier: {s}\n", .{ idx, value }),
-                    else => std.debug.print("  [{}] Unknown expression type\n", .{idx}),
-                },
-                else => std.debug.print("  [{}] Unknown statement type\n", .{idx}),
-            },
-            else => std.debug.print("  [{}] Unknown node type\n", .{idx}),
-        }
-        idx += 1;
-    }
+    // Convert AST to HIR
+    std.debug.print("\nLowering AST to HIR...\n", .{});
+    var hir_prog = try astToHir(&allocator, parsed);
+    defer hir_prog.deinit();
 
+    // Convert HIR to MIR
+    std.debug.print("\nLowering HIR to MIR...\n", .{});
+    var mir_prog = try hirToMir(&allocator, hir_prog);
+    defer mir_prog.deinit();
+
+    // Convert MIR to bytecode
+    std.debug.print("\nGenerating bytecode from MIR...\n", .{});
     var module = try bytecode.lowerToBytecode(&allocator, parsed);
     defer module.deinit();
 
