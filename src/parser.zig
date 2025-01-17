@@ -1,5 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
+const types = @import("types.zig");
 
 pub const ParseError = error{
     UnexpectedToken,
@@ -44,12 +45,20 @@ pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast
                 while (index < value.len) : (index += 1) {
                     value_copy[index] = value[index];
                 }
+                const literal = try allocator.create(ast.AstNode.Literal);
+                literal.* = .{
+                    .value = .{ .String = value_copy },
+                };
+                const expr = try allocator.create(ast.AstNode.Expression);
+                expr.* = .{
+                    .Literal = literal,
+                };
+                const stmt = try allocator.create(ast.AstNode.Statement);
+                stmt.* = .{
+                    .Expression = expr,
+                };
                 try nodes.append(ast.AstNode{
-                    .Stmt = ast.Stmt{
-                        .ExprStmt = ast.Expr{
-                            .StrLit = value_copy,
-                        },
-                    },
+                    .Statement = stmt,
                 });
                 current_token = std.ArrayList(u8).init(allocator.*);
                 in_string = false;
@@ -101,23 +110,39 @@ fn handleToken(allocator: *std.mem.Allocator, nodes: *std.ArrayList(ast.AstNode)
         return;
     } else if (std.mem.eql(u8, token, "print")) {
         const ident = try allocator.alloc(u8, 5);
-        std.mem.copy(u8, ident, "print");
+        std.mem.copyForwards(u8, ident, "print");
+        const variable = try allocator.create(ast.AstNode.Variable);
+        variable.* = .{
+            .name = ident,
+        };
+        const expr = try allocator.create(ast.AstNode.Expression);
+        expr.* = .{
+            .Variable = variable,
+        };
+        const stmt = try allocator.create(ast.AstNode.Statement);
+        stmt.* = .{
+            .Expression = expr,
+        };
         try nodes.append(ast.AstNode{
-            .Stmt = ast.Stmt{
-                .ExprStmt = ast.Expr{
-                    .Ident = ident,
-                },
-            },
+            .Statement = stmt,
         });
     } else {
         const ident = try allocator.alloc(u8, token.len);
-        std.mem.copy(u8, ident, token);
+        std.mem.copyForwards(u8, ident, token);
+        const variable = try allocator.create(ast.AstNode.Variable);
+        variable.* = .{
+            .name = ident,
+        };
+        const expr = try allocator.create(ast.AstNode.Expression);
+        expr.* = .{
+            .Variable = variable,
+        };
+        const stmt = try allocator.create(ast.AstNode.Statement);
+        stmt.* = .{
+            .Expression = expr,
+        };
         try nodes.append(ast.AstNode{
-            .Stmt = ast.Stmt{
-                .ExprStmt = ast.Expr{
-                    .Ident = ident,
-                },
-            },
+            .Statement = stmt,
         });
     }
 }
@@ -154,7 +179,7 @@ fn parseClassDefinition(allocator: *std.mem.Allocator, nodes: *std.ArrayList(ast
     defer current_token.deinit();
 
     // Parse class name
-    while (i < source.len and !std.mem.indexOfScalar(u8, " \n\r\t{", source[i])) : (i += 1) {
+    while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t{", source[i]) == null) : (i += 1) {
         try current_token.append(source[i]);
     }
     const class_name = try current_token.toOwnedSlice();
@@ -163,17 +188,17 @@ fn parseClassDefinition(allocator: *std.mem.Allocator, nodes: *std.ArrayList(ast
     while (i < source.len and source[i] != '{') : (i += 1) {}
     i += 1; // Skip '{'
 
-    var props = std.ArrayList(ast.ClassProp).init(allocator.*);
+    var props = std.ArrayList(ast.AstNode.Class.Field).init(allocator.*);
     defer props.deinit();
 
     // Parse properties
     while (i < source.len and source[i] != '}') {
         // Skip whitespace
-        while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t", source[i])) : (i += 1) {}
+        while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t", source[i]) != null) : (i += 1) {}
 
         // Parse property name
         current_token = std.ArrayList(u8).init(allocator.*);
-        while (i < source.len and !std.mem.indexOfScalar(u8, " \n\r\t:", source[i])) : (i += 1) {
+        while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t:", source[i]) == null) : (i += 1) {
             try current_token.append(source[i]);
         }
         const prop_name = try current_token.toOwnedSlice();
@@ -184,7 +209,7 @@ fn parseClassDefinition(allocator: *std.mem.Allocator, nodes: *std.ArrayList(ast
 
         // Parse type
         current_token = std.ArrayList(u8).init(allocator.*);
-        while (i < source.len and !std.mem.indexOfScalar(u8, " \n\r\t)", source[i])) : (i += 1) {
+        while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t)", source[i]) == null) : (i += 1) {
             try current_token.append(source[i]);
         }
         const prop_type = try current_token.toOwnedSlice();
@@ -200,23 +225,38 @@ fn parseClassDefinition(allocator: *std.mem.Allocator, nodes: *std.ArrayList(ast
 
         // Add property
         const name_copy = try allocator.alloc(u8, prop_name.len);
-        std.mem.copy(u8, name_copy, prop_name);
+        std.mem.copyForwards(u8, name_copy, prop_name);
 
-        const type_copy = try allocator.alloc(u8, prop_type.len);
-        std.mem.copy(u8, type_copy, prop_type);
+        const type_node = try allocator.create(types.Type);
+        if (std.mem.eql(u8, prop_type, "String")) {
+            type_node.* = .String;
+        } else if (std.mem.eql(u8, prop_type, "Int")) {
+            type_node.* = .Int;
+        } else if (std.mem.eql(u8, prop_type, "Float")) {
+            type_node.* = .Float;
+        } else if (std.mem.eql(u8, prop_type, "Bool")) {
+            type_node.* = .Bool;
+        } else {
+            // For unknown types, default to Any
+            type_node.* = .Any;
+        }
 
-        try props.append(ast.ClassProp{
+        try props.append(ast.AstNode.Class.Field{
             .name = name_copy,
             .required = required,
-            .typ = type_copy,
+            .type = type_node,
         });
     }
 
     // Create class node
+    const class_node = try allocator.create(ast.AstNode.Class);
+    class_node.* = .{
+        .name = class_name,
+        .fields = try props.toOwnedSlice(),
+        .methods = &.{},
+        .parent = null,
+    };
     try nodes.append(ast.AstNode{
-        .ClassDecl = ast.ClassDecl{
-            .name = class_name,
-            .props = try props.toOwnedSlice(),
-        },
+        .Class = class_node,
     });
 }

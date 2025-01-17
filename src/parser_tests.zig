@@ -10,8 +10,10 @@ test "basic string parsing" {
     defer allocator.free(result);
 
     try std.testing.expectEqual(@as(usize, 1), result.len);
-    try std.testing.expect(result[0].Stmt.ExprStmt == .StrLit);
-    try std.testing.expectEqualStrings("hello world", result[0].Stmt.ExprStmt.StrLit);
+    try std.testing.expect(result[0] == .Statement);
+    try std.testing.expect(result[0].Statement.* == .Expression);
+    try std.testing.expect(result[0].Statement.Expression.* == .Literal);
+    try std.testing.expectEqualStrings("hello world", result[0].Statement.Expression.Literal.value.String);
 }
 
 test "basic identifier parsing" {
@@ -22,8 +24,10 @@ test "basic identifier parsing" {
     defer allocator.free(result);
 
     try std.testing.expectEqual(@as(usize, 1), result.len);
-    try std.testing.expect(result[0].Stmt.ExprStmt == .Ident);
-    try std.testing.expectEqualStrings("test", result[0].Stmt.ExprStmt.Ident);
+    try std.testing.expect(result[0] == .Statement);
+    try std.testing.expect(result[0].Statement.* == .Expression);
+    try std.testing.expect(result[0].Statement.Expression.* == .Variable);
+    try std.testing.expectEqualStrings("test", result[0].Statement.Expression.Variable.name);
 }
 
 test "print statement parsing" {
@@ -34,8 +38,12 @@ test "print statement parsing" {
     defer allocator.free(result);
 
     try std.testing.expectEqual(@as(usize, 2), result.len);
-    try std.testing.expect(result[0].Stmt.ExprStmt == .Ident);
-    try std.testing.expectEqualStrings("print", result[0].Stmt.ExprStmt.Ident);
-    try std.testing.expect(result[1].Stmt.ExprStmt == .StrLit);
-    try std.testing.expectEqualStrings("hello", result[1].Stmt.ExprStmt.StrLit);
+    try std.testing.expect(result[0] == .Statement);
+    try std.testing.expect(result[0].Statement.* == .Expression);
+    try std.testing.expect(result[0].Statement.Expression.* == .Variable);
+    try std.testing.expectEqualStrings("print", result[0].Statement.Expression.Variable.name);
+    try std.testing.expect(result[1] == .Statement);
+    try std.testing.expect(result[1].Statement.* == .Expression);
+    try std.testing.expect(result[1].Statement.Expression.* == .Literal);
+    try std.testing.expectEqualStrings("hello", result[1].Statement.Expression.Literal.value.String);
 }

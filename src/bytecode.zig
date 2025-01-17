@@ -52,23 +52,26 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
 
     for (nodes) |node| {
         switch (node) {
-            .Stmt => |stmt| switch (stmt) {
-                .ExprStmt => |expr| switch (expr) {
-                    .StrLit => |value| {
-                        std.debug.print("  Generating bytecode for string literal: {s}\n", .{value});
-                        // Allocate and copy the string
-                        const owned_value = try allocator.alloc(u8, value.len);
-                        @memcpy(owned_value, value);
-                        try instructions.append(BytecodeInstr{
-                            .code = .{ .LoadString = .{ .value = owned_value, .owned = true } },
-                        });
-                        try instructions.append(BytecodeInstr{
-                            .code = .Print,
-                        });
+            .Statement => |stmt_ptr| switch (stmt_ptr.*) {
+                .Expression => |expr_ptr| switch (expr_ptr.*) {
+                    .Literal => |lit_ptr| switch (lit_ptr.value) {
+                        .String => |value| {
+                            std.debug.print("  Generating bytecode for string literal: {s}\n", .{value});
+                            // Allocate and copy the string
+                            const owned_value = try allocator.alloc(u8, value.len);
+                            @memcpy(owned_value, value);
+                            try instructions.append(BytecodeInstr{
+                                .code = .{ .LoadString = .{ .value = owned_value, .owned = true } },
+                            });
+                            try instructions.append(BytecodeInstr{
+                                .code = .Print,
+                            });
+                        },
+                        else => {},
                     },
-                    .Ident => |value| {
-                        std.debug.print("  Generating bytecode for identifier: {s}\n", .{value});
-                        if (std.mem.eql(u8, value, "print")) {
+                    .Variable => |var_ptr| {
+                        std.debug.print("  Generating bytecode for identifier: {s}\n", .{var_ptr.name});
+                        if (std.mem.eql(u8, var_ptr.name, "print")) {
                             try instructions.append(BytecodeInstr{
                                 .code = .Print,
                             });
@@ -82,14 +85,14 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                     std.debug.print("  Unknown statement type\n", .{});
                 },
             },
-            .ClassDecl => |class_decl| {
-                std.debug.print("  Generating bytecode for class: {s}\n", .{class_decl.name});
+            .Class => |class_node| {
+                std.debug.print("  Generating bytecode for class: {s}\n", .{class_node.name});
                 // Generate instructions for class definition
-                const class_name = try allocator.alloc(u8, class_decl.name.len);
-                @memcpy(class_name, class_decl.name);
+                const class_name = try allocator.alloc(u8, class_node.name.len);
+                @memcpy(class_name, class_node.name);
 
                 // Generate property initialization
-                for (class_decl.props) |prop| {
+                for (class_node.fields) |prop| {
                     const prop_name = try allocator.alloc(u8, prop.name.len);
                     @memcpy(prop_name, prop.name);
 
