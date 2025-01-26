@@ -41,14 +41,18 @@ fn hirToMir(allocator: *std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
 
 fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
     // Initialize VM
+    std.debug.print("1. Initializing VM...\n", .{});
     var my_vm = try vm.VM.init();
+    std.debug.print("2. VM initialized successfully\n", .{});
     defer my_vm.deinit();
 
     // Read input file
+    std.debug.print("3. Reading input file...\n", .{});
     const input = std.fs.cwd().readFileAlloc(allocator.*, file_path, std.math.maxInt(usize)) catch |err| {
         std.debug.print("Failed to read file: {any}\n", .{err});
         return err;
     };
+    std.debug.print("4. File read successfully\n", .{});
     defer allocator.free(input);
 
     // Parse source
@@ -83,29 +87,57 @@ fn compileFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
 }
 
 pub fn main() !void {
+    std.debug.print("1. Entering main function\n", .{});
+
     // Create an allocator
+    std.debug.print("2. Creating GPA allocator\n", .{});
     var gpa = std.heap.GeneralPurposeAllocator(.{
         .verbose_log = false,
         .safety = false,
         .never_unmap = false,
     }){};
+    std.debug.print("3. GPA allocator created\n", .{});
     var allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
     // Parse command-line arguments
+    std.debug.print("4. Parsing command-line arguments\n", .{});
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
+    std.debug.print("5. Received {} arguments:\n", .{args.len});
+    for (args, 0..) |arg, i| {
+        std.debug.print("  args[{}] = {s}\n", .{ i, arg });
+    }
+
     // Determine command
     const command: Command = blk: {
-        if (args.len < 2) break :blk .help;
+        if (args.len < 2) {
+            std.debug.print("6. No command specified, showing help\n", .{});
+            break :blk .help;
+        }
 
         const cmd_str = args[1];
-        if (std.mem.eql(u8, cmd_str, "run")) break :blk .run;
-        if (std.mem.eql(u8, cmd_str, "compile")) break :blk .compile;
-        if (std.mem.eql(u8, cmd_str, "help")) break :blk .help;
-        if (std.mem.eql(u8, cmd_str, "version")) break :blk .version;
+        std.debug.print("7. Parsing command: {s}\n", .{cmd_str});
 
+        if (std.mem.eql(u8, cmd_str, "run")) {
+            std.debug.print("8. Command is 'run'\n", .{});
+            break :blk .run;
+        }
+        if (std.mem.eql(u8, cmd_str, "compile")) {
+            std.debug.print("8. Command is 'compile'\n", .{});
+            break :blk .compile;
+        }
+        if (std.mem.eql(u8, cmd_str, "help")) {
+            std.debug.print("8. Command is 'help'\n", .{});
+            break :blk .help;
+        }
+        if (std.mem.eql(u8, cmd_str, "version")) {
+            std.debug.print("8. Command is 'version'\n", .{});
+            break :blk .version;
+        }
+
+        std.debug.print("9. Unknown command: {s}\n", .{cmd_str});
         break :blk .help;
     };
 
@@ -117,6 +149,7 @@ pub fn main() !void {
                 try printHelp(std.io.getStdErr().writer());
                 return error.InvalidArguments;
             }
+            std.debug.print("Running file: {s}\n", .{args[2]});
             try runFile(&allocator, args[2]);
         },
         .compile => {
