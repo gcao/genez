@@ -35,10 +35,10 @@ pub const VM = struct {
     /// Initialize a new VM instance
     pub fn init() !VM {
         return VM{
-            .arena = undefined,
-            .temp_allocator = undefined,
-            .classes = undefined,
-            .instances = undefined,
+            .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            .temp_allocator = std.heap.FixedBufferAllocator.init(&[_]u8{}),
+            .classes = std.StringHashMap(*ClassDef).init(std.heap.page_allocator),
+            .instances = std.ArrayList(*Instance).init(std.heap.page_allocator),
         };
     }
 
@@ -56,15 +56,17 @@ pub const VM = struct {
         return undefined;
     }
 
-    pub fn deinit(_: *VM) void {
-        // TODO: Implement proper cleanup
+    pub fn deinit(self: *VM) void {
+        self.arena.deinit();
+        self.classes.deinit();
+        self.instances.deinit();
     }
 
     pub fn runModule(self: *VM, module: *const bytecode.Module) anyerror!void {
-        // Temporary implementation to satisfy compiler
-        _ = self;
-        _ = module;
-        // TODO: Implement actual module execution logic
+        // Run each function in the module
+        for (module.functions) |*func| {
+            try self.runFunction(func, std.io.getStdOut().writer());
+        }
     }
 
     pub fn runFunction(self: *VM, func: *const bytecode.Function, writer: anytype) anyerror!void {
@@ -86,7 +88,9 @@ pub const VM = struct {
                     const value = self.stack.pop();
                     try writer.writeAll(value);
                     try writer.writeAll("\n");
-                    try writer.flush();
+                    if (@hasDecl(@TypeOf(writer), "flush")) {
+                        try writer.flush();
+                    }
                 },
                 else => return error.UnimplementedOpcode,
             }
@@ -95,5 +99,6 @@ pub const VM = struct {
 };
 
 fn createToStringMethod(_: std.mem.Allocator) !*const bytecode.Function {
-    // ... (fixed implementation with proper closing braces) ...
+    // Placeholder implementation
+    return undefined;
 }
