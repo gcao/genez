@@ -91,8 +91,8 @@ pub const AstNode = union(enum) {
     };
 
     pub const Call = struct {
-        callee: *Expression,
-        args: []*Expression,
+        function: *Expression,
+        args: std.ArrayList(AstNode),
     };
 
     pub const PropertyAccess = struct {

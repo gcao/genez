@@ -13,6 +13,13 @@ pub const ParseError = error{
 };
 
 pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast.AstNode {
+    // Skip shebang line if present
+    var i: usize = 0;
+    if (source.len > 1 and source[0] == '#' and source[1] == '!') {
+        while (i < source.len and source[i] != '\n') : (i += 1) {}
+        i += 1; // Skip the newline
+    }
+
     var nodes = std.ArrayList(ast.AstNode).init(allocator.*);
     defer nodes.deinit();
 
@@ -20,7 +27,6 @@ pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast
     var current_token = std.ArrayList(u8).init(allocator.*);
     defer current_token.deinit();
 
-    var i: usize = 0;
     while (i < source.len) : (i += 1) {
         const c = source[i];
 
@@ -81,9 +87,13 @@ pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast
                 try handleToken(allocator, &nodes, token);
                 current_token = std.ArrayList(u8).init(allocator.*);
             }
-            try parseExpression(allocator, &nodes, source[i..]);
-            // Skip past the expression
-            while (i < source.len and source[i] != ')') : (i += 1) {}
+            const expr_start = i;
+            var depth: i32 = 1;
+            while (i < source.len and depth > @as(i32, 0)) : (i += 1) {
+                if (source[i] == '(') depth += 1;
+                if (source[i] == ')') depth -= 1;
+            }
+            try parseExpression(allocator, &nodes, source[expr_start..i]);
         } else {
             try current_token.append(c);
         }
@@ -92,10 +102,6 @@ pub fn parseGeneSource(allocator: *std.mem.Allocator, source: []const u8) ![]ast
     if (current_token.items.len > 0) {
         const token = try current_token.toOwnedSlice();
         try handleToken(allocator, &nodes, token);
-    }
-
-    if (nodes.items.len == 0) {
-        return error.IncompleteInput;
     }
 
     return nodes.toOwnedSlice();
@@ -152,25 +158,65 @@ fn parseExpression(allocator: *std.mem.Allocator, nodes: *std.ArrayList(ast.AstN
     var current_token = std.ArrayList(u8).init(allocator.*);
     defer current_token.deinit();
 
-    while (i < source.len and source[i] != ')') {
-        const c = source[i];
-
-        if (std.mem.indexOfScalar(u8, " \n\r\t", c) != null) {
-            if (current_token.items.len > 0) {
-                const token = try current_token.toOwnedSlice();
-                if (std.mem.eql(u8, token, "Class")) {
-                    try parseClassDefinition(allocator, nodes, source[i..]);
-                    return;
-                }
-                current_token = std.ArrayList(u8).init(allocator.*);
-            }
-            i += 1;
-            continue;
-        }
-
-        try current_token.append(c);
-        i += 1;
+    // Parse function name
+    while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t)", source[i]) == null) : (i += 1) {
+        try current_token.append(source[i]);
     }
+    const func_name = try current_token.toOwnedSlice();
+
+    // Create function call node
+    const fcall = try allocator.create(ast.AstNode.Call);
+    const func_var = try allocator.create(ast.AstNode.Variable);
+    func_var.* = .{ .name = try allocator.dupe(u8, func_name) };
+    const func_expr = try allocator.create(ast.AstNode.Expression);
+    func_expr.* = .{ .Variable = func_var };
+
+    fcall.* = .{
+        .function = func_expr,
+        .args = std.ArrayList(ast.AstNode).init(allocator.*),
+    };
+
+    // Parse arguments
+    while (i < source.len and source[i] != ')') {
+        // Skip whitespace
+        while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t", source[i]) != null) : (i += 1) {}
+
+        if (source[i] == '"') { // String literal
+            const start = i;
+            i += 1;
+            while (i < source.len and source[i] != '"') : (i += 1) {}
+            if (i >= source.len) return ParseError.InvalidStringLiteral;
+
+            const str_val = try allocator.dupe(u8, source[start + 1 .. i]);
+            const str_lit = try allocator.create(ast.AstNode.Literal);
+            str_lit.* = .{ .value = .{ .String = str_val } };
+
+            const expr = try allocator.create(ast.AstNode.Expression);
+            expr.* = .{ .Literal = str_lit };
+
+            try fcall.args.append(ast.AstNode{ .Expression = expr });
+            i += 1; // Skip closing quote
+        } else {
+            // Parse other argument types
+            const arg_start = i;
+            while (i < source.len and std.mem.indexOfScalar(u8, " \n\r\t)", source[i]) == null) : (i += 1) {}
+            const arg_val = try allocator.dupe(u8, source[arg_start..i]);
+
+            const arg_var = try allocator.create(ast.AstNode.Variable);
+            arg_var.* = .{ .name = arg_val };
+
+            const expr = try allocator.create(ast.AstNode.Expression);
+            expr.* = .{ .Variable = arg_var };
+
+            try fcall.args.append(ast.AstNode{ .Expression = expr });
+        }
+    }
+
+    const expr = try allocator.create(ast.AstNode.Expression);
+    expr.* = .{ .Call = fcall };
+    const stmt = try allocator.create(ast.AstNode.Statement);
+    stmt.* = .{ .Expression = expr };
+    try nodes.append(ast.AstNode{ .Statement = stmt });
 }
 
 fn parseClassDefinition(allocator: *std.mem.Allocator, nodes: *std.ArrayList(ast.AstNode), source: []const u8) !void {

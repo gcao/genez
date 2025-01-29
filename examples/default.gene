@@ -1,2 +1,3 @@
-#!/usr/bin/env gene run 
+#!/usr/bin/env gene run
+
 (print "Output from default.gene")

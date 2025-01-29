@@ -9,11 +9,39 @@ const TeeWriter = struct {
     stdout_writer: std.fs.File.Writer,
     buffer_writer: std.io.FixedBufferStream([]u8).Writer,
 
-    pub const Writer = std.io.Writer(*Self, std.fs.File.WriteError, write);
+    pub const Writer = struct {
+        context: *Self,
+
+        pub const Error = std.fs.File.WriteError;
+
+        pub fn write(self: @This(), bytes: []const u8) Error!usize {
+            return self.context.write(bytes);
+        }
+
+        pub fn writeAll(self: @This(), bytes: []const u8) Error!void {
+            var remaining = bytes;
+            while (remaining.len > 0) {
+                const written = try self.write(remaining);
+                remaining = remaining[written..];
+            }
+        }
+
+        pub fn flush(self: @This()) Error!void {
+            return self.context.flush();
+        }
+    };
 
     fn write(self: *Self, bytes: []const u8) std.fs.File.WriteError!usize {
         _ = try self.buffer_writer.write(bytes);
         return try self.stdout_writer.write(bytes);
+    }
+
+    fn flush(_: *Self) std.fs.File.WriteError!void {
+        // No need to flush stdout writer as it's unbuffered
+    }
+
+    fn writer(self: *Self) Writer {
+        return .{ .context = self };
     }
 };
 
@@ -51,7 +79,7 @@ test "vm basic operations" {
     const writer = TeeWriter.Writer{ .context = &tee_writer };
 
     // Run the function with our tee writer
-    try my_vm.runFunction(&func, TeeWriter.Writer, .{ .writer = writer });
+    try my_vm.runFunction(&func, writer);
 
     // Verify output
     const output = fbs.getWritten();
@@ -90,5 +118,5 @@ test "vm error handling" {
     const writer = TeeWriter.Writer{ .context = &tee_writer };
 
     // Verify error is thrown
-    try std.testing.expectError(error.StackUnderflow, my_vm.runFunction(&func, TeeWriter.Writer, .{ .writer = writer }));
+    try std.testing.expectError(error.StackUnderflow, my_vm.runFunction(&func, writer));
 }

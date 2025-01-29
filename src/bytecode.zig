@@ -77,6 +77,35 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                             });
                         }
                     },
+                    .Call => |call_ptr| {
+                        // Check if we're calling a print function
+                        if (call_ptr.function.* == .Variable and
+                            std.mem.eql(u8, call_ptr.function.Variable.name, "print"))
+                        {
+                            // Generate code for arguments first
+                            for (call_ptr.args.items) |arg| {
+                                switch (arg) {
+                                    .Expression => |call_expr_ptr| switch (call_expr_ptr.*) {
+                                        .Literal => |lit_ptr| switch (lit_ptr.value) {
+                                            .String => |value| {
+                                                const owned_value = try allocator.alloc(u8, value.len);
+                                                @memcpy(owned_value, value);
+                                                try instructions.append(BytecodeInstr{
+                                                    .code = .{ .LoadString = .{ .value = owned_value, .owned = true } },
+                                                });
+                                            },
+                                            else => {},
+                                        },
+                                        else => {},
+                                    },
+                                    else => {},
+                                }
+                            }
+                            try instructions.append(BytecodeInstr{
+                                .code = .Print,
+                            });
+                        }
+                    },
                     else => {
                         std.debug.print("  Unknown expression type\n", .{});
                     },
@@ -111,7 +140,7 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
     const function_instructions = try instructions.toOwnedSlice();
 
     if (instruction_count == 0) {
-        return error.NoInstructionsGenerated;
+        // Allow empty modules by returning empty bytecode
     }
 
     try functions.append(Function{

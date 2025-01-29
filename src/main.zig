@@ -56,7 +56,10 @@ fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
     defer allocator.free(input);
 
     // Parse source
-    const parsed = try parser.parseGeneSource(allocator, input);
+    const parsed = parser.parseGeneSource(allocator, input) catch |err| {
+        std.debug.print("Parser error: {s}\n", .{@errorName(err)});
+        return;
+    };
     defer allocator.free(parsed);
 
     // Convert to bytecode
