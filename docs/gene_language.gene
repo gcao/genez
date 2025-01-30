@@ -11,10 +11,9 @@ nil                   # Null value
 true false            # Booleans
 1 -2 3.14 -4.5e6      # Numbers
 "hello"               # String
-'also string'         # Alternative string
 """multi
 line"""               # Multi-line string
-\n \t \space          # Characters
+'n' '\n' 't'          # Characters
 :symbol               # Symbol literal
 _                     # Placeholder
 
@@ -26,6 +25,9 @@ _                     # Placeholder
 [1 2 3]               # Space-separated
 [1, 2, 3]             # Comma-separated
 
+# Default array type = (array any) = any_array
+# Special array: (array X)
+
 # Maps
 {}                    # Empty map
 {^a 1}                # Simple property
@@ -33,13 +35,18 @@ _                     # Placeholder
 {^^x}                 # True property
 {^!y}                 # False property
 
+# Default map type = (map any) = any_map
+# Special map: (map X)
+
 # 3. Variables and Assignment
 # --------------------------
 
-(var x 1)             # Variable declaration
+(var x int)           # Variable declaration
+(var x = 1)           # Variable declaration
+(var x int = 1)       # Variable declaration
 (x = 2)               # Assignment
-(var y [1 2])         # Array variable
-(var z {^a 1})        # Map variable
+(var y = [1 2])       # Array variable
+(var z = {^a 1})      # Map variable
 
 # Access
 y/0                   # Array index
@@ -58,7 +65,7 @@ z/a                   # Map/object property
 
 # Blocks
 (do
-  (var temp 1)
+  (var temp = 1)
   (temp + x))
 
 # 5. Functions

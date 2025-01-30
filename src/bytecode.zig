@@ -1,4 +1,8 @@
 const std = @import("std");
+
+pub const Value = struct {
+    int: i64,
+};
 const ast = @import("ast.zig");
 
 pub const BytecodeInstr = struct {
@@ -9,6 +13,7 @@ pub const InstructionCode = union(enum) {
     LoadString: struct { value: []const u8, owned: bool = false },
     LoadInt: struct { value: i64 },
     Print,
+    Return,
     NewClass: struct { class_name: []const u8 },
     GetProperty: struct { property_name: []const u8 },
     SetProperty: struct { property_name: []const u8 },

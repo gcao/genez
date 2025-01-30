@@ -67,7 +67,7 @@ fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
     defer module.deinit();
 
     // Run the module
-    try my_vm.runModule(&module);
+    try my_vm.runModule(&module, std.io.getStdOut().writer());
 }
 
 fn compileFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {

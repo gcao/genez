@@ -1,77 +1,29 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
 
-/// Virtual Machine for executing bytecode
 pub const VM = struct {
-    stack: std.ArrayList([]u8) = undefined,
+    pub fn runModule(self: *VM, module: *const bytecode.Module, writer: anytype) anyerror!void {
+        for (module.functions) |func| {
+            _ = try self.runFunction(&func, writer);
+        }
+    }
+    stack: std.ArrayList([]u8),
     arena: std.heap.ArenaAllocator,
-    temp_allocator: std.heap.FixedBufferAllocator,
-    classes: std.StringHashMap(*ClassDef),
-    instances: std.ArrayList(*Instance),
 
-    const ClassDef = struct {
-        name: []const u8,
-        parent: ?*const ClassDef,
-        properties: std.StringHashMap(PropertyDef),
-        methods: std.StringHashMap(MethodDef),
-    };
-
-    const PropertyDef = struct {
-        name: []const u8,
-        required: bool,
-        type: []const u8,
-    };
-
-    const MethodDef = struct {
-        name: []const u8,
-        function: *const bytecode.Function,
-    };
-
-    const Instance = struct {
-        class: *const ClassDef,
-        properties: std.StringHashMap([]const u8),
-    };
-
-    /// Initialize a new VM instance
     pub fn init() !VM {
         return VM{
+            .stack = std.ArrayList([]u8).init(std.heap.page_allocator),
             .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
-            .temp_allocator = std.heap.FixedBufferAllocator.init(&[_]u8{}),
-            .classes = std.StringHashMap(*ClassDef).init(std.heap.page_allocator),
-            .instances = std.ArrayList(*Instance).init(std.heap.page_allocator),
         };
     }
 
-    fn initBuiltinClasses(_: *VM) !void {
-        // TODO: Implement builtin classes
-    }
-
-    fn createClass(_: *VM, _: []const u8, _: ?*const ClassDef) !*ClassDef {
-        // TODO: Implement class creation
-        return undefined;
-    }
-
-    fn createInstance(_: *VM, _: *const ClassDef) !*Instance {
-        // TODO: Implement instance creation
-        return undefined;
-    }
-
     pub fn deinit(self: *VM) void {
+        self.stack.deinit();
         self.arena.deinit();
-        self.classes.deinit();
-        self.instances.deinit();
     }
 
-    pub fn runModule(self: *VM, module: *const bytecode.Module) anyerror!void {
-        // Run each function in the module
-        for (module.functions) |*func| {
-            try self.runFunction(func, std.io.getStdOut().writer());
-        }
-    }
-
-    pub fn runFunction(self: *VM, func: *const bytecode.Function, writer: anytype) anyerror!void {
-        self.stack = std.ArrayList([]u8).init(self.arena.allocator());
-        defer self.stack.deinit();
+    pub fn runFunction(self: *VM, func: *const bytecode.Function, writer: anytype) anyerror!bytecode.Value {
+        defer self.stack.clearRetainingCapacity();
 
         for (func.instructions) |instr| {
             switch (instr.code) {
@@ -88,17 +40,17 @@ pub const VM = struct {
                     const value = self.stack.pop();
                     try writer.writeAll(value);
                     try writer.writeAll("\n");
-                    if (@hasDecl(@TypeOf(writer), "flush")) {
-                        try writer.flush();
-                    }
+                },
+                .Return => {
+                    if (self.stack.items.len == 0) return bytecode.Value{ .int = 0 };
+                    const value_str = self.stack.pop();
+                    const value_int = try std.fmt.parseInt(i64, value_str, 10);
+                    return bytecode.Value{ .int = value_int };
                 },
                 else => return error.UnimplementedOpcode,
             }
         }
+
+        return bytecode.Value{ .int = 0 };
     }
 };
-
-fn createToStringMethod(_: std.mem.Allocator) !*const bytecode.Function {
-    // Placeholder implementation
-    return undefined;
-}
