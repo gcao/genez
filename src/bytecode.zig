@@ -48,8 +48,6 @@ pub const Module = struct {
 };
 
 pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Module {
-    std.debug.print("Starting bytecode generation for {} nodes\n", .{nodes.len});
-
     var functions = std.ArrayList(Function).init(allocator.*);
     defer functions.deinit();
 
@@ -62,7 +60,6 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                 .Expression => |expr_ptr| switch (expr_ptr.*) {
                     .Literal => |lit_ptr| switch (lit_ptr.value) {
                         .String => |value| {
-                            std.debug.print("  Generating bytecode for string literal: {s}\n", .{value});
                             // Allocate and copy the string
                             const owned_value = try allocator.alloc(u8, value.len);
                             @memcpy(owned_value, value);
@@ -76,7 +73,6 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                         else => {},
                     },
                     .Variable => |var_ptr| {
-                        std.debug.print("  Generating bytecode for identifier: {s}\n", .{var_ptr.name});
                         if (std.mem.eql(u8, var_ptr.name, "print")) {
                             try instructions.append(BytecodeInstr{
                                 .code = .Print,
@@ -112,16 +108,11 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                             });
                         }
                     },
-                    else => {
-                        std.debug.print("  Unknown expression type\n", .{});
-                    },
+                    else => {},
                 },
-                else => {
-                    std.debug.print("  Unknown statement type\n", .{});
-                },
+                else => {},
             },
             .Class => |class_node| {
-                std.debug.print("  Generating bytecode for class: {s}\n", .{class_node.name});
                 // Generate instructions for class definition
                 const class_name = try allocator.alloc(u8, class_node.name.len);
                 @memcpy(class_name, class_node.name);
@@ -136,9 +127,7 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                     });
                 }
             },
-            else => {
-                std.debug.print("  Unknown node type\n", .{});
-            },
+            else => {},
         }
     }
 
@@ -152,11 +141,6 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
     try functions.append(Function{
         .instructions = function_instructions,
         .allocator = allocator.*,
-    });
-
-    std.debug.print("Generated {} functions with {} total instructions\n", .{
-        functions.items.len,
-        instruction_count,
     });
 
     return Module{
