@@ -42,22 +42,24 @@ pub const VM = struct {
                     const value = self.stack.pop();
                     try writer.writeAll(value);
                     try writer.writeAll("\n");
+                    return bytecode.Value{ .nil = {} };
                 },
                 .Return => {
                     if (self.stack.items.len == 0) return bytecode.Value{ .int = 0 };
-                    const value_str = self.stack.pop();
+                    const value = self.stack.pop();
                     // Try to parse as integer first
-                    if (std.fmt.parseInt(i64, value_str, 10)) |value_int| {
-                        return bytecode.Value{ .int = value_int };
-                    } else |_| {
-                        // If not an integer, return as string
-                        return bytecode.Value{ .string = value_str };
+                    const int_val = std.fmt.parseInt(i64, value, 10) catch null;
+                    if (int_val) |val| {
+                        return bytecode.Value{ .int = val };
                     }
+                    // If not an integer, return as string
+                    return bytecode.Value{ .string = value };
                 },
-                else => return error.UnimplementedOpcode,
+                else => {},
             }
         }
 
-        return bytecode.Value{ .int = 0 };
+        // If we reach here without a return, return nil
+        return bytecode.Value{ .nil = {} };
     }
 };

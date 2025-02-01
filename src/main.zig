@@ -92,7 +92,7 @@ fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !u8 {
     debugPrint("Running bytecode...\n", .{});
     const result = try my_vm.runModule(&module, std.io.getStdOut().writer());
     debugPrint("Execution complete\n", .{});
-    
+
     if (debug_enabled) {
         switch (result) {
             .int => |value| {
@@ -104,6 +104,9 @@ fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !u8 {
             .string => |value| {
                 try std.io.getStdOut().writer().print("\nResult: {s}\n", .{value});
                 debugPrint("Return value: {s}\n", .{value});
+            },
+            .nil => {
+                debugPrint("Return value: nil\n", .{});
             },
         }
     }
@@ -135,7 +138,7 @@ pub fn main() !u8 {
     if (debug_enabled) {
         debugSection("Gene Language Interpreter");
     }
-    
+
     debugPrint("Creating memory allocator...\n", .{});
     var gpa = std.heap.GeneralPurposeAllocator(.{
         .verbose_log = false,

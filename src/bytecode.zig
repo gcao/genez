@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Value = union(enum) {
     int: i64,
     string: []const u8,
+    nil,
 };
 const ast = @import("ast.zig");
 
