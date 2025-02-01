@@ -37,6 +37,10 @@ pub const VM = struct {
                     const str_copy = try self.arena.allocator().dupe(u8, str_val.value);
                     try self.stack.append(str_copy);
                 },
+                .LoadBool => |bool_val| {
+                    const bool_str = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{bool_val.value});
+                    try self.stack.append(bool_str);
+                },
                 .Print => {
                     if (self.stack.items.len == 0) return error.StackUnderflow;
                     const value = self.stack.pop();
@@ -52,7 +56,13 @@ pub const VM = struct {
                     if (int_val) |val| {
                         return bytecode.Value{ .int = val };
                     }
-                    // If not an integer, return as string
+                    // Try to parse as boolean
+                    if (std.mem.eql(u8, value, "true")) {
+                        return bytecode.Value{ .bool = true };
+                    } else if (std.mem.eql(u8, value, "false")) {
+                        return bytecode.Value{ .bool = false };
+                    }
+                    // If not an integer or boolean, return as string
                     return bytecode.Value{ .string = value };
                 },
                 else => {},

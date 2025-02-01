@@ -48,4 +48,16 @@ test "print returns nil" {
     try testGeneExecution(source, expected);
 }
 
+test "boolean true literal execution" {
+    const source = "true";
+    const expected = bytecode.Value{ .bool = true };
+    try testGeneExecution(source, expected);
+}
+
+test "boolean false literal execution" {
+    const source = "false";
+    const expected = bytecode.Value{ .bool = false };
+    try testGeneExecution(source, expected);
+}
+
 // TODO: Add more test cases as we implement additional features

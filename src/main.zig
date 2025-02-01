@@ -105,6 +105,10 @@ fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !u8 {
                 try std.io.getStdOut().writer().print("\nResult: {s}\n", .{value});
                 debugPrint("Return value: {s}\n", .{value});
             },
+            .bool => |value| {
+                try std.io.getStdOut().writer().print("\nResult: {}\n", .{value});
+                debugPrint("Return value: {}\n", .{value});
+            },
             .nil => {
                 debugPrint("Return value: nil\n", .{});
             },

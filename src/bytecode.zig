@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Value = union(enum) {
     int: i64,
     string: []const u8,
+    bool: bool,
     nil,
 };
 const ast = @import("ast.zig");
@@ -14,6 +15,7 @@ pub const BytecodeInstr = struct {
 pub const InstructionCode = union(enum) {
     LoadString: struct { value: []const u8, owned: bool = false },
     LoadInt: struct { value: i64 },
+    LoadBool: struct { value: bool },
     Print,
     Return,
     NewClass: struct { class_name: []const u8 },
