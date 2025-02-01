@@ -1,3 +1,4 @@
 #!/usr/bin/env gene run
 
 (print "Output from default.gene")
+(print (1 + 2))

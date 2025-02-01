@@ -16,6 +16,7 @@ pub const InstructionCode = union(enum) {
     LoadString: struct { value: []const u8, owned: bool = false },
     LoadInt: struct { value: i64 },
     LoadBool: struct { value: bool },
+    Add,
     Print,
     Return,
     NewClass: struct { class_name: []const u8 },

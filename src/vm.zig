@@ -41,6 +41,13 @@ pub const VM = struct {
                     const bool_str = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{bool_val.value});
                     try self.stack.append(bool_str);
                 },
+                .Add => {
+                    if (self.stack.items.len < 2) return error.StackUnderflow;
+                    const b = try std.fmt.parseInt(i64, self.stack.pop(), 10);
+                    const a = try std.fmt.parseInt(i64, self.stack.pop(), 10);
+                    const result = try std.fmt.allocPrint(self.arena.allocator(), "{d}", .{a + b});
+                    try self.stack.append(result);
+                },
                 .Print => {
                     if (self.stack.items.len == 0) return error.StackUnderflow;
                     const value = self.stack.pop();

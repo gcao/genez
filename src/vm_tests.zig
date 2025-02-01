@@ -60,4 +60,10 @@ test "boolean false literal execution" {
     try testGeneExecution(source, expected);
 }
 
+test "addition expression" {
+    const source = "(1 + 2)";
+    const expected = bytecode.Value{ .int = 3 };
+    try testGeneExecution(source, expected);
+}
+
 // TODO: Add more test cases as we implement additional features
