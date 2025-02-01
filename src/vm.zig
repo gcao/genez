@@ -2,10 +2,12 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 
 pub const VM = struct {
-    pub fn runModule(self: *VM, module: *const bytecode.Module, writer: anytype) anyerror!void {
+    pub fn runModule(self: *VM, module: *const bytecode.Module, writer: anytype) anyerror!bytecode.Value {
+        var last_value = bytecode.Value{ .int = 0 };
         for (module.functions) |func| {
-            _ = try self.runFunction(&func, writer);
+            last_value = try self.runFunction(&func, writer);
         }
+        return last_value;
     }
     stack: std.ArrayList([]u8),
     arena: std.heap.ArenaAllocator,
@@ -44,8 +46,13 @@ pub const VM = struct {
                 .Return => {
                     if (self.stack.items.len == 0) return bytecode.Value{ .int = 0 };
                     const value_str = self.stack.pop();
-                    const value_int = try std.fmt.parseInt(i64, value_str, 10);
-                    return bytecode.Value{ .int = value_int };
+                    // Try to parse as integer first
+                    if (std.fmt.parseInt(i64, value_str, 10)) |value_int| {
+                        return bytecode.Value{ .int = value_int };
+                    } else |_| {
+                        // If not an integer, return as string
+                        return bytecode.Value{ .string = value_str };
+                    }
                 },
                 else => return error.UnimplementedOpcode,
             }

@@ -1,7 +1,8 @@
 const std = @import("std");
 
-pub const Value = struct {
+pub const Value = union(enum) {
     int: i64,
+    string: []const u8,
 };
 const ast = @import("ast.zig");
 
@@ -69,7 +70,7 @@ pub fn lowerToBytecode(allocator: *std.mem.Allocator, nodes: []ast.AstNode) !Mod
                                 .code = .{ .LoadString = .{ .value = owned_value, .owned = true } },
                             });
                             try instructions.append(BytecodeInstr{
-                                .code = .Print,
+                                .code = .Return,
                             });
                         },
                         else => {},

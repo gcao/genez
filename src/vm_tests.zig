@@ -48,13 +48,13 @@ const TeeWriter = struct {
 
 test "test gene execution helper" {
     const source = "\"hello world\"";
-    const expected = "hello world\n";
+    const expected = bytecode.Value{ .int = 0 }; // Default return value
 
     // Use the helper to test execution
     try testGeneExecution(source, expected);
 }
 
-fn testGeneExecution(source: []const u8, expected: []const u8) !void {
+fn testGeneExecution(source: []const u8, expected: bytecode.Value) !void {
     // Initialize VM and ensure proper cleanup
     var my_vm = try vm.VM.init();
     defer my_vm.deinit();
@@ -82,12 +82,11 @@ fn testGeneExecution(source: []const u8, expected: []const u8) !void {
     };
     const writer = TeeWriter.Writer{ .context = &tee_writer };
 
-    // Run the module
-    _ = try my_vm.runModule(&module, writer);
+    // Run the module and get the result
+    const result = try my_vm.runModule(&module, writer);
 
-    // Verify output
-    const output = fbs.getWritten();
-    try std.testing.expectEqualStrings(expected, output);
+    // Verify result matches expected value
+    try std.testing.expectEqual(expected, result);
 }
 
 test "vm basic operations" {
@@ -162,4 +161,34 @@ test "vm error handling" {
 
     // Verify error is thrown
     try std.testing.expectError(error.StackUnderflow, my_vm.runFunction(&func, writer));
+}
+
+test "hello world test" {
+    // Initialize VM and ensure proper cleanup
+    var my_vm = try vm.VM.init();
+    defer my_vm.deinit();
+
+    // Create a test allocator
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var allocator_instance = arena.allocator();
+    const allocator: *std.mem.Allocator = &allocator_instance;
+
+    // Parse and compile the hello world expression
+    const source = "(\"hello world\")";
+    const parsed = try parser.parseGeneSource(allocator, source);
+
+    var module = try bytecode.lowerToBytecode(allocator, parsed);
+    defer module.deinit();
+
+    // Create a buffer for capturing output
+    var buffer: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    const writer = fbs.writer();
+
+    // Run the module and get the result
+    const result = try my_vm.runModule(&module, writer);
+    
+    // Verify the result is "hello world"
+    try std.testing.expectEqualStrings("hello world", result.string);
 }

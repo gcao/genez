@@ -39,7 +39,7 @@ fn hirToMir(allocator: *std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
     return try mir.MIR.hirToMir(allocator.*, hir_prog);
 }
 
-fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
+fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !u8 {
     // Initialize VM
     std.debug.print("1. Initializing VM...\n", .{});
     var my_vm = try vm.VM.init();
@@ -58,7 +58,7 @@ fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
     // Parse source
     const parsed = parser.parseGeneSource(allocator, input) catch |err| {
         std.debug.print("Parser error: {s}\n", .{@errorName(err)});
-        return;
+        return err;
     };
     defer allocator.free(parsed);
 
@@ -66,8 +66,21 @@ fn runFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
     var module = try bytecode.lowerToBytecode(allocator, parsed);
     defer module.deinit();
 
-    // Run the module
-    try my_vm.runModule(&module, std.io.getStdOut().writer());
+    // Run the module and print the result
+    const result = try my_vm.runModule(&module, std.io.getStdOut().writer());
+    switch (result) {
+        .int => |value| {
+            if (value != 0) {
+                try std.io.getStdOut().writer().print("\nResult: {d}\n", .{value});
+            }
+        },
+        .string => |value| {
+            try std.io.getStdOut().writer().print("\nResult: {s}\n", .{value});
+        },
+    }
+
+    // Return 0 for successful execution
+    return 0;
 }
 
 fn compileFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
@@ -89,7 +102,7 @@ fn compileFile(allocator: *std.mem.Allocator, file_path: []const u8) !void {
     std.debug.print("Compilation successful. Generated {d} functions.\n", .{module.functions.len});
 }
 
-pub fn main() !void {
+pub fn main() !u8 {
     std.debug.print("1. Entering main function\n", .{});
 
     // Create an allocator
@@ -145,25 +158,32 @@ pub fn main() !void {
     };
 
     // Execute command
-    switch (command) {
+    return switch (command) {
         .run => {
             if (args.len < 3) {
                 std.debug.print("Error: Please provide a file to run.\n", .{});
                 try printHelp(std.io.getStdErr().writer());
-                return error.InvalidArguments;
+                return 1;
             }
             std.debug.print("Running file: {s}\n", .{args[2]});
-            try runFile(&allocator, args[2]);
+            return try runFile(&allocator, args[2]);
         },
         .compile => {
             if (args.len < 3) {
                 std.debug.print("Error: Please provide a file to compile.\n", .{});
                 try printHelp(std.io.getStdErr().writer());
-                return error.InvalidArguments;
+                return 1;
             }
             try compileFile(&allocator, args[2]);
+            return 0;
         },
-        .help => try printHelp(std.io.getStdOut().writer()),
-        .version => std.debug.print("Gene Programming Language v{s}\n", .{VERSION}),
-    }
+        .help => {
+            try printHelp(std.io.getStdOut().writer());
+            return 0;
+        },
+        .version => {
+            std.debug.print("Gene Programming Language v{s}\n", .{VERSION});
+            return 0;
+        },
+    };
 }
