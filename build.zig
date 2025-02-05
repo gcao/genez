@@ -9,8 +9,15 @@ pub fn build(b: *std.Build) void {
         .name = "gene",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
-        .optimize = .Debug, // Force debug mode for development
+        .optimize = optimize,
     });
+
+    // Add build options
+    const debug_mode = b.option(bool, "debug", "Enable debug mode") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "debug_mode", debug_mode);
+    exe.root_module.addOptions("build_options", options);
+
     b.installArtifact(exe);
 
     // Run command for native build

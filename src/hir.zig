@@ -14,13 +14,11 @@ pub const Type = enum {
 pub const HIR = struct {
     allocator: std.mem.Allocator,
     functions: std.ArrayList(Function),
-    globals: std.ArrayList(Global),
 
     pub fn init(allocator: std.mem.Allocator) HIR {
-        return .{
+        return HIR{
             .allocator = allocator,
             .functions = std.ArrayList(Function).init(allocator),
-            .globals = std.ArrayList(Global).init(allocator),
         };
     }
 
@@ -29,99 +27,75 @@ pub const HIR = struct {
             func.deinit();
         }
         self.functions.deinit();
-
-        for (self.globals.items) |*global| {
-            global.deinit();
-        }
-        self.globals.deinit();
     }
 
     pub const Function = struct {
         name: []const u8,
-        params: std.ArrayList(Param),
-        return_type: Type,
         body: std.ArrayList(Statement),
+        allocator: std.mem.Allocator,
 
         pub fn init(allocator: std.mem.Allocator) Function {
-            return .{
-                .name = "",
-                .params = std.ArrayList(Param).init(allocator),
-                .return_type = .void,
+            return Function{
+                .name = "main",
                 .body = std.ArrayList(Statement).init(allocator),
+                .allocator = allocator,
             };
         }
 
         pub fn deinit(self: *Function) void {
-            self.params.deinit();
-            self.body.deinit();
-        }
-
-        pub const Param = struct {
-            name: []const u8,
-            type: Type,
-        };
-    };
-
-    pub const Global = struct {
-        allocator: std.mem.Allocator,
-        name: []const u8,
-        type: Type,
-        value: Value,
-
-        pub fn deinit(self: *Global) void {
-            if (self.value == .string) {
-                self.allocator.free(self.value.string);
+            for (self.body.items) |*stmt| {
+                stmt.deinit(self.allocator);
             }
+            self.body.deinit();
         }
     };
 
     pub const Statement = union(enum) {
-        expr: Expression,
-        decl: VariableDecl,
-        ret: Expression,
+        Expression: Expression,
 
-        pub fn deinit(self: *Statement) void {
+        pub fn deinit(self: *Statement, allocator: std.mem.Allocator) void {
             switch (self.*) {
-                .expr => |*expr| expr.deinit(),
-                .decl => |*decl| decl.deinit(),
-                .ret => |*expr| expr.deinit(),
+                .Expression => |*expr| expr.deinit(allocator),
             }
         }
     };
 
-    pub const Expression = struct {
-        type: Type = .void,
-        value: ExpressionValue,
-
-        pub fn deinit(self: *Expression) void {
-            switch (self.value) {
-                .literal => |*lit| lit.deinit(),
-                .binary_op => |*op| {
-                    op.left.deinit();
-                    op.right.deinit();
-                },
-                else => {},
-            }
-        }
-    };
-
-    pub const ExpressionValue = union(enum) {
+    pub const Expression = union(enum) {
         literal: Literal,
         variable: Variable,
         binary_op: BinaryOp,
-        ident: []const u8,
-        call: Call,
+
+        pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
+            switch (self.*) {
+                .literal => |*lit| lit.deinit(allocator),
+                .variable => |*var_expr| var_expr.deinit(allocator),
+                .binary_op => |*bin_op| bin_op.deinit(allocator),
+            }
+        }
     };
 
     pub const Literal = union(enum) {
-        int: i64,
-        string: []const u8,
+        nil: void,
         bool: bool,
+        int: i64,
         float: f64,
+        string: []const u8,
+        symbol: []const u8,
+        array: []ast.Value,
+        map: std.StringHashMap(ast.Value),
 
-        pub fn deinit(self: *Literal) void {
+        pub fn deinit(self: *Literal, allocator: std.mem.Allocator) void {
             switch (self.*) {
-                .string => |str| self.allocator.free(str),
+                .string => |str| allocator.free(str),
+                .symbol => |sym| allocator.free(sym),
+                .array => |arr| allocator.free(arr),
+                .map => |*map| {
+                    var it = map.iterator();
+                    while (it.next()) |entry| {
+                        allocator.free(entry.key_ptr.*);
+                    }
+                    map.deinit();
+                },
                 else => {},
             }
         }
@@ -129,6 +103,10 @@ pub const HIR = struct {
 
     pub const Variable = struct {
         name: []const u8,
+
+        pub fn deinit(self: *Variable, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+        }
     };
 
     pub const BinaryOp = struct {
@@ -136,43 +114,16 @@ pub const HIR = struct {
         left: *Expression,
         right: *Expression,
 
-        pub fn deinit(self: *BinaryOp) void {
-            self.left.deinit();
-            self.right.deinit();
+        pub fn deinit(self: *BinaryOp, allocator: std.mem.Allocator) void {
+            self.left.deinit(allocator);
+            self.right.deinit(allocator);
+            allocator.destroy(self.left);
+            allocator.destroy(self.right);
         }
     };
 
     pub const BinaryOpType = enum {
         add,
-        sub,
-        mul,
-        div,
-        eq,
-        neq,
-    };
-
-    pub const Call = struct {
-        callee: []const u8,
-        args: std.ArrayList(Expression),
-
-        pub fn deinit(self: *Call) void {
-            for (self.args.items) |*arg| {
-                arg.deinit();
-            }
-            self.args.deinit();
-            self.allocator.free(self.callee);
-        }
-    };
-
-    pub const VariableDecl = struct {
-        name: []const u8,
-        type: Type,
-        value: Expression,
-
-        pub fn deinit(self: *VariableDecl) void {
-            self.allocator.free(self.name);
-            self.value.deinit();
-        }
     };
 
     pub const Value = union(Type) {
@@ -191,14 +142,13 @@ pub const HIR = struct {
         // Create a main function to hold our statements
         var main_fn = Function.init(allocator);
         main_fn.name = try allocator.dupe(u8, "main");
-        main_fn.return_type = .void;
 
         for (nodes) |node| {
             switch (node) {
                 .Stmt => |stmt| switch (stmt) {
                     .ExprStmt => |expr| {
                         const hir_expr = try lowerExpr(allocator, expr);
-                        try main_fn.body.append(.{ .expr = hir_expr });
+                        try main_fn.body.append(.{ .Expression = hir_expr });
                     },
                     else => return error.UnsupportedStatement,
                 },
@@ -218,7 +168,7 @@ pub const HIR = struct {
             },
             .Ident => |value| {
                 const ident = try allocator.dupe(u8, value);
-                return .{ .ident = ident };
+                return .{ .variable = .{ .name = ident } };
             },
             else => return error.UnsupportedExpression,
         }

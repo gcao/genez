@@ -21,8 +21,8 @@ pub const Value = union(enum) {
                 allocator.free(arr);
             },
             .Map => |*map| {
-                var iter = map.iterator();
-                while (iter.next()) |entry| {
+                var it = map.iterator();
+                while (it.next()) |entry| {
                     allocator.free(entry.key_ptr.*);
                     entry.value_ptr.deinit(allocator);
                 }
@@ -34,18 +34,15 @@ pub const Value = union(enum) {
 
     pub fn clone(self: Value, allocator: std.mem.Allocator) !Value {
         return switch (self) {
+            .Int => |val| Value{ .Int = val },
+            .Float => |val| Value{ .Float = val },
+            .String => |str| Value{ .String = try allocator.dupe(u8, str) },
+            .Bool => |val| Value{ .Bool = val },
             .Nil => Value{ .Nil = {} },
-            .Bool => |b| Value{ .Bool = b },
-            .Int => |i| Value{ .Int = i },
-            .Float => |f| Value{ .Float = f },
-            .String => |str| Value{
-                .String = try allocator.dupe(u8, str),
-            },
-            .Symbol => |sym| Value{
-                .Symbol = try allocator.dupe(u8, sym),
-            },
+            .Symbol => |sym| Value{ .Symbol = try allocator.dupe(u8, sym) },
             .Array => |arr| blk: {
                 var new_arr = try allocator.alloc(Value, arr.len);
+                errdefer allocator.free(new_arr);
                 for (arr, 0..) |val, i| {
                     new_arr[i] = try val.clone(allocator);
                 }
@@ -53,16 +50,37 @@ pub const Value = union(enum) {
             },
             .Map => |map| blk: {
                 var new_map = std.StringHashMap(Value).init(allocator);
-                var iter = map.iterator();
-                while (iter.next()) |entry| {
+                errdefer {
+                    var it = new_map.iterator();
+                    while (it.next()) |entry| {
+                        allocator.free(entry.key_ptr.*);
+                        var value = entry.value_ptr.*;
+                        value.deinit(allocator);
+                    }
+                    new_map.deinit();
+                }
+
+                var it = map.iterator();
+                while (it.next()) |entry| {
                     const key = try allocator.dupe(u8, entry.key_ptr.*);
-                    const val = try entry.value_ptr.*.clone(allocator);
-                    try new_map.put(key, val);
+                    errdefer allocator.free(key);
+                    const value = try entry.value_ptr.clone(allocator);
+                    errdefer {
+                        var tmp = value;
+                        tmp.deinit(allocator);
+                    }
+                    try new_map.put(key, value);
                 }
                 break :blk Value{ .Map = new_map };
             },
         };
     }
+};
+
+pub const OpCode = enum {
+    LoadConst,
+    LoadVar,
+    Add,
 };
 
 pub const Type = union(enum) {

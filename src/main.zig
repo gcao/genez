@@ -4,7 +4,7 @@ const runtime = @import("runtime.zig");
 pub const VERSION = "0.1.0";
 
 fn printHelp(writer: anytype) !void {
-    try writer.print("Gene Programming Language CLI v{s}\n", .{VERSION});
+    try writer.print("Gene Programming Language v{s}\n", .{VERSION});
     try writer.print("\nUsage: gene <command> [options] [arguments]\n", .{});
     try writer.print("\nAvailable Commands:\n", .{});
     try writer.print("  run       Run a Gene source file\n", .{});
@@ -42,7 +42,8 @@ pub fn main() !void {
                 debug_mode = true;
             } else {
                 // If it's not --debug, treat it as the filename
-                const rt = runtime.Runtime.init(allocator, debug_mode);
+                var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
+                defer rt.deinit();
                 try rt.runFile(flag);
                 return;
             }
@@ -54,11 +55,13 @@ pub fn main() !void {
             return error.NoInputFile;
         };
 
-        const rt = runtime.Runtime.init(allocator, debug_mode);
+        var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
+        defer rt.deinit();
         try rt.runFile(filename);
     } else if (std.mem.eql(u8, command, "compile")) {
         if (args.next()) |filename| {
-            const rt = runtime.Runtime.init(allocator, false);
+            var rt = runtime.Runtime.init(allocator, false, std.io.getStdOut().writer());
+            defer rt.deinit();
             try rt.compileFile(filename);
         } else {
             std.debug.print("Error: No file specified\n", .{});

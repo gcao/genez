@@ -1,124 +1,122 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const vm = @import("vm.zig");
+const types = @import("types.zig");
 const parser = @import("parser.zig");
-const bytecode = @import("bytecode.zig");
-const hir = @import("hir.zig");
-const mir = @import("mir.zig");
 const compiler = @import("compiler.zig");
+const bytecode = @import("bytecode.zig");
+const vm = @import("vm.zig");
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
     debug_mode: bool,
+    stdout: std.fs.File.Writer,
 
-    pub fn init(allocator: std.mem.Allocator, debug_mode: bool) Runtime {
+    pub fn init(allocator: std.mem.Allocator, debug_mode: bool, stdout: std.fs.File.Writer) Runtime {
         return Runtime{
             .allocator = allocator,
             .debug_mode = debug_mode,
+            .stdout = stdout,
         };
     }
 
-    fn debugPrint(self: *const Runtime, comptime fmt: []const u8, args: anytype) void {
-        if (self.debug_mode) {
-            std.debug.print(fmt, args);
-        }
+    pub fn deinit(self: *Runtime) void {
+        _ = self;
     }
 
-    fn debugSection(self: *const Runtime, comptime title: []const u8) void {
-        if (self.debug_mode) {
-            std.debug.print("\n[DEBUG] === {s} ===\n", .{title});
-        }
-    }
-
-    pub fn runFile(self: *const Runtime, file_path: []const u8) !void {
-        const file = try std.fs.cwd().openFile(file_path, .{});
-        defer file.close();
-
-        const source = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
-        defer self.allocator.free(source);
+    pub fn eval(self: *Runtime, source: []const u8) !void {
+        const options = compiler.CompilerOptions{
+            .debug_mode = false,
+            .optimize = false,
+        };
+        const ctx = compiler.CompilationContext.init(self.allocator, options);
 
         // Parse source into AST
-        const nodes = parser.parseGeneSource(self.allocator, source) catch |err| {
-            std.debug.print("Error parsing source: {}\n", .{err});
-            return err;
-        };
+        const nodes = try parser.parseGeneSource(self.allocator, source);
         defer {
-            for (nodes) |node| {
-                switch (node) {
-                    .Expression => |expr| switch (expr) {
-                        .Literal => |lit| switch (lit.value) {
-                            .String => |str| self.allocator.free(str),
-                            else => {},
-                        },
-                        .BinaryOp => |bin_op| {
-                            self.allocator.destroy(bin_op.left);
-                            self.allocator.destroy(bin_op.right);
-                        },
-                        .Variable => |var_expr| self.allocator.free(var_expr.name),
-                    },
-                }
+            for (nodes) |*node| {
+                node.deinit(self.allocator);
             }
             self.allocator.free(nodes);
         }
 
-        if (self.debug_mode) {
-            self.debugSection("AST");
-            for (nodes) |node| {
-                std.debug.print("{any}\n", .{node});
-            }
-        }
-
-        // Lower AST to bytecode
-        var func = try bytecode.lowerToBytecode(self.allocator, nodes);
+        // Compile AST to bytecode
+        var func = try compiler.compile(ctx, nodes);
         defer func.deinit();
 
+        // Execute bytecode
+        try self.execute(&func);
+    }
+
+    pub fn runFile(self: *Runtime, filename: []const u8) !void {
+        const options = compiler.CompilerOptions{
+            .debug_mode = self.debug_mode,
+            .optimize = false,
+        };
+        const ctx = compiler.CompilationContext.init(self.allocator, options);
+
+        // Read source file
+        const source = try std.fs.cwd().readFileAlloc(self.allocator, filename, 1024 * 1024);
+        defer self.allocator.free(source);
+
+        // Parse source into AST
+        const nodes = try parser.parseGeneSource(self.allocator, source);
+        defer {
+            for (nodes) |*node| {
+                node.deinit(self.allocator);
+            }
+            self.allocator.free(nodes);
+        }
+
+        // Compile AST to bytecode
+        var func = try compiler.compile(ctx, nodes);
+        defer func.deinit();
+
+        // Execute bytecode
+        try self.execute(&func);
+    }
+
+    fn execute(self: *Runtime, func: *bytecode.Function) !void {
+        // Print bytecode if debug mode
         if (self.debug_mode) {
-            self.debugSection("Bytecode");
-            for (func.instructions) |instr| {
+            std.debug.print("\n[DEBUG] === Bytecode ===\n", .{});
+            for (func.instructions.items) |instr| {
                 std.debug.print("{any}\n", .{instr});
             }
         }
 
-        // Execute bytecode
-        var gene_vm = try vm.VM.init(self.allocator);
+        // Create VM and execute bytecode
+        var gene_vm = vm.VM.init(self.allocator, self.stdout);
         defer gene_vm.deinit();
 
         try gene_vm.execute(func);
     }
 
     pub fn compileFile(self: *const Runtime, file_path: []const u8) !void {
-        // Read input file
-        const input = try std.fs.cwd().readFileAlloc(self.allocator, file_path, std.math.maxInt(usize));
-        defer self.allocator.free(input);
+        const options = compiler.CompilerOptions{
+            .debug_mode = self.debug_mode,
+            .optimize = false,
+        };
+        const ctx = compiler.CompilationContext.init(self.allocator, options);
 
-        // Parse source
-        const parsed = try parser.parseGeneSource(self.allocator, input);
+        // Read source file
+        const source = try std.fs.cwd().readFileAlloc(self.allocator, file_path, 1024 * 1024);
+        defer self.allocator.free(source);
+
+        // Parse source into AST
+        const nodes = try parser.parseGeneSource(self.allocator, source);
         defer {
-            for (parsed) |node| {
-                switch (node) {
-                    .Expression => |expr| switch (expr) {
-                        .Literal => |lit| switch (lit.value) {
-                            .String => |str| self.allocator.free(str),
-                            else => {},
-                        },
-                        .BinaryOp => |bin_op| {
-                            self.allocator.destroy(bin_op.left);
-                            self.allocator.destroy(bin_op.right);
-                        },
-                        else => {},
-                    },
-                }
+            for (nodes) |*node| {
+                node.deinit(self.allocator);
             }
-            self.allocator.free(parsed);
+            self.allocator.free(nodes);
         }
 
-        // Convert to bytecode
-        var module = try bytecode.lowerToBytecode(self.allocator, parsed);
-        defer module.deinit();
+        // Compile AST to bytecode
+        var func = try compiler.compile(ctx, nodes);
+        defer func.deinit();
 
-        if (self.debug_mode) {
-            self.debugSection("Compilation");
-            std.debug.print("Compilation successful.\n", .{});
+        // Print bytecode
+        for (func.instructions.items) |instr| {
+            std.debug.print("{any}\n", .{instr});
         }
     }
 };

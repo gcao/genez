@@ -6,6 +6,8 @@ pub const Value = types.Value;
 
 pub const OpCode = enum {
     LoadConst,
+    LoadVar,
+    StoreVar,
     Add,
     Print,
     Return,
@@ -23,14 +25,21 @@ pub const Instruction = struct {
 };
 
 pub const Function = struct {
-    instructions: []Instruction,
+    instructions: std.ArrayList(Instruction),
     allocator: std.mem.Allocator,
 
+    pub fn init(allocator: std.mem.Allocator) Function {
+        return Function{
+            .instructions = std.ArrayList(Instruction).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
     pub fn deinit(self: *Function) void {
-        for (self.instructions) |*instr| {
+        for (self.instructions.items) |*instr| {
             instr.deinit(self.allocator);
         }
-        self.allocator.free(self.instructions);
+        self.instructions.deinit();
     }
 };
 

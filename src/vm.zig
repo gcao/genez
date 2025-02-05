@@ -1,116 +1,130 @@
 const std = @import("std");
-const bytecode = @import("bytecode.zig");
 const types = @import("types.zig");
+const debug = @import("debug.zig");
+const bytecode = @import("bytecode.zig");
 
 pub const VM = struct {
-    stack: std.ArrayList(types.Value),
     allocator: std.mem.Allocator,
+    stdout: std.fs.File.Writer,
+    stack: std.ArrayList(types.Value),
+    variables: std.StringHashMap(types.Value),
 
-    pub fn init(allocator: std.mem.Allocator) !VM {
+    pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
+        debug.log("Initializing VM", .{});
+
+        // Add builtin variables
+        var variables = std.StringHashMap(types.Value).init(allocator);
+
+        const builtins = [_][]const u8{
+            "usr",
+            "bin",
+            "env",
+            "gene",
+            "run",
+            "print",
+        };
+
+        for (builtins) |name| {
+            debug.log("Adding builtin: {s}", .{name});
+            const name_copy = allocator.dupe(u8, name) catch unreachable;
+            const value_copy = allocator.dupe(u8, name) catch unreachable;
+            variables.put(name_copy, types.Value{ .Symbol = value_copy }) catch unreachable;
+        }
+
         return VM{
-            .stack = std.ArrayList(types.Value).init(allocator),
             .allocator = allocator,
+            .stdout = stdout,
+            .stack = std.ArrayList(types.Value).init(allocator),
+            .variables = variables,
         };
     }
 
     pub fn deinit(self: *VM) void {
+        debug.log("Deinitializing VM", .{});
+
+        debug.log("Cleaning up stack with {} items", .{self.stack.items.len});
         for (self.stack.items) |*value| {
+            debug.log("Deinitializing stack value:", .{});
+            debug.log("{}", .{value.*});
             value.deinit(self.allocator);
         }
         self.stack.deinit();
+
+        debug.log("Cleaning up variables map with {} entries", .{self.variables.count()});
+        var it = self.variables.iterator();
+        while (it.next()) |entry| {
+            debug.log("Deinitializing variable {s}:", .{entry.key_ptr.*});
+            debug.log("{}", .{entry.value_ptr.*});
+            entry.value_ptr.deinit(self.allocator);
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.variables.deinit();
     }
 
-    pub fn execute(self: *VM, func: bytecode.Function) !void {
-        var ip: usize = 0;
-        while (ip < func.instructions.len) : (ip += 1) {
-            const instr = func.instructions[ip];
+    pub fn execute(self: *VM, func: *bytecode.Function) !void {
+        debug.log("Starting execution with {} instructions", .{func.instructions.items.len});
 
-            switch (instr.op) {
+        for (func.instructions.items, 0..) |instruction, i| {
+            debug.log("Executing instruction {}: {}", .{ i, instruction.op });
+
+            switch (instruction.op) {
                 .LoadConst => {
-                    if (instr.operand) |operand| {
-                        const value = try operand.clone(self.allocator);
-                        try self.stack.append(value);
+                    debug.log("LoadConst:", .{});
+                    debug.log("{}", .{instruction.operand.?});
+                    try self.stack.append(try instruction.operand.?.clone(self.allocator));
+                    debug.log("Stack size after instruction: {}", .{self.stack.items.len});
+                },
+                .LoadVar => {
+                    const name = instruction.operand.?.Symbol;
+                    debug.log("LoadVar: {s}", .{name});
+                    if (self.variables.get(name)) |value| {
+                        debug.log("Found variable value:", .{});
+                        debug.log("{}", .{value});
+                        try self.stack.append(try value.clone(self.allocator));
+                        debug.log("Stack size after instruction: {}", .{self.stack.items.len});
+                    } else {
+                        return error.UndefinedVariable;
                     }
                 },
                 .Add => {
-                    if (self.stack.items.len < 2) return error.StackUnderflow;
-                    var right = self.stack.pop();
-                    var left = self.stack.pop();
-                    defer right.deinit(self.allocator);
-                    defer left.deinit(self.allocator);
+                    debug.log("Add operation", .{});
+                    const right = self.stack.pop();
+                    debug.log("Right operand:", .{});
+                    debug.log("{}", .{right});
+                    const left = self.stack.pop();
+                    debug.log("Left operand:", .{});
+                    debug.log("{}", .{left});
 
-                    const result = switch (left) {
-                        .Int => |left_val| switch (right) {
-                            .Int => |right_val| types.Value{ .Int = left_val + right_val },
-                            .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) + right_val },
-                            else => return error.TypeMismatch,
-                        },
-                        .Float => |left_val| switch (right) {
-                            .Int => |right_val| types.Value{ .Float = left_val + @as(f64, @floatFromInt(right_val)) },
-                            .Float => |right_val| types.Value{ .Float = left_val + right_val },
-                            else => return error.TypeMismatch,
-                        },
-                        .String => |left_val| switch (right) {
-                            .String => |right_val| blk: {
-                                const result_str = try std.mem.concat(self.allocator, u8, &[_][]const u8{ left_val, right_val });
-                                break :blk types.Value{ .String = result_str };
-                            },
-                            else => return error.TypeMismatch,
+                    switch (left) {
+                        .Int => |left_val| {
+                            switch (right) {
+                                .Int => |right_val| {
+                                    const result = left_val + right_val;
+                                    try self.stack.append(types.Value{ .Int = result });
+                                    debug.log("Stack size after instruction: {}", .{self.stack.items.len});
+                                },
+                                else => return error.TypeMismatch,
+                            }
                         },
                         else => return error.TypeMismatch,
-                    };
-
-                    try self.stack.append(result);
-                },
-                .Print => {
-                    if (self.stack.items.len < 1) return error.StackUnderflow;
-                    var value = self.stack.pop();
-                    defer value.deinit(self.allocator);
-
-                    switch (value) {
-                        .Int => |val| std.debug.print("{d}\n", .{val}),
-                        .Float => |val| std.debug.print("{d}\n", .{val}),
-                        .String => |val| std.debug.print("{s}\n", .{val}),
-                        .Bool => |val| std.debug.print("{}\n", .{val}),
-                        .Symbol => |val| std.debug.print(":{s}\n", .{val}),
-                        .Array => |val| {
-                            std.debug.print("[", .{});
-                            for (val, 0..) |item, i| {
-                                if (i > 0) std.debug.print(", ", .{});
-                                switch (item) {
-                                    .Int => |n| std.debug.print("{d}", .{n}),
-                                    .Float => |n| std.debug.print("{d}", .{n}),
-                                    .String => |s| std.debug.print("\"{s}\"", .{s}),
-                                    .Bool => |b| std.debug.print("{}", .{b}),
-                                    .Symbol => |s| std.debug.print(":{s}", .{s}),
-                                    .Nil => std.debug.print("nil", .{}),
-                                    else => std.debug.print("...", .{}),
-                                }
-                            }
-                            std.debug.print("]\n", .{});
-                        },
-                        .Map => |map| {
-                            std.debug.print("{{\n", .{});
-                            var iter = map.iterator();
-                            while (iter.next()) |entry| {
-                                std.debug.print("  {s}: ", .{entry.key_ptr.*});
-                                switch (entry.value_ptr.*) {
-                                    .Int => |n| std.debug.print("{d}", .{n}),
-                                    .Float => |n| std.debug.print("{d}", .{n}),
-                                    .String => |s| std.debug.print("\"{s}\"", .{s}),
-                                    .Bool => |b| std.debug.print("{}", .{b}),
-                                    .Symbol => |s| std.debug.print(":{s}", .{s}),
-                                    .Nil => std.debug.print("nil", .{}),
-                                    else => std.debug.print("...", .{}),
-                                }
-                                std.debug.print("\n", .{});
-                            }
-                            std.debug.print("}}\n", .{});
-                        },
-                        .Nil => std.debug.print("nil\n", .{}),
                     }
                 },
-                .Return => return,
+                .Print => {
+                    debug.log("Print operation", .{});
+                    const value = self.stack.pop();
+                    debug.log("Value to print:", .{});
+                    debug.log("{}", .{value});
+                    switch (value) {
+                        .Int => |val| try self.stdout.print("{}\n", .{val}),
+                        .String => |str| try self.stdout.print("{s}\n", .{str}),
+                        else => return error.UnsupportedType,
+                    }
+                },
+                .Return => {
+                    debug.log("Return operation", .{});
+                    return;
+                },
+                else => return error.UnsupportedInstruction,
             }
         }
     }

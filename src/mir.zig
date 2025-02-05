@@ -1,16 +1,15 @@
 const std = @import("std");
 const hir = @import("hir.zig");
+const types = @import("types.zig");
 
 pub const MIR = struct {
     allocator: std.mem.Allocator,
     functions: std.ArrayList(Function),
-    globals: std.ArrayList(Global),
 
     pub fn init(allocator: std.mem.Allocator) MIR {
-        return .{
+        return MIR{
             .allocator = allocator,
             .functions = std.ArrayList(Function).init(allocator),
-            .globals = std.ArrayList(Global).init(allocator),
         };
     }
 
@@ -19,138 +18,80 @@ pub const MIR = struct {
             func.deinit();
         }
         self.functions.deinit();
-
-        for (self.globals.items) |*global| {
-            global.deinit();
-        }
-        self.globals.deinit();
     }
 
     pub const Function = struct {
         allocator: std.mem.Allocator,
         name: []const u8,
-        params: std.ArrayList(Param),
-        return_type: hir.Type,
-        blocks: std.ArrayList(BasicBlock),
+        blocks: std.ArrayList(Block),
 
         pub fn init(allocator: std.mem.Allocator) Function {
-            return .{
+            return Function{
                 .allocator = allocator,
-                .name = "",
-                .params = std.ArrayList(Param).init(allocator),
-                .return_type = .void,
-                .blocks = std.ArrayList(BasicBlock).init(allocator),
+                .name = "main",
+                .blocks = std.ArrayList(Block).init(allocator),
             };
         }
 
         pub fn deinit(self: *Function) void {
+            self.allocator.free(self.name);
             for (self.blocks.items) |*block| {
                 block.deinit();
             }
             self.blocks.deinit();
-            self.params.deinit();
-        }
-
-        pub const Param = struct {
-            name: []const u8,
-            type: hir.Type,
-        };
-    };
-
-    pub const Global = struct {
-        name: []const u8,
-        type: hir.Type,
-        init: ?Instruction,
-
-        pub fn deinit(self: *Global) void {
-            if (self.init) |*instr| {
-                instr.deinit();
-            }
         }
     };
 
-    pub const BasicBlock = struct {
+    pub const Block = struct {
+        allocator: std.mem.Allocator,
         instructions: std.ArrayList(Instruction),
 
-        pub fn init(allocator: std.mem.Allocator) BasicBlock {
-            return .{
+        pub fn init(allocator: std.mem.Allocator) Block {
+            return Block{
+                .allocator = allocator,
                 .instructions = std.ArrayList(Instruction).init(allocator),
             };
         }
 
-        pub fn deinit(self: *BasicBlock) void {
+        pub fn deinit(self: *Block) void {
+            for (self.instructions.items) |*instr| {
+                switch (instr.*) {
+                    .LoadString => |str| self.allocator.free(str),
+                    .LoadSymbol => |sym| self.allocator.free(sym),
+                    .LoadVariable => |name| self.allocator.free(name),
+                    .LoadArray => |arr| {
+                        for (arr) |*val| {
+                            val.deinit(self.allocator);
+                        }
+                        self.allocator.free(arr);
+                    },
+                    .LoadMap => |*map| {
+                        var it = map.iterator();
+                        while (it.next()) |entry| {
+                            self.allocator.free(entry.key_ptr.*);
+                            entry.value_ptr.deinit(self.allocator);
+                        }
+                        map.deinit();
+                    },
+                    else => {},
+                }
+            }
             self.instructions.deinit();
         }
     };
 
     pub const Instruction = union(enum) {
         LoadInt: i64,
-        LoadString: []const u8,
+        LoadFloat: f64,
         LoadBool: bool,
+        LoadString: []const u8,
+        LoadNil,
+        LoadSymbol: []const u8,
+        LoadArray: []types.Value,
+        LoadMap: std.StringHashMap(types.Value),
+        LoadVariable: []const u8,
         Add,
         Print,
         Return,
-
-        pub fn deinit(self: *Instruction) void {
-            switch (self.*) {
-                .LoadString => |str| self.allocator.free(str),
-                else => {},
-            }
-        }
     };
-
-    pub fn hirToMir(allocator: std.mem.Allocator, hir_prog: hir.HIR) !MIR {
-        var mir = MIR.init(allocator);
-        errdefer mir.deinit();
-
-        // Convert each HIR function to MIR
-        for (hir_prog.functions.items) |hir_func| {
-            var mir_func = Function.init(allocator);
-            mir_func.name = hir_func.name;
-            mir_func.return_type = hir_func.return_type;
-
-            // Create entry block
-            var entry_block = BasicBlock.init(allocator);
-
-            // Convert HIR statements to MIR instructions
-            for (hir_func.body.items) |stmt| {
-                try lowerStatement(&entry_block.instructions, stmt);
-            }
-
-            try mir_func.blocks.append(entry_block);
-            try mir.functions.append(mir_func);
-        }
-
-        return mir;
-    }
-
-    fn lowerStatement(instructions: *std.ArrayList(Instruction), stmt: hir.HIR.Statement) !void {
-        switch (stmt) {
-            .Expression => |expr| try lowerExpression(instructions, expr),
-            .Return => |expr| {
-                if (expr) |ret_expr| {
-                    try lowerExpression(instructions, ret_expr);
-                }
-                try instructions.append(.Return);
-            },
-        }
-    }
-
-    fn lowerExpression(instructions: *std.ArrayList(Instruction), expr: hir.HIR.Expression) !void {
-        switch (expr.value) {
-            .literal => |lit| switch (lit) {
-                .int => |val| try instructions.append(.{ .LoadInt = val }),
-                .string => |val| try instructions.append(.{ .LoadString = val }),
-                .bool => |val| try instructions.append(.{ .LoadBool = val }),
-            },
-            .binary_op => |bin_op| {
-                try lowerExpression(instructions, bin_op.left.*);
-                try lowerExpression(instructions, bin_op.right.*);
-                switch (bin_op.op) {
-                    .add => try instructions.append(.Add),
-                }
-            },
-            else => {},
-        }
-    }
 };
