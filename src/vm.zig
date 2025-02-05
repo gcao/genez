@@ -1,82 +1,117 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
+const types = @import("types.zig");
 
 pub const VM = struct {
-    pub fn runModule(self: *VM, module: *const bytecode.Module, writer: anytype) anyerror!bytecode.Value {
-        var last_value = bytecode.Value{ .int = 0 };
-        for (module.functions) |func| {
-            last_value = try self.runFunction(&func, writer);
-        }
-        return last_value;
-    }
-    stack: std.ArrayList([]u8),
-    arena: std.heap.ArenaAllocator,
+    stack: std.ArrayList(types.Value),
+    allocator: std.mem.Allocator,
 
-    pub fn init() !VM {
+    pub fn init(allocator: std.mem.Allocator) !VM {
         return VM{
-            .stack = std.ArrayList([]u8).init(std.heap.page_allocator),
-            .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            .stack = std.ArrayList(types.Value).init(allocator),
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *VM) void {
+        for (self.stack.items) |*value| {
+            value.deinit(self.allocator);
+        }
         self.stack.deinit();
-        self.arena.deinit();
     }
 
-    pub fn runFunction(self: *VM, func: *const bytecode.Function, writer: anytype) anyerror!bytecode.Value {
-        defer self.stack.clearRetainingCapacity();
+    pub fn execute(self: *VM, func: bytecode.Function) !void {
+        var ip: usize = 0;
+        while (ip < func.instructions.len) : (ip += 1) {
+            const instr = func.instructions[ip];
 
-        for (func.instructions) |instr| {
-            switch (instr.code) {
-                .LoadInt => |val| {
-                    const num_str = try std.fmt.allocPrint(self.arena.allocator(), "{d}", .{val.value});
-                    try self.stack.append(num_str);
-                },
-                .LoadString => |str_val| {
-                    const str_copy = try self.arena.allocator().dupe(u8, str_val.value);
-                    try self.stack.append(str_copy);
-                },
-                .LoadBool => |bool_val| {
-                    const bool_str = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{bool_val.value});
-                    try self.stack.append(bool_str);
+            switch (instr.op) {
+                .LoadConst => {
+                    if (instr.operand) |operand| {
+                        const value = try operand.clone(self.allocator);
+                        try self.stack.append(value);
+                    }
                 },
                 .Add => {
                     if (self.stack.items.len < 2) return error.StackUnderflow;
-                    const b = try std.fmt.parseInt(i64, self.stack.pop(), 10);
-                    const a = try std.fmt.parseInt(i64, self.stack.pop(), 10);
-                    const result = try std.fmt.allocPrint(self.arena.allocator(), "{d}", .{a + b});
+                    var right = self.stack.pop();
+                    var left = self.stack.pop();
+                    defer right.deinit(self.allocator);
+                    defer left.deinit(self.allocator);
+
+                    const result = switch (left) {
+                        .Int => |left_val| switch (right) {
+                            .Int => |right_val| types.Value{ .Int = left_val + right_val },
+                            .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) + right_val },
+                            else => return error.TypeMismatch,
+                        },
+                        .Float => |left_val| switch (right) {
+                            .Int => |right_val| types.Value{ .Float = left_val + @as(f64, @floatFromInt(right_val)) },
+                            .Float => |right_val| types.Value{ .Float = left_val + right_val },
+                            else => return error.TypeMismatch,
+                        },
+                        .String => |left_val| switch (right) {
+                            .String => |right_val| blk: {
+                                const result_str = try std.mem.concat(self.allocator, u8, &[_][]const u8{ left_val, right_val });
+                                break :blk types.Value{ .String = result_str };
+                            },
+                            else => return error.TypeMismatch,
+                        },
+                        else => return error.TypeMismatch,
+                    };
+
                     try self.stack.append(result);
                 },
                 .Print => {
-                    if (self.stack.items.len == 0) return error.StackUnderflow;
-                    const value = self.stack.pop();
-                    try writer.writeAll(value);
-                    try writer.writeAll("\n");
-                    return bytecode.Value{ .nil = {} };
-                },
-                .Return => {
-                    if (self.stack.items.len == 0) return bytecode.Value{ .int = 0 };
-                    const value = self.stack.pop();
-                    // Try to parse as integer first
-                    const int_val = std.fmt.parseInt(i64, value, 10) catch null;
-                    if (int_val) |val| {
-                        return bytecode.Value{ .int = val };
+                    if (self.stack.items.len < 1) return error.StackUnderflow;
+                    var value = self.stack.pop();
+                    defer value.deinit(self.allocator);
+
+                    switch (value) {
+                        .Int => |val| std.debug.print("{d}\n", .{val}),
+                        .Float => |val| std.debug.print("{d}\n", .{val}),
+                        .String => |val| std.debug.print("{s}\n", .{val}),
+                        .Bool => |val| std.debug.print("{}\n", .{val}),
+                        .Symbol => |val| std.debug.print(":{s}\n", .{val}),
+                        .Array => |val| {
+                            std.debug.print("[", .{});
+                            for (val, 0..) |item, i| {
+                                if (i > 0) std.debug.print(", ", .{});
+                                switch (item) {
+                                    .Int => |n| std.debug.print("{d}", .{n}),
+                                    .Float => |n| std.debug.print("{d}", .{n}),
+                                    .String => |s| std.debug.print("\"{s}\"", .{s}),
+                                    .Bool => |b| std.debug.print("{}", .{b}),
+                                    .Symbol => |s| std.debug.print(":{s}", .{s}),
+                                    .Nil => std.debug.print("nil", .{}),
+                                    else => std.debug.print("...", .{}),
+                                }
+                            }
+                            std.debug.print("]\n", .{});
+                        },
+                        .Map => |map| {
+                            std.debug.print("{{\n", .{});
+                            var iter = map.iterator();
+                            while (iter.next()) |entry| {
+                                std.debug.print("  {s}: ", .{entry.key_ptr.*});
+                                switch (entry.value_ptr.*) {
+                                    .Int => |n| std.debug.print("{d}", .{n}),
+                                    .Float => |n| std.debug.print("{d}", .{n}),
+                                    .String => |s| std.debug.print("\"{s}\"", .{s}),
+                                    .Bool => |b| std.debug.print("{}", .{b}),
+                                    .Symbol => |s| std.debug.print(":{s}", .{s}),
+                                    .Nil => std.debug.print("nil", .{}),
+                                    else => std.debug.print("...", .{}),
+                                }
+                                std.debug.print("\n", .{});
+                            }
+                            std.debug.print("}}\n", .{});
+                        },
+                        .Nil => std.debug.print("nil\n", .{}),
                     }
-                    // Try to parse as boolean
-                    if (std.mem.eql(u8, value, "true")) {
-                        return bytecode.Value{ .bool = true };
-                    } else if (std.mem.eql(u8, value, "false")) {
-                        return bytecode.Value{ .bool = false };
-                    }
-                    // If not an integer or boolean, return as string
-                    return bytecode.Value{ .string = value };
                 },
-                else => {},
+                .Return => return,
             }
         }
-
-        // If we reach here without a return, return nil
-        return bytecode.Value{ .nil = {} };
     }
 };

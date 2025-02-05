@@ -1,49 +1,67 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const ast = @import("ast.zig");
+const types = @import("types.zig");
+const testing = std.testing;
 
-test "basic string parsing" {
-    var allocator = std.testing.allocator;
-    const source = "\"hello world\"";
+test "parse string literal" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    const result = parser.parseGeneSource(&allocator, source) catch @panic("parse error");
-    defer allocator.free(result);
+    const source = "\"hello\"";
+    const result = try parser.parseGeneSource(allocator, source);
 
-    try std.testing.expectEqual(@as(usize, 1), result.len);
-    try std.testing.expect(result[0] == .Statement);
-    try std.testing.expect(result[0].Statement.* == .Expression);
-    try std.testing.expect(result[0].Statement.Expression.* == .Literal);
-    try std.testing.expectEqualStrings("hello world", result[0].Statement.Expression.Literal.value.String);
+    try testing.expectEqual(@as(usize, 1), result.len);
+    try testing.expect(result[0] == .Expression);
+    const expr = result[0].Expression;
+    try testing.expect(expr == .Literal);
+    const lit = expr.Literal;
+    try testing.expect(lit.value == .String);
+    try testing.expectEqualStrings("hello", lit.value.String);
 }
 
-test "basic identifier parsing" {
-    var allocator = std.testing.allocator;
-    const source = "test";
+test "parse integer literal" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    const result = parser.parseGeneSource(&allocator, source) catch @panic("parse error");
-    defer allocator.free(result);
+    const source = "42";
+    const result = try parser.parseGeneSource(allocator, source);
 
-    try std.testing.expectEqual(@as(usize, 1), result.len);
-    try std.testing.expect(result[0] == .Statement);
-    try std.testing.expect(result[0].Statement.* == .Expression);
-    try std.testing.expect(result[0].Statement.Expression.* == .Variable);
-    try std.testing.expectEqualStrings("test", result[0].Statement.Expression.Variable.name);
+    try testing.expectEqual(@as(usize, 1), result.len);
+    try testing.expect(result[0] == .Expression);
+    const expr = result[0].Expression;
+    try testing.expect(expr == .Literal);
+    const lit = expr.Literal;
+    try testing.expect(lit.value == .Int);
+    try testing.expectEqual(@as(i64, 42), lit.value.Int);
 }
 
-test "print statement parsing" {
-    var allocator = std.testing.allocator;
-    const source = "print \"hello\"";
+test "parse addition" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    const result = parser.parseGeneSource(&allocator, source) catch @panic("parse error");
-    defer allocator.free(result);
+    const source = "(1 + 2)";
+    const result = try parser.parseGeneSource(allocator, source);
 
-    try std.testing.expectEqual(@as(usize, 2), result.len);
-    try std.testing.expect(result[0] == .Statement);
-    try std.testing.expect(result[0].Statement.* == .Expression);
-    try std.testing.expect(result[0].Statement.Expression.* == .Variable);
-    try std.testing.expectEqualStrings("print", result[0].Statement.Expression.Variable.name);
-    try std.testing.expect(result[1] == .Statement);
-    try std.testing.expect(result[1].Statement.* == .Expression);
-    try std.testing.expect(result[1].Statement.Expression.* == .Literal);
-    try std.testing.expectEqualStrings("hello", result[1].Statement.Expression.Literal.value.String);
+    try testing.expectEqual(@as(usize, 1), result.len);
+    try testing.expect(result[0] == .Expression);
+    const expr = result[0].Expression;
+    try testing.expect(expr == .BinaryOp);
+    const bin_op = expr.BinaryOp;
+    try testing.expectEqual(ast.BinaryOpType.Add, bin_op.op);
+
+    // Check left operand
+    try testing.expect(bin_op.left.* == .Literal);
+    const left_lit = bin_op.left.*.Literal;
+    try testing.expect(left_lit.value == .Int);
+    try testing.expectEqual(@as(i64, 1), left_lit.value.Int);
+
+    // Check right operand
+    try testing.expect(bin_op.right.* == .Literal);
+    const right_lit = bin_op.right.*.Literal;
+    try testing.expect(right_lit.value == .Int);
+    try testing.expectEqual(@as(i64, 2), right_lit.value.Int);
 }

@@ -2,6 +2,15 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const ast = @import("ast.zig");
 
+pub const Type = enum {
+    void,
+    bool,
+    int,
+    float,
+    string,
+    function,
+};
+
 pub const HIR = struct {
     allocator: std.mem.Allocator,
     functions: std.ArrayList(Function),
@@ -80,24 +89,66 @@ pub const HIR = struct {
         }
     };
 
-    pub const Expression = union(enum) {
-        literal: Value,
-        ident: []const u8,
-        call: Call,
-        binary: BinaryOp,
+    pub const Expression = struct {
+        type: Type = .void,
+        value: ExpressionValue,
 
         pub fn deinit(self: *Expression) void {
-            switch (self.*) {
-                .literal => |*val| {
-                    if (val.* == .string) {
-                        self.allocator.free(val.string);
-                    }
+            switch (self.value) {
+                .literal => |*lit| lit.deinit(),
+                .binary_op => |*op| {
+                    op.left.deinit();
+                    op.right.deinit();
                 },
-                .ident => |ident| self.allocator.free(ident),
-                .call => |*call| call.deinit(),
-                .binary => |*bin| bin.deinit(),
+                else => {},
             }
         }
+    };
+
+    pub const ExpressionValue = union(enum) {
+        literal: Literal,
+        variable: Variable,
+        binary_op: BinaryOp,
+        ident: []const u8,
+        call: Call,
+    };
+
+    pub const Literal = union(enum) {
+        int: i64,
+        string: []const u8,
+        bool: bool,
+        float: f64,
+
+        pub fn deinit(self: *Literal) void {
+            switch (self.*) {
+                .string => |str| self.allocator.free(str),
+                else => {},
+            }
+        }
+    };
+
+    pub const Variable = struct {
+        name: []const u8,
+    };
+
+    pub const BinaryOp = struct {
+        op: BinaryOpType,
+        left: *Expression,
+        right: *Expression,
+
+        pub fn deinit(self: *BinaryOp) void {
+            self.left.deinit();
+            self.right.deinit();
+        }
+    };
+
+    pub const BinaryOpType = enum {
+        add,
+        sub,
+        mul,
+        div,
+        eq,
+        neq,
     };
 
     pub const Call = struct {
@@ -113,26 +164,6 @@ pub const HIR = struct {
         }
     };
 
-    pub const BinaryOp = struct {
-        op: BinaryOperator,
-        lhs: *Expression,
-        rhs: *Expression,
-
-        pub fn deinit(self: *BinaryOp) void {
-            self.lhs.deinit();
-            self.rhs.deinit();
-        }
-    };
-
-    pub const BinaryOperator = enum {
-        add,
-        sub,
-        mul,
-        div,
-        eq,
-        neq,
-    };
-
     pub const VariableDecl = struct {
         name: []const u8,
         type: Type,
@@ -142,15 +173,6 @@ pub const HIR = struct {
             self.allocator.free(self.name);
             self.value.deinit();
         }
-    };
-
-    pub const Type = enum {
-        void,
-        bool,
-        int,
-        float,
-        string,
-        function,
     };
 
     pub const Value = union(Type) {

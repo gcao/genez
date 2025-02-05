@@ -9,6 +9,60 @@ pub const Value = union(enum) {
     Symbol: []const u8,
     Array: []Value,
     Map: std.StringHashMap(Value),
+
+    pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .String => |str| allocator.free(str),
+            .Symbol => |sym| allocator.free(sym),
+            .Array => |arr| {
+                for (arr) |*val| {
+                    val.deinit(allocator);
+                }
+                allocator.free(arr);
+            },
+            .Map => |*map| {
+                var iter = map.iterator();
+                while (iter.next()) |entry| {
+                    allocator.free(entry.key_ptr.*);
+                    entry.value_ptr.deinit(allocator);
+                }
+                map.deinit();
+            },
+            else => {},
+        }
+    }
+
+    pub fn clone(self: Value, allocator: std.mem.Allocator) !Value {
+        return switch (self) {
+            .Nil => Value{ .Nil = {} },
+            .Bool => |b| Value{ .Bool = b },
+            .Int => |i| Value{ .Int = i },
+            .Float => |f| Value{ .Float = f },
+            .String => |str| Value{
+                .String = try allocator.dupe(u8, str),
+            },
+            .Symbol => |sym| Value{
+                .Symbol = try allocator.dupe(u8, sym),
+            },
+            .Array => |arr| blk: {
+                var new_arr = try allocator.alloc(Value, arr.len);
+                for (arr, 0..) |val, i| {
+                    new_arr[i] = try val.clone(allocator);
+                }
+                break :blk Value{ .Array = new_arr };
+            },
+            .Map => |map| blk: {
+                var new_map = std.StringHashMap(Value).init(allocator);
+                var iter = map.iterator();
+                while (iter.next()) |entry| {
+                    const key = try allocator.dupe(u8, entry.key_ptr.*);
+                    const val = try entry.value_ptr.*.clone(allocator);
+                    try new_map.put(key, val);
+                }
+                break :blk Value{ .Map = new_map };
+            },
+        };
+    }
 };
 
 pub const Type = union(enum) {
