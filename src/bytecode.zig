@@ -35,9 +35,11 @@ pub const Function = struct {
         };
     }
 
-    pub fn deinit(self: *Function) void {
+    pub fn deinit(self: *const Function) void {
         for (self.instructions.items) |*instr| {
-            instr.deinit(self.allocator);
+            if (instr.operand) |*operand| {
+                operand.deinit(self.allocator);
+            }
         }
         self.instructions.deinit();
     }
@@ -97,7 +99,7 @@ pub fn lowerToBytecode(allocator: std.mem.Allocator, nodes: []ast.AstNode) !Func
     try instructions.append(.{ .op = .Return });
 
     return Function{
-        .instructions = try instructions.toOwnedSlice(),
+        .instructions = instructions,
         .allocator = allocator,
     };
 }

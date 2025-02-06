@@ -790,3 +790,8 @@
   </important_reminder>
 
 </anthropic_thinking_protocol>
+
+## Supplemental rules
+
+* Please remove trailing spaces when generating code or content
+* IMPORTANT: DO NOT CHANGE CODE THAT IS NOT RELATED TO THE ISSUE AT HAND!!!

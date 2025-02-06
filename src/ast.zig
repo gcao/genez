@@ -51,7 +51,7 @@ pub const Variable = struct {
 };
 
 pub const BinaryOpType = enum {
-    Add,
+    add,
 };
 
 pub const BinaryOp = struct {

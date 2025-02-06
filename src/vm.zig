@@ -61,7 +61,7 @@ pub const VM = struct {
         self.variables.deinit();
     }
 
-    pub fn execute(self: *VM, func: *bytecode.Function) !void {
+    pub fn execute(self: *VM, func: *const bytecode.Function) !void {
         debug.log("Starting execution with {} instructions", .{func.instructions.items.len});
 
         for (func.instructions.items, 0..) |instruction, i| {
@@ -87,38 +87,49 @@ pub const VM = struct {
                     }
                 },
                 .Add => {
-                    debug.log("Add operation", .{});
-                    const right = self.stack.pop();
-                    debug.log("Right operand:", .{});
-                    debug.log("{}", .{right});
-                    const left = self.stack.pop();
-                    debug.log("Left operand:", .{});
-                    debug.log("{}", .{left});
+                    if (self.stack.items.len < 2) {
+                        return error.StackUnderflow;
+                    }
+
+                    var right = self.stack.pop();
+                    var left = self.stack.pop();
 
                     switch (left) {
-                        .Int => |left_val| {
-                            switch (right) {
-                                .Int => |right_val| {
-                                    const result = left_val + right_val;
-                                    try self.stack.append(types.Value{ .Int = result });
-                                    debug.log("Stack size after instruction: {}", .{self.stack.items.len});
-                                },
-                                else => return error.TypeMismatch,
-                            }
+                        .Int => |left_val| switch (right) {
+                            .Int => |right_val| try self.stack.append(.{ .Int = left_val + right_val }),
+                            else => return error.TypeMismatch,
+                        },
+                        .String => |left_str| switch (right) {
+                            .String => |right_str| {
+                                const result = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ left_str, right_str });
+                                try self.stack.append(.{ .String = result });
+                            },
+                            else => return error.TypeMismatch,
                         },
                         else => return error.TypeMismatch,
                     }
+
+                    // Clean up operands
+                    left.deinit(self.allocator);
+                    right.deinit(self.allocator);
                 },
                 .Print => {
-                    debug.log("Print operation", .{});
-                    const value = self.stack.pop();
-                    debug.log("Value to print:", .{});
-                    debug.log("{}", .{value});
-                    switch (value) {
-                        .Int => |val| try self.stdout.print("{}\n", .{val}),
-                        .String => |str| try self.stdout.print("{s}\n", .{str}),
-                        else => return error.UnsupportedType,
+                    if (self.stack.items.len < 1) {
+                        return error.StackUnderflow;
                     }
+                    var value = self.stack.pop();
+                    switch (value) {
+                        .Int => |val| try self.stdout.print("{d}\n", .{val}),
+                        .String => |str| try self.stdout.print("{s}\n", .{str}),
+                        .Symbol => |sym| try self.stdout.print("{s}\n", .{sym}),
+                        .Bool => |b| try self.stdout.print("{}\n", .{b}),
+                        .Float => |f| try self.stdout.print("{d}\n", .{f}),
+                        .Nil => try self.stdout.print("nil\n", .{}),
+                        .Array => |arr| try self.stdout.print("{any}\n", .{arr}),
+                        .Map => |map| try self.stdout.print("{any}\n", .{map}),
+                    }
+                    value.deinit(self.allocator);
+                    debug.log("Stack size after instruction: {}", .{self.stack.items.len});
                 },
                 .Return => {
                     debug.log("Return operation", .{});

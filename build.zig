@@ -63,18 +63,21 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    main_tests.root_module.addOptions("build_options", options);
 
     const parser_tests = b.addTest(.{
         .root_source_file = b.path("src/parser_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
+    parser_tests.root_module.addOptions("build_options", options);
 
     const vm_tests = b.addTest(.{
         .root_source_file = b.path("src/vm_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
+    vm_tests.root_module.addOptions("build_options", options);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&main_tests.step);

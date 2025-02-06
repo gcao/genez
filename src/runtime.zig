@@ -46,28 +46,32 @@ pub const Runtime = struct {
         try self.execute(&func);
     }
 
-    pub fn runFile(self: *Runtime, filename: []const u8) !void {
+    pub fn runFile(self: *Runtime, path: []const u8) !void {
+        // Read file
+        var file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+
+        const source = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
+        defer self.allocator.free(source);
+
+        // Parse source into AST
+        var nodes = try parser.parseGeneSource(self.allocator, source);
+        defer {
+            for (nodes.items) |*node| {
+                node.deinit(self.allocator);
+            }
+            nodes.deinit();
+        }
+
+        // Create compilation context
         const options = compiler.CompilerOptions{
-            .debug_mode = self.debug_mode,
+            .debug_mode = false,
             .optimize = false,
         };
         const ctx = compiler.CompilationContext.init(self.allocator, options);
 
-        // Read source file
-        const source = try std.fs.cwd().readFileAlloc(self.allocator, filename, 1024 * 1024);
-        defer self.allocator.free(source);
-
-        // Parse source into AST
-        const nodes = try parser.parseGeneSource(self.allocator, source);
-        defer {
-            for (nodes) |*node| {
-                node.deinit(self.allocator);
-            }
-            self.allocator.free(nodes);
-        }
-
         // Compile AST to bytecode
-        var func = try compiler.compile(ctx, nodes);
+        var func = try compiler.compile(ctx, nodes.items);
         defer func.deinit();
 
         // Execute bytecode

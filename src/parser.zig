@@ -2,7 +2,7 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const debug = @import("debug.zig");
 
-pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) ![]ast.AstNode {
+pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(ast.AstNode) {
     debug.log("Starting to parse Gene source of length {}", .{source.len});
     
     var tokens = std.ArrayList(Token).init(allocator);
@@ -19,9 +19,16 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) ![]ast.
     
     debug.log("Tokenizing source...", .{});
     
+    var source_to_parse = source;
+    if (std.mem.startsWith(u8, source, "#!")) {
+        if (std.mem.indexOf(u8, source, "\n")) |newline_pos| {
+            source_to_parse = source[newline_pos + 1..];
+        }
+    }
+
     var i: usize = 0;
-    while (i < source.len) : (i += 1) {
-        const c = source[i];
+    while (i < source_to_parse.len) : (i += 1) {
+        const c = source_to_parse[i];
 
         // Skip whitespace
         if (std.ascii.isWhitespace(c)) {
@@ -31,9 +38,9 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) ![]ast.
         // Handle integers
         if (std.ascii.isDigit(c)) {
             const start: usize = i;
-            while (i < source.len and std.ascii.isDigit(source[i])) : (i += 1) {}
+            while (i < source_to_parse.len and std.ascii.isDigit(source_to_parse[i])) : (i += 1) {}
             i -= 1;  // Back up one since loop will increment
-            const int_str = source[start..i + 1];
+            const int_str = source_to_parse[start..i + 1];
             const int_val = try std.fmt.parseInt(i64, int_str, 10);
             debug.log("Found integer: {}", .{int_val});
             try tokens.append(.{ .kind = .{ .Int = int_val } });
@@ -44,9 +51,9 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) ![]ast.
         if (c == '"') {
             const start: usize = i + 1;
             i += 1;
-            while (i < source.len and source[i] != '"') : (i += 1) {}
-            if (i >= source.len) return error.UnterminatedString;
-            const str = try allocator.dupe(u8, source[start..i]);
+            while (i < source_to_parse.len and source_to_parse[i] != '"') : (i += 1) {}
+            if (i >= source_to_parse.len) return error.UnterminatedString;
+            const str = try allocator.dupe(u8, source_to_parse[start..i]);
             debug.log("Found string: {s}", .{str});
             try tokens.append(.{ .kind = .{ .String = str } });
             continue;
@@ -55,9 +62,9 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) ![]ast.
         // Handle identifiers
         if (std.ascii.isAlphabetic(c)) {
             const start: usize = i;
-            while (i < source.len and (std.ascii.isAlphabetic(source[i]) or std.ascii.isDigit(source[i]))) : (i += 1) {}
+            while (i < source_to_parse.len and (std.ascii.isAlphabetic(source_to_parse[i]) or std.ascii.isDigit(source_to_parse[i]))) : (i += 1) {}
             i -= 1;  // Back up one since loop will increment
-            const ident = try allocator.dupe(u8, source[start..i + 1]);
+            const ident = try allocator.dupe(u8, source_to_parse[start..i + 1]);
             debug.log("Found identifier: {s}", .{ident});
             try tokens.append(.{ .kind = .{ .Ident = ident } });
             continue;
@@ -84,175 +91,171 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) ![]ast.
     debug.log("Finished tokenizing, found {} tokens", .{tokens.items.len});
     debug.log("Starting to parse tokens into AST", .{});
 
-    const ParseResult = struct {
-        nodes: []ast.AstNode,
-        consumed: usize,
-    };
-
-    const parse = struct {
-        fn parseExpr(alloc: std.mem.Allocator, toks: []const Token) !struct { expr: ast.Expression, consumed: usize } {
-            if (toks.len == 0) return error.UnexpectedEOF;
-
-            if (toks[0].kind == .LParen) {
-                if (toks.len < 4) return error.UnexpectedEOF;
-
-                const left = switch (toks[1].kind) {
-                    .Int => |value| ast.Expression{ .Literal = .{ .value = .{ .Int = value } } },
-                    else => return error.UnexpectedToken,
-                };
-
-                if (toks[2].kind != .Plus) return error.UnexpectedToken;
-
-                const right = switch (toks[3].kind) {
-                    .Int => |value| ast.Expression{ .Literal = .{ .value = .{ .Int = value } } },
-                    else => return error.UnexpectedToken,
-                };
-
-                // Create left expression first
-                const left_expr = try alloc.create(ast.Expression);
-                errdefer alloc.destroy(left_expr);
-                left_expr.* = left;
-
-                // Create right expression
-                const right_expr = try alloc.create(ast.Expression);
-                errdefer {
-                    alloc.destroy(right_expr);
-                    left_expr.deinit(alloc);
-                    alloc.destroy(left_expr);
-                }
-                right_expr.* = right;
-
-                // Verify RParen exists before returning
-                if (toks.len < 5 or toks[4].kind != .RParen) {
-                    // Clean up on error
-                    right_expr.deinit(alloc);
-                    alloc.destroy(right_expr);
-                    left_expr.deinit(alloc);
-                    alloc.destroy(left_expr);
-                    return error.ExpectedRParen;
-                }
-
-                return .{
-                    .expr = ast.Expression{ .BinaryOp = .{
-                        .op = .Add,
-                        .left = left_expr,
-                        .right = right_expr,
-                    }},
-                    .consumed = 5,
-                };
-            } else {
-                const expr = switch (toks[0].kind) {
-                    .Int => |value| ast.Expression{ .Literal = .{ .value = .{ .Int = value } } },
-                    .String => |value| {
-                        const str_copy = try alloc.dupe(u8, value);
-                        errdefer alloc.free(str_copy);
-                        return .{ .expr = ast.Expression{ .Literal = .{ .value = .{ .String = str_copy } } }, .consumed = 1 };
-                    },
-                    .Ident => |value| {
-                        const name_copy = try alloc.dupe(u8, value);
-                        errdefer alloc.free(name_copy);
-                        return .{ .expr = ast.Expression{ .Variable = .{ .name = name_copy } }, .consumed = 1 };
-                    },
-                    else => return error.UnexpectedToken,
-                };
-                return .{ .expr = expr, .consumed = 1 };
-            }
-        }
-
-        fn parseTokenList(alloc: std.mem.Allocator, toks: []const Token) !ParseResult {
-            var result_nodes = std.ArrayList(ast.AstNode).init(alloc);
-            errdefer {
-                for (result_nodes.items) |*node| {
-                    node.deinit(alloc);
-                }
-                result_nodes.deinit();
-            }
-
-            var pos: usize = 0;
-            while (pos < toks.len) : (pos += 1) {
-                const token = toks[pos];
-                switch (token.kind) {
-                    .Int => |value| {
-                        try result_nodes.append(.{ .Expression = .{ .Literal = .{ .value = .{ .Int = value } } } });
-                    },
-                    .String => |value| {
-                        const str_copy = try alloc.dupe(u8, value);
-                        errdefer alloc.free(str_copy);
-                        const str_node = ast.AstNode{ .Expression = .{ .Literal = .{ .value = .{ .String = str_copy } } } };
-                        try result_nodes.append(str_node);
-                    },
-                    .Ident => |value| {
-                        const name_copy = try alloc.dupe(u8, value);
-                        errdefer alloc.free(name_copy);
-                        const var_node = ast.AstNode{ .Expression = .{ .Variable = .{ .name = name_copy } } };
-                        try result_nodes.append(var_node);
-                    },
-                    .LParen => {
-                        pos += 1;
-                        if (pos >= toks.len) return error.UnexpectedEOF;
-
-                        if (toks[pos].kind == .Ident) {
-                            const ident = toks[pos].kind.Ident;
-                            if (std.mem.eql(u8, ident, "print")) {
-                                // Create print node
-                                const print_name = try alloc.dupe(u8, "print");
-                                errdefer alloc.free(print_name);
-                                const print_node = ast.AstNode{ .Expression = .{ .Variable = .{ .name = print_name } } };
-                                try result_nodes.append(print_node);
-
-                                // Parse the expression to print
-                                pos += 1;
-                                if (pos >= toks.len) return error.UnexpectedEOF;
-
-                                var expr_result = try parseExpr(alloc, toks[pos..]);
-                                errdefer expr_result.expr.deinit(alloc);
-                                const expr_node = ast.AstNode{ .Expression = expr_result.expr };
-                                try result_nodes.append(expr_node);
-
-                                // Update position based on consumed tokens
-                                pos += expr_result.consumed;
-
-                                if (pos >= toks.len or toks[pos].kind != .RParen) {
-                                    return error.ExpectedRParen;
-                                }
-                            } else {
-                                return error.UnexpectedToken;
-                            }
-                        } else {
-                            var expr_result = try parseExpr(alloc, toks[pos - 1..]);
-                            errdefer expr_result.expr.deinit(alloc);
-                            const expr_node = ast.AstNode{ .Expression = expr_result.expr };
-                            try result_nodes.append(expr_node);
-
-                            // Update position based on consumed tokens
-                            pos += expr_result.consumed - 1;
-                        }
-                    },
-                    .RParen => {
-                        return ParseResult{
-                            .nodes = try result_nodes.toOwnedSlice(),
-                            .consumed = pos,
-                        };
-                    },
-                    else => {},
-                }
-            }
-
-            return ParseResult{
-                .nodes = try result_nodes.toOwnedSlice(),
-                .consumed = pos,
-            };
-        }
-    }.parseTokenList;
-
-    const result = try parse(allocator, tokens.items);
+    var result_nodes = std.ArrayList(ast.AstNode).init(allocator);
     errdefer {
-        for (result.nodes) |*node| {
+        for (result_nodes.items) |*node| {
             node.deinit(allocator);
         }
-        allocator.free(result.nodes);
+        result_nodes.deinit();
     }
-    return result.nodes;
+
+    var pos: usize = 0;
+    while (pos < tokens.items.len) : (pos += 1) {
+        const tok = tokens.items[pos];
+        switch (tok.kind) {
+            .LParen => {
+                pos += 1;
+                if (pos >= tokens.items.len) return error.UnexpectedEOF;
+
+                // Parse function call
+                if (tokens.items[pos].kind == .Ident) {
+                    const ident = tokens.items[pos].kind.Ident;
+                    if (std.mem.eql(u8, ident, "print")) {
+                        // Parse the argument to print
+                        pos += 1;
+                        if (pos >= tokens.items.len) return error.UnexpectedEOF;
+
+                        const parse_result = try parseExpr(allocator, tokens.items[pos..]);
+                        pos += parse_result.consumed - 1;  // -1 because loop will increment
+
+                        // Create print node
+                        const print_name = try allocator.dupe(u8, "print");
+                        errdefer allocator.free(print_name);
+                        var print_node = ast.AstNode{ .Expression = .{ .Variable = .{ .name = print_name } } };
+                        errdefer print_node.deinit(allocator);
+
+                        // Add the nodes in order: argument, then print
+                        try result_nodes.append(.{ .Expression = parse_result.expr });
+                        try result_nodes.append(print_node);
+
+                        // Verify RParen exists
+                        pos += 1;
+                        if (pos >= tokens.items.len or tokens.items[pos].kind != .RParen) {
+                            return error.ExpectedRParen;
+                        }
+                    } else {
+                        // Handle other function calls
+                        const name = try allocator.dupe(u8, ident);
+                        errdefer allocator.free(name);
+                        try result_nodes.append(.{ .Expression = .{ .Variable = .{ .name = name } } });
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+
+    return result_nodes;
+}
+
+fn parseExpr(alloc: std.mem.Allocator, toks: []const Token) !struct { expr: ast.Expression, consumed: usize } {
+    if (toks.len == 0) return error.UnexpectedEOF;
+
+    var pos: usize = 0;
+    const tok = toks[pos];
+
+    switch (tok.kind) {
+        .Int => |val| {
+            return .{
+                .expr = .{ .Literal = .{ .value = .{ .Int = val } } },
+                .consumed = 1,
+            };
+        },
+        .String => |str| {
+            const str_copy = try alloc.dupe(u8, str);
+            return .{
+                .expr = .{ .Literal = .{ .value = .{ .String = str_copy } } },
+                .consumed = 1,
+            };
+        },
+        .LParen => {
+            pos += 1;
+            if (pos >= toks.len) return error.UnexpectedEOF;
+
+            // Check if this is a binary operation
+            if (toks[pos].kind == .Int or toks[pos].kind == .String) {
+                const left_result = try parseExpr(alloc, toks[pos..]);
+                pos += left_result.consumed;
+
+                if (pos >= toks.len) return error.UnexpectedEOF;
+
+                // Check for operator
+                if (toks[pos].kind == .Plus) {
+                    pos += 1;
+                    if (pos >= toks.len) return error.UnexpectedEOF;
+
+                    const right_result = try parseExpr(alloc, toks[pos..]);
+                    pos += right_result.consumed;
+
+                    // Create binary op node
+                    const left = try alloc.create(ast.Expression);
+                    errdefer alloc.destroy(left);
+                    left.* = left_result.expr;
+
+                    const right = try alloc.create(ast.Expression);
+                    errdefer alloc.destroy(right);
+                    right.* = right_result.expr;
+
+                    // Verify RParen exists
+                    if (pos >= toks.len or toks[pos].kind != .RParen) {
+                        return error.ExpectedRParen;
+                    }
+
+                    return .{
+                        .expr = .{ .BinaryOp = .{
+                            .op = .add,
+                            .left = left,
+                            .right = right,
+                        } },
+                        .consumed = pos + 1,
+                    };
+                }
+            }
+        },
+        else => {},
+    }
+
+    return error.InvalidExpression;
+}
+
+fn parseTokenList(alloc: std.mem.Allocator, toks: []const Token) !struct { nodes: []ast.AstNode, consumed: usize } {
+    var result_nodes = std.ArrayList(ast.AstNode).init(alloc);
+    errdefer {
+        for (result_nodes.items) |*node| {
+            node.deinit(alloc);
+        }
+        result_nodes.deinit();
+    }
+
+    var pos: usize = 0;
+    while (pos < toks.len) : (pos += 1) {
+        switch (toks[pos].kind) {
+            .LParen => {
+                const list_result = try parseTokenList(alloc, toks[pos + 1..]);
+                pos += list_result.consumed;
+
+                // Add all nodes from the sublist
+                for (list_result.nodes) |node| {
+                    try result_nodes.append(node);
+                }
+
+                // Free the sublist array (but not its contents, which were moved)
+                alloc.free(list_result.nodes);
+            },
+            .RParen => {
+                return .{
+                    .nodes = try result_nodes.toOwnedSlice(),
+                    .consumed = pos + 1,
+                };
+            },
+            else => {},
+        }
+    }
+
+    return .{
+        .nodes = try result_nodes.toOwnedSlice(),
+        .consumed = pos,
+    };
 }
 
 const TokenKind = union(enum) {

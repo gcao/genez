@@ -20,59 +20,28 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var args = try std.process.argsWithAllocator(allocator);
-    defer args.deinit();
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
-    // Skip program name
-    _ = args.next();
-
-    // Check for command
-    const command = args.next() orelse {
-        try printHelp(std.io.getStdOut().writer());
+    if (args.len < 2) {
+        std.debug.print("Usage: gene <command> [args...]\n", .{});
         return;
-    };
+    }
 
+    const command = args[1];
     if (std.mem.eql(u8, command, "run")) {
-        var debug_mode = false;
-
-        // Check for --debug flag
-        const maybe_flag = args.next();
-        if (maybe_flag) |flag| {
-            if (std.mem.eql(u8, flag, "--debug")) {
-                debug_mode = true;
-            } else {
-                // If it's not --debug, treat it as the filename
-                var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
-                defer rt.deinit();
-                try rt.runFile(flag);
-                return;
-            }
+        if (args.len < 3) {
+            std.debug.print("Usage: gene run <file>\n", .{});
+            return;
         }
 
-        // Get filename after --debug
-        const filename = args.next() orelse {
-            std.debug.print("Error: No input file specified\n", .{});
-            return error.NoInputFile;
-        };
-
-        var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
+        const file = args[2];
+        var rt = runtime.Runtime.init(allocator, false, std.io.getStdOut().writer());
         defer rt.deinit();
-        try rt.runFile(filename);
-    } else if (std.mem.eql(u8, command, "compile")) {
-        if (args.next()) |filename| {
-            var rt = runtime.Runtime.init(allocator, false, std.io.getStdOut().writer());
-            defer rt.deinit();
-            try rt.compileFile(filename);
-        } else {
-            std.debug.print("Error: No file specified\n", .{});
-            return error.NoFileSpecified;
-        }
-    } else if (std.mem.eql(u8, command, "help")) {
-        try printHelp(std.io.getStdOut().writer());
-    } else if (std.mem.eql(u8, command, "version")) {
-        try std.io.getStdOut().writer().print("Gene v{s}\n", .{VERSION});
+
+        try rt.runFile(file);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
-        return error.UnknownCommand;
+        return;
     }
 }

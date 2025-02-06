@@ -49,19 +49,27 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .BinaryOp => |bin_op| {
-            const left = try allocator.create(hir.HIR.Expression);
-            left.* = try lowerExpression(allocator, bin_op.left.*);
+            var left = try lowerExpression(allocator, bin_op.left.*);
+            errdefer left.deinit(allocator);
 
-            const right = try allocator.create(hir.HIR.Expression);
-            right.* = try lowerExpression(allocator, bin_op.right.*);
+            var right = try lowerExpression(allocator, bin_op.right.*);
+            errdefer right.deinit(allocator);
 
-            return .{
+            const left_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(left_ptr);
+            left_ptr.* = left;
+
+            const right_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(right_ptr);
+            right_ptr.* = right;
+
+            return hir.HIR.Expression{
                 .binary_op = .{
                     .op = switch (bin_op.op) {
-                        .Add => .add,
+                        .add => .add,
                     },
-                    .left = left,
-                    .right = right,
+                    .left = left_ptr,
+                    .right = right_ptr,
                 },
             };
         },
