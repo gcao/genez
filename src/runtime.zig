@@ -30,16 +30,16 @@ pub const Runtime = struct {
         const ctx = compiler.CompilationContext.init(self.allocator, options);
 
         // Parse source into AST
-        const nodes = try parser.parseGeneSource(self.allocator, source);
+        var nodes_list = try parser.parseGeneSource(self.allocator, source);
         defer {
-            for (nodes) |*node| {
+            for (nodes_list.items) |*node| {
                 node.deinit(self.allocator);
             }
-            self.allocator.free(nodes);
+            nodes_list.deinit();
         }
 
         // Compile AST to bytecode
-        var func = try compiler.compile(ctx, nodes);
+        var func = try compiler.compile(ctx, nodes_list.items);
         defer func.deinit();
 
         // Execute bytecode
@@ -47,35 +47,17 @@ pub const Runtime = struct {
     }
 
     pub fn runFile(self: *Runtime, path: []const u8) !void {
-        // Read file
-        var file = try std.fs.cwd().openFile(path, .{});
+        // Read file using relative paths for WASI compatibility
+        const file = if (comptime @import("builtin").target.cpu.arch == .wasm32)
+            try std.fs.cwd().openFile(path, .{})
+        else
+            try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
         const source = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
         defer self.allocator.free(source);
 
-        // Parse source into AST
-        var nodes = try parser.parseGeneSource(self.allocator, source);
-        defer {
-            for (nodes.items) |*node| {
-                node.deinit(self.allocator);
-            }
-            nodes.deinit();
-        }
-
-        // Create compilation context
-        const options = compiler.CompilerOptions{
-            .debug_mode = false,
-            .optimize = false,
-        };
-        const ctx = compiler.CompilationContext.init(self.allocator, options);
-
-        // Compile AST to bytecode
-        var func = try compiler.compile(ctx, nodes.items);
-        defer func.deinit();
-
-        // Execute bytecode
-        try self.execute(&func);
+        try self.eval(source);
     }
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {

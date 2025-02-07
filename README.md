@@ -1,4 +1,3 @@
-```markdown:README.md
 # Gene Programming Language
 
 Gene is a programming language implementation written in Zig. It features:
@@ -14,11 +13,40 @@ Requires Zig 0.13.0 or later.
 
 ```bash
 # Build and run native executable
-zig build
-zig build run
+zig build && zig-out/bin/gene run examples/default.gene
+zig build -Ddebug=true && zig-out/bin/gene run examples/default.gene
+zig build run -- run examples/default.gene
 
 # Run tests
 zig build test
+```
+
+## WebAssembly Support
+
+Gene can be compiled to WebAssembly (WASM) with WASI support, allowing you to run Gene programs through a WASM runtime.
+
+### Requirements
+
+- Zig 0.13.0 or later
+- wasmtime (install via `brew install wasmtime` on macOS)
+
+### Building and Running
+
+```bash
+# Build the WASI target
+zig build
+zig build -Ddebug=true
+
+# Run a Gene file through WASM
+wasmtime --dir . zig-out/bin/gene-wasi.wasm run examples/default.gene
+```
+
+The `--dir .` flag gives the WASM module access to the current directory, allowing it to read Gene source files.
+
+Example output:
+```
+Output from default.gene
+3
 ```
 
 ## Project Structure
@@ -38,12 +66,3 @@ Early development. Basic infrastructure for parsing, bytecode generation and VM 
 ## License
 
 [Add license]
-```
-
-The README is intentionally brief but covers the key points:
-1. What the project is
-2. How to build it
-3. Project structure
-4. Current status
-
-Let me know if you'd like me to expand any section.

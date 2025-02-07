@@ -12,7 +12,7 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
 
     const nodes = try parser.parseGeneSource(allocator, source);
     const func = try bytecode.lowerToBytecode(allocator, nodes.items);
-    var gene_vm = try vm.VM.init(allocator, std.io.getStdOut().writer());
+    var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer());
     defer gene_vm.deinit();
 
     try gene_vm.execute(&func);
@@ -37,93 +37,13 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
 }
 
 test "execute string literal" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const source = "(print \"hello\")";
-    var nodes = try parser.parseGeneSource(allocator, source);
-    defer {
-        for (nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        nodes.deinit();
-    }
-
-    const func = try bytecode.lowerToBytecode(allocator, nodes.items);
-    defer func.deinit();
-
-    var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer());
-    defer gene_vm.deinit();
-
-    try gene_vm.execute(&func);
+    try testGeneExecution("\"hello\"", .{ .String = "hello" });
 }
 
 test "execute integer literal" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const source = "(print 42)";
-    var nodes = try parser.parseGeneSource(allocator, source);
-    defer {
-        for (nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        nodes.deinit();
-    }
-
-    const func = try bytecode.lowerToBytecode(allocator, nodes.items);
-    defer func.deinit();
-
-    var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer());
-    defer gene_vm.deinit();
-
-    try gene_vm.execute(&func);
+    try testGeneExecution("42", .{ .Int = 42 });
 }
 
 test "execute binary operation" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const source = "(print (+ 1 2))";
-    var nodes = try parser.parseGeneSource(allocator, source);
-    defer {
-        for (nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        nodes.deinit();
-    }
-
-    const func = try bytecode.lowerToBytecode(allocator, nodes.items);
-    defer func.deinit();
-
-    var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer());
-    defer gene_vm.deinit();
-
-    try gene_vm.execute(&func);
-}
-
-test "execute addition" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const source = "(+ 1 2)";
-    var nodes = try parser.parseGeneSource(allocator, source);
-    defer {
-        for (nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        nodes.deinit();
-    }
-
-    const func = try bytecode.lowerToBytecode(allocator, nodes.items);
-    defer func.deinit();
-
-    var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer());
-    defer gene_vm.deinit();
-
-    try gene_vm.execute(&func);
+    try testGeneExecution("(+ 1 2)", .{ .Int = 3 });
 }

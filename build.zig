@@ -29,35 +29,21 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    // 2) WASM build with special options
-    const wasm = b.addExecutable(.{
-        .name = "gene-wasm",
-        .root_source_file = b.path("src/wasm.zig"),
+    // WASI build for running Gene files
+    const wasi = b.addExecutable(.{
+        .name = "gene-wasi",
+        .root_source_file = b.path("src/main.zig"),
         .optimize = optimize,
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
-            .os_tag = .freestanding,
+            .os_tag = .wasi,
             .abi = .none,
         }),
     });
-    wasm.entry = .disabled; // Disable entry point for WASM
-    wasm.rdynamic = true;
-    wasm.import_memory = true;
-    const page_size = 65536;
-    const min_pages = 2; // Need at least 2 pages for stack + some heap
-    wasm.initial_memory = page_size * min_pages;
-    wasm.max_memory = page_size * min_pages;
-    wasm.stack_size = 32768;
+    wasi.root_module.addOptions("build_options", options);
+    b.installArtifact(wasi);
 
-    // Install WASM artifact
-    b.installArtifact(wasm);
-
-    // Add a step to copy WASM file to web directory
-    const copy_wasm = b.addInstallFileWithDir(wasm.getEmittedBin(), .prefix, "../public/gene.wasm");
-    const copy_step = b.step("copy-wasm", "Copy WASM file to web directory");
-    copy_step.dependOn(&copy_wasm.step);
-
-    // 3) Tests
+    // Tests
     const main_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
