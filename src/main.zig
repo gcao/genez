@@ -40,6 +40,17 @@ pub fn main() !void {
         defer rt.deinit();
 
         try rt.runFile(file);
+    } else if (std.mem.eql(u8, command, "compile")) {
+        if (args.len < 3) {
+            std.debug.print("Usage: gene compile <file>\n", .{});
+            return;
+        }
+
+        const file = args[2];
+        var rt = runtime.Runtime.init(allocator, false, std.io.getStdOut().writer());
+        defer rt.deinit();
+
+        try rt.compileFile(file);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         return;

@@ -40,14 +40,35 @@ pub const Runtime = struct {
 
         // Compile AST to bytecode
         var func = try compiler.compile(ctx, nodes_list.items);
-        defer func.deinit();
-
+        
         // Execute bytecode
         try self.execute(&func);
+        func.deinit();
+    }
+
+    fn runBytecodeFile(self: *Runtime, path: []const u8) !void {
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+
+        // Read bytecode module from file
+        var module = try bytecode.Module.readFromFile(self.allocator, file.reader());
+        defer module.deinit();
+
+        // Execute the first function in the module
+        if (module.functions.len == 0) {
+            return error.NoFunctionsInModule;
+        }
+        try self.execute(&module.functions[0]);
     }
 
     pub fn runFile(self: *Runtime, path: []const u8) !void {
-        // Read file using relative paths for WASI compatibility
+        // Check if file is a bytecode file
+        if (std.mem.endsWith(u8, path, ".gbc")) {
+            try self.runBytecodeFile(path);
+            return;
+        }
+
+        // Handle regular Gene source file
         const file = if (comptime @import("builtin").target.cpu.arch == .wasm32)
             try std.fs.cwd().openFile(path, .{})
         else
@@ -57,7 +78,25 @@ pub const Runtime = struct {
         const source = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
         defer self.allocator.free(source);
 
-        try self.eval(source);
+        const ctx = compiler.CompilationContext.init(self.allocator, compiler.CompilerOptions{
+            .debug_mode = false,
+            .optimize = false,
+        });
+
+        var nodes_list = try parser.parseGeneSource(self.allocator, source);
+        defer {
+            for (nodes_list.items) |*node| {
+                node.deinit(self.allocator);
+            }
+            nodes_list.deinit();
+        }
+
+        // Compile AST to bytecode
+        var func = try compiler.compile(ctx, nodes_list.items);
+        
+        // Execute bytecode
+        try self.execute(&func);
+        func.deinit();
     }
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {
@@ -76,33 +115,57 @@ pub const Runtime = struct {
         try gene_vm.execute(func);
     }
 
-    pub fn compileFile(self: *const Runtime, file_path: []const u8) !void {
+    pub fn compileFile(self: *Runtime, file_path: []const u8) !void {
+        const source = try std.fs.cwd().readFileAlloc(self.allocator, file_path, 1024 * 1024);
+        defer self.allocator.free(source);
+
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
         };
         const ctx = compiler.CompilationContext.init(self.allocator, options);
 
-        // Read source file
-        const source = try std.fs.cwd().readFileAlloc(self.allocator, file_path, 1024 * 1024);
-        defer self.allocator.free(source);
-
-        // Parse source into AST
-        const nodes = try parser.parseGeneSource(self.allocator, source);
+        var nodes_list = try parser.parseGeneSource(self.allocator, source);
         defer {
-            for (nodes) |*node| {
+            for (nodes_list.items) |*node| {
                 node.deinit(self.allocator);
             }
-            self.allocator.free(nodes);
+            nodes_list.deinit();
         }
 
         // Compile AST to bytecode
-        var func = try compiler.compile(ctx, nodes);
-        defer func.deinit();
+        const func = try compiler.compile(ctx, nodes_list.items);
+        
+        // Create module with the function
+        const functions = try self.allocator.alloc(bytecode.Function, 1);
+        functions[0] = func;
 
-        // Print bytecode
-        for (func.instructions.items) |instr| {
-            std.debug.print("{any}\n", .{instr});
+        var module = bytecode.Module{
+            .functions = functions,
+            .allocator = self.allocator,
+        };
+
+        // Create output file with .gbc extension
+        const output_path = if (std.mem.endsWith(u8, file_path, ".gene"))
+            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path[0..file_path.len - 5]})
+        else
+            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path});
+        defer self.allocator.free(output_path);
+
+        const gbc_path = try std.fmt.allocPrint(self.allocator, "{s}.gbc", .{output_path});
+        defer self.allocator.free(gbc_path);
+
+        const output_file = try std.fs.cwd().createFile(gbc_path, .{});
+        defer output_file.close();
+
+        // Write bytecode to file
+        try module.writeToFile(output_file.writer());
+
+        // Deinit module after writing to file
+        module.deinit();
+
+        if (self.debug_mode) {
+            std.debug.print("Compiled {s} to {s}\n", .{ file_path, gbc_path });
         }
     }
 };
