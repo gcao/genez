@@ -1,0 +1,12 @@
+#!/usr/bin/env gene run
+
+(fn fib [n int]
+  (if (n < 2)
+    n
+  else
+    ((fib (n - 1)) + (fib (n - 2)))
+  )
+)
+
+(var i = 10)
+(print "fib(" i ") = " (fib i))
