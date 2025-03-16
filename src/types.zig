@@ -1,4 +1,15 @@
 const std = @import("std");
+const ast = @import("ast.zig");
+
+pub const BinaryOp = enum {
+    add,
+    sub,
+    mul,
+    div,
+    lt,
+    gt,
+    eq,
+};
 
 pub const Value = union(enum) {
     Nil: void,
@@ -87,6 +98,7 @@ pub const Type = union(enum) {
     Nil,
     Bool,
     Int,
+    Void,
     Float,
     String,
     Symbol,
@@ -97,6 +109,7 @@ pub const Type = union(enum) {
     Instance: *InstanceType,
     Namespace: *NamespaceType,
     Any, // For gradual typing support
+    Inferred,
 
     pub const ArrayType = struct {
         element_type: *Type,
@@ -137,12 +150,12 @@ pub const Type = union(enum) {
         sub_namespaces: std.StringHashMap(*NamespaceType),
     };
 
-    pub const Function = struct {
+    pub const FunctionImpl = struct {
         type: *FunctionType,
         implementation: *const fn ([]Value) anyerror!Value,
     };
 
-    pub const Instance = struct {
+    pub const InstanceImpl = struct {
         type: *InstanceType,
         fields: std.StringHashMap(Value),
     };
@@ -158,6 +171,7 @@ pub const Type = union(enum) {
         switch (self) {
             .Nil => try writer.writeAll("Nil"),
             .Bool => try writer.writeAll("Bool"),
+            .Void => try writer.writeAll("Void"),
             .Int => try writer.writeAll("Int"),
             .Float => try writer.writeAll("Float"),
             .String => try writer.writeAll("String"),
@@ -166,17 +180,17 @@ pub const Type = union(enum) {
             .Map => |map| try writer.print("Map[{}, {}]", .{ map.key_type, map.value_type }),
             .Function => |func| {
                 try writer.writeAll("fn(");
-                for (func.params) |param| {
-                    const i = std.mem.indexOfScalar(func.params, param) orelse continue;
+                for (func.params, 0..) |param, i| {
                     if (i > 0) try writer.writeAll(", ");
-                    try writer.print("{}: {}", .{ param.name, param.type });
+                    try writer.print("{s}: {any}", .{ param.name, param.type });
                 }
-                try writer.print(") -> {}", .{func.return_type});
+                try writer.print(") -> {any}", .{func.return_type});
             },
             .Class => |cls| try writer.print("Class({s})", .{cls.name}),
             .Instance => |inst| try writer.print("Instance({s})", .{inst.class.name}),
             .Namespace => |ns| try writer.print("Namespace({s})", .{ns.name}),
             .Any => try writer.writeAll("Any"),
+            else => unreachable,
         }
     }
 };

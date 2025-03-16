@@ -1,5 +1,5 @@
 const std = @import("std");
-const types = @import("types.zig");
+const types = @import("types");
 const parser = @import("parser.zig");
 const compiler = @import("compiler.zig");
 const bytecode = @import("bytecode.zig");
@@ -40,7 +40,7 @@ pub const Runtime = struct {
 
         // Compile AST to bytecode
         var func = try compiler.compile(ctx, nodes_list.items);
-        
+
         // Execute bytecode
         try self.execute(&func);
         func.deinit();
@@ -58,7 +58,8 @@ pub const Runtime = struct {
         if (module.functions.len == 0) {
             return error.NoFunctionsInModule;
         }
-        try self.execute(&module.functions[0]);
+        var empty_map = std.StringHashMap(bytecode.Function).init(self.allocator);
+        try self.execute(&module.functions[0], &empty_map);
     }
 
     pub fn runFile(self: *Runtime, path: []const u8) !void {
@@ -75,14 +76,19 @@ pub const Runtime = struct {
             try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
+        std.debug.print("Running file: {s}\n", .{path});
+
         const source = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
         defer self.allocator.free(source);
 
-        const ctx = compiler.CompilationContext.init(self.allocator, compiler.CompilerOptions{
-            .debug_mode = false,
-            .optimize = false,
-        });
+        std.debug.print("File size: {}\n", .{source.len});
 
+        if (source.len == 0) {
+            std.debug.print("Source is empty!\n", .{});
+            return;
+        }
+
+        std.debug.print("Source: {s}\n", .{source});
         var nodes_list = try parser.parseGeneSource(self.allocator, source);
         defer {
             for (nodes_list.items) |*node| {
@@ -92,14 +98,20 @@ pub const Runtime = struct {
         }
 
         // Compile AST to bytecode
-        var func = try compiler.compile(ctx, nodes_list.items);
-        
+        const lowered = try bytecode.lowerToBytecode(self.allocator, nodes_list.items);
+        var func_map = std.StringHashMap(bytecode.Function).init(self.allocator);
+        var iter = lowered.func_map.iterator();
+        while (iter.next()) |entry| {
+            try func_map.put(try self.allocator.dupe(u8, entry.key_ptr.*), entry.value_ptr.*);
+        }
+        defer lowered.func.deinit();
+        defer func_map.deinit();
         // Execute bytecode
-        try self.execute(&func);
-        func.deinit();
+        std.debug.print("Instructions in lowered.func: {}\n", .{lowered.func.instructions.items.len});
+        try self.execute(&lowered.func, &func_map);
     }
 
-    fn execute(self: *Runtime, func: *bytecode.Function) !void {
+    fn execute(self: *Runtime, func: *const bytecode.Function, func_map: *std.StringHashMap(bytecode.Function)) !void {
         // Print bytecode if debug mode
         if (self.debug_mode) {
             std.debug.print("\n[DEBUG] === Bytecode ===\n", .{});
@@ -109,7 +121,7 @@ pub const Runtime = struct {
         }
 
         // Create VM and execute bytecode
-        var gene_vm = vm.VM.init(self.allocator, self.stdout);
+        var gene_vm = vm.VM.init(self.allocator, self.stdout, func_map.*);
         defer gene_vm.deinit();
 
         try gene_vm.execute(func);
@@ -135,7 +147,7 @@ pub const Runtime = struct {
 
         // Compile AST to bytecode
         const func = try compiler.compile(ctx, nodes_list.items);
-        
+
         // Create module with the function
         const functions = try self.allocator.alloc(bytecode.Function, 1);
         functions[0] = func;
@@ -147,7 +159,7 @@ pub const Runtime = struct {
 
         // Create output file with .gbc extension
         const output_path = if (std.mem.endsWith(u8, file_path, ".gene"))
-            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path[0..file_path.len - 5]})
+            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path[0 .. file_path.len - 5]})
         else
             try std.fmt.allocPrint(self.allocator, "{s}", .{file_path});
         defer self.allocator.free(output_path);

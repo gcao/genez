@@ -1,13 +1,15 @@
 const std = @import("std");
 
+const DEBUG_MODE = true; // Or false, depending on default debug logging preference
+
 pub fn log(comptime format: []const u8, args: anytype) void {
-    if (@import("build_options").debug_mode) {
+    if (DEBUG_MODE) {
         std.debug.print("[DEBUG] " ++ format ++ "\n", args);
     }
 }
 
 pub fn logValue(value: @import("types.zig").Value) void {
-    if (@import("build_options").debug_mode) {
+    if (DEBUG_MODE) {
         switch (value) {
             .Nil => log("Nil", .{}),
             .Bool => |b| log("Bool: {}", .{b}),

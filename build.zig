@@ -12,6 +12,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Declare ast module
+    const ast_module = b.addModule("ast", .{ .root_source_file = b.path("src/ast.zig") });
+    exe.root_module.addImport("ast", ast_module);
+
+    // Declare parser module with ast dependency
+    const parser_module = b.addModule("parser", .{ .root_source_file = b.path("src/parser.zig"), .imports = &.{.{ .name = "ast", .module = ast_module }} });
+    exe.root_module.addImport("parser", parser_module);
+
     // Add build options
     const debug_mode = b.option(bool, "debug", "Enable debug mode") orelse false;
     const options = b.addOptions();

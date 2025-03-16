@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("ast.zig");
+const AstNode = @import("ast.zig").AstNode;
 const bytecode = @import("bytecode.zig");
 const ast_to_hir = @import("ast_to_hir.zig");
 const hir_to_mir = @import("hir_to_mir.zig");
@@ -22,7 +22,7 @@ pub const CompilationContext = struct {
     }
 };
 
-pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function {
+pub fn compile(ctx: CompilationContext, nodes: []AstNode) !bytecode.Function {
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== AST to HIR ===\n", .{});
     }

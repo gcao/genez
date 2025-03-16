@@ -1,6 +1,6 @@
 const std = @import("std");
 const types = @import("types.zig");
-const ast = @import("ast.zig");
+const ast = @import("ast.zig").ast;
 const Type = types.Type;
 const Value = types.Value;
 const AstNode = ast.AstNode;

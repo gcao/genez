@@ -11,8 +11,11 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     const allocator = arena.allocator();
 
     const nodes = try parser.parseGeneSource(allocator, source);
-    const func = try bytecode.lowerToBytecode(allocator, nodes.items);
-    var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer());
+    const lowered = try bytecode.lowerToBytecode(allocator, nodes.items);
+    var func = bytecode.Function.init(allocator);
+    func.instructions = lowered.func.instructions;
+    const function_map = std.StringHashMap(bytecode.Function).init(allocator);
+    var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer(), function_map);
     defer gene_vm.deinit();
 
     try gene_vm.execute(&func);
@@ -46,4 +49,38 @@ test "execute integer literal" {
 
 test "execute binary operation" {
     try testGeneExecution("(+ 1 2)", .{ .Int = 3 });
+}
+
+test "less than comparison" {
+    try testGeneExecution("(< 1 2)", .{ .Bool = true });
+    try testGeneExecution("(< 2 1)", .{ .Bool = false });
+    try testGeneExecution("(< 2 2)", .{ .Bool = false });
+}
+
+test "simple recursion (factorial)" {
+    const factorial_source =
+        \\(fn fact [n int]
+        \\  (if (n < 2)
+        \\    1
+        \\  else
+        \\    (n * (fact (n - 1)))
+        \\  )
+        \\)
+        \\(fact 5)
+    ;
+    try testGeneExecution(factorial_source, .{ .Int = 120 });
+}
+
+test "fibonacci" {
+    const fibonacci_source =
+        \\(fn fib [n int]
+        \\  (if (n < 2)
+        \\    n
+        \\  else
+        \\    ((fib (n - 1)) + (fib (n - 2)))
+        \\  )
+        \\)
+        \\(fib 10)
+    ;
+    try testGeneExecution(fibonacci_source, .{ .Int = 55 });
 }

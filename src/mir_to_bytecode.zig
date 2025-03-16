@@ -1,7 +1,8 @@
 const std = @import("std");
 const mir = @import("mir.zig");
 const bytecode = @import("bytecode.zig");
-const types = @import("types.zig");
+const ast = @import("ast.zig");
+const AstNode = ast.AstNode;
 
 pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !bytecode.Function {
     var func = bytecode.Function.init(allocator);
@@ -9,92 +10,108 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !bytecode.Funct
 
     // Convert each MIR function to bytecode
     for (mir_prog.functions.items) |*mir_func| {
-        // Convert each block to bytecode instructions
+        // Convert each block in the function
         for (mir_func.blocks.items) |*block| {
             // Convert each instruction to bytecode
             for (block.instructions.items) |*instr| {
-                try convertInstruction(&func, instr);
+                try convertInstruction(allocator, &func.instructions, instr);
             }
         }
     }
-
     return func;
 }
 
-fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !void {
+fn convertInstruction(allocator: std.mem.Allocator, instructions: *std.ArrayList(bytecode.Instruction), instr: *const mir.MIR.Instruction) !void {
     switch (instr.*) {
-        .LoadInt => |val| try func.instructions.append(.{
-            .op = bytecode.OpCode.LoadConst,
-            .operand = types.Value{ .Int = val },
+        .LoadInt => |val| try instructions.append(.{
+            .op = .LoadConst,
+            .operand = .{ .Int = val },
         }),
-        .LoadFloat => |val| try func.instructions.append(.{
-            .op = bytecode.OpCode.LoadConst,
-            .operand = types.Value{ .Float = val },
+        .LoadFloat => |val| try instructions.append(.{
+            .op = .LoadConst,
+            .operand = .{ .Float = val },
         }),
-        .LoadBool => |val| try func.instructions.append(.{
-            .op = bytecode.OpCode.LoadConst,
-            .operand = types.Value{ .Bool = val },
+        .LoadBool => |val| try instructions.append(.{
+            .op = .LoadConst,
+            .operand = .{ .Bool = val },
         }),
-        .LoadString => |val| {
-            // Take ownership of the string
-            try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadConst,
-                .operand = types.Value{ .String = val },
-            });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
-        },
-        .LoadNil => try func.instructions.append(.{
-            .op = bytecode.OpCode.LoadConst,
-            .operand = types.Value{ .Nil = {} },
+        .LoadString => |val| try instructions.append(.{
+            .op = .LoadConst,
+            .operand = .{ .String = try allocator.dupe(u8, val) },
         }),
-        .LoadSymbol => |val| {
-            // Take ownership of the symbol
-            try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadConst,
-                .operand = types.Value{ .Symbol = val },
-            });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
-        },
-        .LoadArray => |val| {
-            // Take ownership of the array
-            try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadConst,
-                .operand = types.Value{ .Array = val },
-            });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
-        },
+        .LoadNil => try instructions.append(.{
+            .op = .LoadConst,
+            .operand = .{ .Nil = {} },
+        }),
+        .LoadSymbol => |val| try instructions.append(.{
+            .op = .LoadConst,
+            .operand = .{ .Symbol = try allocator.dupe(u8, val) },
+        }),
+        .LoadArray => |val| try instructions.append(.{
+            .op = .LoadConst,
+            .operand = .{ .Array = try allocator.dupe(AstNode.Value, val) },
+        }),
         .LoadMap => |val| {
-            // Take ownership of the map
-            try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadConst,
-                .operand = types.Value{ .Map = val },
+            var new_map = std.StringHashMap(AstNode.Value).init(allocator);
+            var it = val.iterator();
+            while (it.next()) |entry| {
+                try new_map.put(try allocator.dupe(u8, entry.key_ptr.*), entry.value_ptr.*);
+            }
+            try instructions.append(.{
+                .op = .LoadConst,
+                .operand = .{ .Map = new_map },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
         },
-        .LoadVariable => |val| {
-            // Take ownership of the variable name
-            try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadVar,
-                .operand = types.Value{ .Symbol = val },
+        .LoadVariable => |val| try instructions.append(.{
+            .op = .LoadVar,
+            .operand = .{ .String = try allocator.dupe(u8, val) },
+        }),
+        .Add => try instructions.append(.{ .op = .Add }),
+        .Sub => try instructions.append(.{ .op = .Sub }),
+        .Mul => try instructions.append(.{ .op = .Mul }),
+        .Div => try instructions.append(.{ .op = .Div }),
+        .Lt => try instructions.append(.{ .op = .Lt }),
+        .Gt => try instructions.append(.{ .op = .Gt }),
+        .Eq => try instructions.append(.{ .op = .Eq }),
+        .Print => try instructions.append(.{ .op = .Print }),
+        .Return => try instructions.append(.{ .op = .Return }),
+        .DefineFunction => |func| {
+            // Create a new function
+            var new_func = bytecode.Function.init(allocator);
+
+            // Convert all instructions in the function's blocks
+            for (func.blocks.items) |block| {
+                for (block.instructions.items) |*block_instr| {
+                    try convertInstruction(allocator, &new_func.instructions, block_instr);
+                }
+            }
+
+            // Add the function to the module's functions list
+            try instructions.append(.{
+                .op = .DefineFunction,
+                .operand = .{ .String = try allocator.dupe(u8, func.name) },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
         },
-        .Add => try func.instructions.append(.{
-            .op = bytecode.OpCode.Add,
-            .operand = null,
+        .Call => |call| {
+            // First convert the function expression
+            try instructions.append(.{ .op = .LoadVar, .operand = .{ .String = try allocator.dupe(u8, call.func) } });
+
+            // Call the function
+            try instructions.append(.{
+                .op = .Call,
+                .operand = .{ .Int = @as(i64, @intCast(call.arg_count)) },
+            });
+        },
+        .JumpIfFalse => |jump| try instructions.append(.{
+            .op = .JumpIfFalse,
+            .operand = .{ .Int = @as(i64, @intCast(jump.offset)) },
         }),
-        .Print => try func.instructions.append(.{
-            .op = bytecode.OpCode.Print,
-            .operand = null,
+        .Jump => |jump| try instructions.append(.{
+            .op = .Jump,
+            .operand = .{ .Int = @as(i64, @intCast(jump.offset)) },
         }),
-        .Return => try func.instructions.append(.{
-            .op = bytecode.OpCode.Return,
-            .operand = null,
-        }),
+        .Store => |expr| {
+            try convertInstruction(allocator, instructions, &.{ .LoadVariable = expr.LoadVariable });
+        },
     }
 }

@@ -1,1 +1,1 @@
-pub const debug_mode: bool = @import("build_options").debug_mode;
+pub const debug_mode = @compileLog().build_options.debug_mode;

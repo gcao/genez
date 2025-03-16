@@ -1,6 +1,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const ast = @import("ast.zig");
+const AstNode = ast.AstNode;
 
 pub const Type = enum {
     void,
@@ -64,12 +65,40 @@ pub const HIR = struct {
         literal: Literal,
         variable: Variable,
         binary_op: BinaryOp,
+        if_expr: IfExpr,
+        func_def: FuncDef,
+        func_call: FuncCall,
+        If: struct {
+            condition: *Expression,
+            then_branch: *Expression,
+            else_branch: ?*Expression,
+        },
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
                 .literal => |*lit| lit.deinit(allocator),
                 .variable => |*var_expr| var_expr.deinit(allocator),
                 .binary_op => |*bin_op| bin_op.deinit(allocator),
+                .if_expr => |*if_expr| {
+                    if_expr.condition.deinit(allocator);
+                    if_expr.then_branch.deinit(allocator);
+                    if (if_expr.else_branch) |else_branch| {
+                        else_branch.deinit(allocator);
+                        allocator.destroy(else_branch);
+                    }
+                },
+                .func_def => |*func_def| func_def.deinit(allocator),
+                .func_call => |*func_call| func_call.deinit(allocator),
+                .If => |*if_expr| {
+                    if_expr.condition.deinit(allocator);
+                    allocator.destroy(if_expr.condition);
+                    if_expr.then_branch.deinit(allocator);
+                    allocator.destroy(if_expr.then_branch);
+                    if (if_expr.else_branch) |else_branch| {
+                        else_branch.deinit(allocator);
+                        allocator.destroy(else_branch);
+                    }
+                },
             }
         }
     };
@@ -81,8 +110,8 @@ pub const HIR = struct {
         float: f64,
         string: []const u8,
         symbol: []const u8,
-        array: []ast.Value,
-        map: std.StringHashMap(ast.Value),
+        array: []AstNode.Value,
+        map: std.StringHashMap(AstNode.Value),
 
         pub fn deinit(self: *Literal, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -124,6 +153,70 @@ pub const HIR = struct {
 
     pub const BinaryOpType = enum {
         add,
+        sub,
+        mul,
+        div,
+        lt,
+        gt,
+        eq,
+    };
+
+    pub const IfExpr = struct {
+        condition: *Expression,
+        then_branch: *Expression,
+        else_branch: ?*Expression,
+
+        pub fn deinit(self: *IfExpr, allocator: std.mem.Allocator) void {
+            self.condition.deinit(allocator);
+            self.then_branch.deinit(allocator);
+            allocator.destroy(self.condition);
+            allocator.destroy(self.then_branch);
+            if (self.else_branch) |else_branch| {
+                else_branch.deinit(allocator);
+                allocator.destroy(else_branch);
+            }
+        }
+    };
+
+    pub const FuncParam = struct {
+        name: []const u8,
+        param_type: Type,
+
+        pub fn deinit(self: *FuncParam, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+        }
+    };
+
+    pub const FuncDef = struct {
+        name: []const u8,
+        params: std.ArrayList(FuncParam),
+        return_type: Type,
+        body: *Expression,
+
+        pub fn deinit(self: *FuncDef, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            for (self.params.items) |*param| {
+                param.deinit(allocator);
+            }
+            self.params.deinit();
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+    };
+
+    pub const FuncCall = struct {
+        func: *Expression,
+        args: std.ArrayList(*Expression),
+
+        pub fn deinit(self: *FuncCall, allocator: std.mem.Allocator) void {
+            self.func.deinit(allocator);
+            allocator.destroy(self.func);
+            for (self.args.items) |arg| {
+                arg.deinit(allocator);
+                allocator.destroy(arg);
+            }
+            self.args.deinit();
+        }
     };
 
     pub const Value = union(Type) {
