@@ -64,12 +64,16 @@ pub const HIR = struct {
         literal: Literal,
         variable: Variable,
         binary_op: BinaryOp,
+        if_expr: If,
+        func_call: FuncCall,
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
                 .literal => |*lit| lit.deinit(allocator),
                 .variable => |*var_expr| var_expr.deinit(allocator),
                 .binary_op => |*bin_op| bin_op.deinit(allocator),
+                .if_expr => |*if_expr| if_expr.deinit(allocator),
+                .func_call => |*func_call| func_call.deinit(allocator),
             }
         }
     };
@@ -124,6 +128,40 @@ pub const HIR = struct {
 
     pub const BinaryOpType = enum {
         add,
+        sub,
+        lt,
+    };
+
+    pub const If = struct {
+        condition: *Expression,
+        then_branch: *Expression,
+        else_branch: ?*Expression,
+
+        pub fn deinit(self: *If, allocator: std.mem.Allocator) void {
+            self.condition.deinit(allocator);
+            allocator.destroy(self.condition);
+            self.then_branch.deinit(allocator);
+            allocator.destroy(self.then_branch);
+            if (self.else_branch) |else_branch| {
+                else_branch.deinit(allocator);
+                allocator.destroy(else_branch);
+            }
+        }
+    };
+
+    pub const FuncCall = struct {
+        func: *Expression,
+        args: std.ArrayList(*Expression),
+
+        pub fn deinit(self: *FuncCall, allocator: std.mem.Allocator) void {
+            self.func.deinit(allocator);
+            allocator.destroy(self.func);
+            for (self.args.items) |arg| {
+                arg.deinit(allocator);
+                allocator.destroy(arg);
+            }
+            self.args.deinit();
+        }
     };
 
     pub const Value = union(Type) {

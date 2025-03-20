@@ -59,14 +59,32 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) !std.Ar
             continue;
         }
 
-        // Handle identifiers
+        // Handle identifiers and keywords
         if (std.ascii.isAlphabetic(c)) {
             const start: usize = i;
             while (i < source_to_parse.len and (std.ascii.isAlphabetic(source_to_parse[i]) or std.ascii.isDigit(source_to_parse[i]))) : (i += 1) {}
             i -= 1;  // Back up one since loop will increment
-            const ident = try allocator.dupe(u8, source_to_parse[start..i + 1]);
-            debug.log("Found identifier: {s}", .{ident});
-            try tokens.append(.{ .kind = .{ .Ident = ident } });
+            const word = source_to_parse[start..i + 1];
+            
+            // Check for keywords and boolean literals
+            if (std.mem.eql(u8, word, "if")) {
+                debug.log("Found if keyword", .{});
+                try tokens.append(.{ .kind = .If });
+            } else if (std.mem.eql(u8, word, "else")) {
+                debug.log("Found else keyword", .{});
+                try tokens.append(.{ .kind = .Else });
+            } else if (std.mem.eql(u8, word, "true")) {
+                debug.log("Found boolean true", .{});
+                try tokens.append(.{ .kind = .{ .Bool = true } });
+            } else if (std.mem.eql(u8, word, "false")) {
+                debug.log("Found boolean false", .{});
+                try tokens.append(.{ .kind = .{ .Bool = false } });
+            } else {
+                // Regular identifier
+                const ident = try allocator.dupe(u8, word);
+                debug.log("Found identifier: {s}", .{ident});
+                try tokens.append(.{ .kind = .{ .Ident = ident } });
+            }
             continue;
         }
 
@@ -83,6 +101,14 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) !std.Ar
             '+' => {
                 debug.log("Found plus operator", .{});
                 try tokens.append(.{ .kind = .Plus });
+            },
+            '-' => {
+                debug.log("Found minus operator", .{});
+                try tokens.append(.{ .kind = .Minus });
+            },
+            '<' => {
+                debug.log("Found less than operator", .{});
+                try tokens.append(.{ .kind = .LessThan });
             },
             else => {},
         }
@@ -161,6 +187,12 @@ fn parseExpr(alloc: std.mem.Allocator, toks: []const Token) !struct { expr: ast.
                 .consumed = 1,
             };
         },
+        .Bool => |val| {
+            return .{
+                .expr = .{ .Literal = .{ .value = .{ .Bool = val } } },
+                .consumed = 1,
+            };
+        },
         .String => |str| {
             const str_copy = try alloc.dupe(u8, str);
             return .{
@@ -172,20 +204,84 @@ fn parseExpr(alloc: std.mem.Allocator, toks: []const Token) !struct { expr: ast.
             pos += 1;
             if (pos >= toks.len) return error.UnexpectedEOF;
 
+            // Check if this is an if expression
+            if (toks[pos].kind == .If) {
+                pos += 1; // Skip 'if'
+                if (pos >= toks.len) return error.UnexpectedEOF;
+
+                // Parse condition
+                const condition_result = try parseExpr(alloc, toks[pos..]);
+                pos += condition_result.consumed;
+                if (pos >= toks.len) return error.UnexpectedEOF;
+
+                // Create condition node
+                const condition = try alloc.create(ast.Expression);
+                errdefer alloc.destroy(condition);
+                condition.* = condition_result.expr;
+
+                // Parse then branch
+                const then_result = try parseExpr(alloc, toks[pos..]);
+                pos += then_result.consumed;
+
+                // Create then branch node
+                const then_branch = try alloc.create(ast.Expression);
+                errdefer alloc.destroy(then_branch);
+                then_branch.* = then_result.expr;
+
+                // Check for else branch
+                var else_branch: ?*ast.Expression = null;
+                if (pos < toks.len and toks[pos].kind == .Else) {
+                    pos += 1; // Skip 'else'
+                    if (pos >= toks.len) return error.UnexpectedEOF;
+
+                    // Parse else branch
+                    const else_result = try parseExpr(alloc, toks[pos..]);
+                    pos += else_result.consumed;
+
+                    // Create else branch node
+                    else_branch = try alloc.create(ast.Expression);
+                    errdefer alloc.destroy(else_branch.?);
+                    else_branch.?.* = else_result.expr;
+                }
+
+                // Verify RParen exists
+                if (pos >= toks.len or toks[pos].kind != .RParen) {
+                    return error.ExpectedRParen;
+                }
+
+                return .{
+                    .expr = .{ .If = .{
+                        .condition = condition,
+                        .then_branch = then_branch,
+                        .else_branch = else_branch,
+                    } },
+                    .consumed = pos + 1,
+                };
+            }
             // Check if this is a binary operation
-            if (toks[pos].kind == .Int or toks[pos].kind == .String) {
+            else if (toks[pos].kind == .Int or toks[pos].kind == .String) {
                 const left_result = try parseExpr(alloc, toks[pos..]);
                 pos += left_result.consumed;
 
                 if (pos >= toks.len) return error.UnexpectedEOF;
 
                 // Check for operator
-                if (toks[pos].kind == .Plus) {
+                if (toks[pos].kind == .Plus or toks[pos].kind == .Minus or toks[pos].kind == .LessThan) {
+                    // Store the operator token before moving past it
+                    const op_token = toks[pos].kind;
                     pos += 1;
                     if (pos >= toks.len) return error.UnexpectedEOF;
 
                     const right_result = try parseExpr(alloc, toks[pos..]);
                     pos += right_result.consumed;
+
+                    // Determine the operator type using the stored token
+                    const op_type: ast.BinaryOpType = switch (op_token) {
+                        .Plus => .add,
+                        .Minus => .sub,
+                        .LessThan => .lt,
+                        else => unreachable,
+                    };
 
                     // Create binary op node
                     const left = try alloc.create(ast.Expression);
@@ -203,7 +299,7 @@ fn parseExpr(alloc: std.mem.Allocator, toks: []const Token) !struct { expr: ast.
 
                     return .{
                         .expr = .{ .BinaryOp = .{
-                            .op = .add,
+                            .op = op_type,
                             .left = left,
                             .right = right,
                         } },
@@ -265,6 +361,11 @@ const TokenKind = union(enum) {
     LParen,
     RParen,
     Plus,
+    Minus,
+    LessThan,
+    If,
+    Else,
+    Bool: bool,
 };
 
 const Token = struct {

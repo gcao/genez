@@ -88,6 +88,26 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             .op = bytecode.OpCode.Add,
             .operand = null,
         }),
+        .Sub => try func.instructions.append(.{
+            .op = bytecode.OpCode.Sub,
+            .operand = null,
+        }),
+        .LessThan => try func.instructions.append(.{
+            .op = bytecode.OpCode.Lt,
+            .operand = null,
+        }),
+        .Jump => |target| try func.instructions.append(.{
+            .op = bytecode.OpCode.LoadConst,
+            .operand = types.Value{ .Int = @as(i64, @intCast(target)) },
+        }),
+        .JumpIfFalse => |target| try func.instructions.append(.{
+            .op = bytecode.OpCode.LoadConst,
+            .operand = types.Value{ .Int = @as(i64, @intCast(target)) },
+        }),
+        .Call => |arg_count| try func.instructions.append(.{
+            .op = bytecode.OpCode.Call,
+            .operand = types.Value{ .Int = @as(i64, @intCast(arg_count)) },
+        }),
         .Print => try func.instructions.append(.{
             .op = bytecode.OpCode.Print,
             .operand = null,

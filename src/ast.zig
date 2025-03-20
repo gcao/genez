@@ -52,6 +52,8 @@ pub const Variable = struct {
 
 pub const BinaryOpType = enum {
     add,
+    lt,
+    sub,
 };
 
 pub const BinaryOp = struct {
@@ -83,16 +85,103 @@ pub const BinaryOp = struct {
     }
 };
 
+pub const FuncCall = struct {
+    func: *Expression,
+    args: std.ArrayList(*Expression),
+
+    pub fn deinit(self: *FuncCall, allocator: std.mem.Allocator) void {
+        self.func.deinit(allocator);
+        allocator.destroy(self.func);
+        for (self.args.items) |arg| {
+            arg.deinit(allocator);
+            allocator.destroy(arg);
+        }
+        self.args.deinit();
+    }
+
+    pub fn clone(self: FuncCall, allocator: std.mem.Allocator) error{OutOfMemory}!FuncCall {
+        var args = std.ArrayList(*Expression).init(allocator);
+        errdefer {
+            for (args.items) |arg| {
+                arg.deinit(allocator);
+                allocator.destroy(arg);
+            }
+            args.deinit();
+        }
+
+        try args.ensureTotalCapacity(self.args.items.len);
+        for (self.args.items) |arg| {
+            const new_arg = try allocator.create(Expression);
+            errdefer allocator.destroy(new_arg);
+            new_arg.* = try arg.clone(allocator);
+            try args.append(new_arg);
+        }
+
+        const func = try allocator.create(Expression);
+        errdefer allocator.destroy(func);
+        func.* = try self.func.clone(allocator);
+
+        return FuncCall{
+            .func = func,
+            .args = args,
+        };
+    }
+};
+
+pub const If = struct {
+    condition: *Expression,
+    then_branch: *Expression,
+    else_branch: ?*Expression,
+
+    pub fn deinit(self: *If, allocator: std.mem.Allocator) void {
+        self.condition.deinit(allocator);
+        allocator.destroy(self.condition);
+        self.then_branch.deinit(allocator);
+        allocator.destroy(self.then_branch);
+        if (self.else_branch) |else_branch| {
+            else_branch.deinit(allocator);
+            allocator.destroy(else_branch);
+        }
+    }
+
+    pub fn clone(self: If, allocator: std.mem.Allocator) error{OutOfMemory}!If {
+        const condition = try allocator.create(Expression);
+        errdefer allocator.destroy(condition);
+        condition.* = try self.condition.clone(allocator);
+
+        const then_branch = try allocator.create(Expression);
+        errdefer allocator.destroy(then_branch);
+        then_branch.* = try self.then_branch.clone(allocator);
+
+        var else_branch: ?*Expression = null;
+        if (self.else_branch) |old_else_branch| {
+            else_branch = try allocator.create(Expression);
+            errdefer allocator.destroy(else_branch.?);
+            else_branch.?.* = try old_else_branch.clone(allocator);
+        }
+
+        return If{
+            .condition = condition,
+            .then_branch = then_branch,
+            .else_branch = else_branch,
+        };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
     BinaryOp: BinaryOp,
+    If: If,
+    FuncCall: FuncCall,
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .Literal => |*lit| lit.deinit(allocator),
             .Variable => |*var_expr| var_expr.deinit(allocator),
             .BinaryOp => |*bin_op| bin_op.deinit(allocator),
+            .If => |*if_expr| if_expr.deinit(allocator),
+            .FuncCall => |*func_call| func_call.deinit(allocator),
         }
     }
 
@@ -101,6 +190,8 @@ pub const Expression = union(enum) {
             .Literal => |lit| Expression{ .Literal = try lit.clone(allocator) },
             .Variable => |var_expr| Expression{ .Variable = try var_expr.clone(allocator) },
             .BinaryOp => |bin_op| Expression{ .BinaryOp = try bin_op.clone(allocator) },
+            .If => |if_expr| Expression{ .If = try if_expr.clone(allocator) },
+            .FuncCall => |func_call| Expression{ .FuncCall = try func_call.clone(allocator) },
         };
     }
 };

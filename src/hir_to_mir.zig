@@ -81,6 +81,8 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
             // Finally add the operation
             switch (bin_op.op) {
                 .add => try block.instructions.append(.Add),
+                .sub => try block.instructions.append(.Sub),
+                .lt => try block.instructions.append(.LessThan),
             }
         },
         .variable => |var_expr| {
@@ -91,6 +93,50 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
                 errdefer block.allocator.free(name_copy);
                 try block.instructions.append(.{ .LoadVariable = name_copy });
             }
+        },
+        .if_expr => |if_expr| {
+            // First, evaluate the condition
+            try convertExpression(block, if_expr.condition.*);
+
+            // Create a JumpIfFalse instruction - we'll set the target later
+            const jump_if_false_index = block.instructions.items.len;
+            try block.instructions.append(.{ .JumpIfFalse = 0 });
+
+            // Generate code for the then branch
+            try convertExpression(block, if_expr.then_branch.*);
+
+            // If there's an else branch, we need to jump over it after the then branch
+            const jump_over_else_index = if (if_expr.else_branch != null) block.instructions.items.len else 0;
+            if (if_expr.else_branch != null) {
+                try block.instructions.append(.{ .Jump = 0 });
+            }
+
+            // Now we know where the else branch starts, so we can set the JumpIfFalse target
+            const else_branch_index = block.instructions.items.len;
+            block.instructions.items[jump_if_false_index].JumpIfFalse = else_branch_index;
+
+            // Generate code for the else branch if it exists
+            if (if_expr.else_branch) |else_branch| {
+                try convertExpression(block, else_branch.*);
+            }
+
+            // Now we know where the code after the if statement starts, so we can set the Jump target
+            const after_if_index = block.instructions.items.len;
+            if (if_expr.else_branch != null) {
+                block.instructions.items[jump_over_else_index].Jump = after_if_index;
+            }
+        },
+        .func_call => |func_call| {
+            // First, evaluate the function
+            try convertExpression(block, func_call.func.*);
+
+            // Then evaluate all the arguments in order
+            for (func_call.args.items) |arg| {
+                try convertExpression(block, arg.*);
+            }
+
+            // Finally, call the function with the number of arguments
+            try block.instructions.append(.{ .Call = func_call.args.items.len });
         },
     }
 }

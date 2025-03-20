@@ -91,6 +91,11 @@ pub const MIR = struct {
         LoadMap: std.StringHashMap(types.Value),
         LoadVariable: []const u8,
         Add,
+        Sub,
+        LessThan,
+        Jump: usize,
+        JumpIfFalse: usize,
+        Call: usize,
         Print,
         Return,
     };

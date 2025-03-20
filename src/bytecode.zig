@@ -9,8 +9,11 @@ pub const OpCode = enum {
     LoadVar,
     StoreVar,
     Add,
+    Sub,
+    Lt,
     Print,
     Return,
+    Call,
 };
 
 pub const Instruction = struct {
@@ -297,7 +300,12 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
         .BinaryOp => |bin_op| {
             try lowerExpression(allocator, instructions, bin_op.left.*);
             try lowerExpression(allocator, instructions, bin_op.right.*);
-            try instructions.append(.{ .op = .Add });
+            
+            switch (bin_op.op) {
+                .add => try instructions.append(.{ .op = .Add }),
+                .lt => try instructions.append(.{ .op = .Lt }),
+                .sub => try instructions.append(.{ .op = .Sub }),
+            }
         },
         .Variable => |var_expr| {
             if (std.mem.eql(u8, var_expr.name, "print")) {
@@ -305,6 +313,35 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             } else {
                 // Handle other variables here
             }
+        },
+        .If => |if_expr| {
+            // Evaluate condition
+            try lowerExpression(allocator, instructions, if_expr.condition.*);
+            
+            // Placeholder for conditional branching
+            // In a real implementation, this would generate conditional jump instructions
+            
+            // For now, just evaluate the then branch
+            try lowerExpression(allocator, instructions, if_expr.then_branch.*);
+            
+            // If there's an else branch, we would handle it here
+            if (if_expr.else_branch) |else_branch| {
+                _ = else_branch; // Avoid unused variable warning
+                // In a real implementation, this would generate code for the else branch
+            }
+        },
+        .FuncCall => |func_call| {
+            // Evaluate arguments in reverse order (for stack-based evaluation)
+            for (func_call.args.items) |arg| {
+                try lowerExpression(allocator, instructions, arg.*);
+            }
+            
+            // Evaluate function expression
+            try lowerExpression(allocator, instructions, func_call.func.*);
+            
+            // Placeholder for function call instruction
+            // In a real implementation, this would generate a call instruction
+            try instructions.append(.{ .op = .Call });
         },
     }
 }

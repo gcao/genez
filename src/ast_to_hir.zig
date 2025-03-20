@@ -48,6 +48,74 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             },
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
+        .If => |if_expr| {
+            var condition = try lowerExpression(allocator, if_expr.condition.*);
+            errdefer condition.deinit(allocator);
+
+            var then_branch = try lowerExpression(allocator, if_expr.then_branch.*);
+            errdefer then_branch.deinit(allocator);
+
+            const condition_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(condition_ptr);
+            condition_ptr.* = condition;
+
+            const then_branch_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(then_branch_ptr);
+            then_branch_ptr.* = then_branch;
+
+            var else_branch_ptr: ?*hir.HIR.Expression = null;
+            if (if_expr.else_branch) |else_branch| {
+                var else_expr = try lowerExpression(allocator, else_branch.*);
+                errdefer else_expr.deinit(allocator);
+
+                else_branch_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(else_branch_ptr.?);
+                else_branch_ptr.?.* = else_expr;
+            }
+
+            return hir.HIR.Expression{
+                .if_expr = .{
+                    .condition = condition_ptr,
+                    .then_branch = then_branch_ptr,
+                    .else_branch = else_branch_ptr,
+                },
+            };
+        },
+        .FuncCall => |func_call| {
+            var func = try lowerExpression(allocator, func_call.func.*);
+            errdefer func.deinit(allocator);
+
+            const func_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(func_ptr);
+            func_ptr.* = func;
+
+            var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
+            errdefer {
+                for (args.items) |arg| {
+                    arg.deinit(allocator);
+                    allocator.destroy(arg);
+                }
+                args.deinit();
+            }
+
+            for (func_call.args.items) |arg| {
+                var arg_expr = try lowerExpression(allocator, arg.*);
+                errdefer arg_expr.deinit(allocator);
+
+                const arg_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(arg_ptr);
+                arg_ptr.* = arg_expr;
+
+                try args.append(arg_ptr);
+            }
+
+            return hir.HIR.Expression{
+                .func_call = .{
+                    .func = func_ptr,
+                    .args = args,
+                },
+            };
+        },
         .BinaryOp => |bin_op| {
             var left = try lowerExpression(allocator, bin_op.left.*);
             errdefer left.deinit(allocator);
@@ -67,6 +135,8 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 .binary_op = .{
                     .op = switch (bin_op.op) {
                         .add => .add,
+                        .sub => .sub,
+                        .lt => .lt,
                     },
                     .left = left_ptr,
                     .right = right_ptr,
