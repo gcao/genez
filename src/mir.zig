@@ -90,9 +90,12 @@ pub const MIR = struct {
         LoadArray: []types.Value,
         LoadMap: std.StringHashMap(types.Value),
         LoadVariable: []const u8,
+        LoadFunction: *Function,
+        StoreVariable: []const u8,
         Add,
         Sub,
         LessThan,
+        GreaterThan, // Added GreaterThan instruction
         Jump: usize,
         JumpIfFalse: usize,
         Call: usize,

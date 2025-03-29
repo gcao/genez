@@ -96,6 +96,10 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             .op = bytecode.OpCode.Lt,
             .operand = null,
         }),
+        .GreaterThan => try func.instructions.append(.{
+            .op = bytecode.OpCode.Gt,
+            .operand = null,
+        }),
         .Jump => |target| try func.instructions.append(.{
             .op = bytecode.OpCode.LoadConst,
             .operand = types.Value{ .Int = @as(i64, @intCast(target)) },
@@ -116,5 +120,40 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             .op = bytecode.OpCode.Return,
             .operand = null,
         }),
+        .LoadFunction => |func_ptr| {
+            // Convert the function's blocks to bytecode
+            var bc_func = bytecode.Function.init(func.allocator);
+
+            for (func_ptr.blocks.items) |*block| {
+                for (block.instructions.items) |*block_instr| {
+                    try convertInstruction(&bc_func, block_instr);
+                }
+            }
+
+            // Create a function value
+            const temp_func = try func.allocator.create(bytecode.Function);
+            temp_func.* = .{
+                .instructions = bc_func.instructions,
+                .allocator = func.allocator,
+                .name = try func.allocator.dupe(u8, func_ptr.name),
+                .param_count = 0, // TODO: Update when MIR function params are implemented
+            };
+
+            const func_value = types.Value{ .Function = temp_func };
+
+            // Load it as a constant
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.LoadConst,
+                .operand = func_value,
+            });
+        },
+        .StoreVariable => |name| {
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.StoreVar,
+                .operand = types.Value{ .String = name },
+            });
+            // Clear the MIR instruction so it won't be freed
+            instr.* = .LoadNil;
+        },
     }
 }

@@ -46,6 +46,13 @@ fn convertStatement(block: *mir.MIR.Block, stmt: hir.HIR.Statement) !void {
     }
 }
 
+fn isReturnInstruction(instruction: mir.MIR.Instruction) bool {
+    return switch (instruction) {
+        .Return => true,
+        else => false,
+    };
+}
+
 fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
     switch (expr) {
         .literal => |lit| switch (lit) {
@@ -83,6 +90,8 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
                 .add => try block.instructions.append(.Add),
                 .sub => try block.instructions.append(.Sub),
                 .lt => try block.instructions.append(.LessThan),
+                .gt => try block.instructions.append(.GreaterThan), // Added GreaterThan
+                // TODO: Add other MIR binary instructions
             }
         },
         .variable => |var_expr| {
@@ -137,6 +146,54 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
 
             // Finally, call the function with the number of arguments
             try block.instructions.append(.{ .Call = func_call.args.items.len });
+        },
+        .func_def => |func_def| {
+            // Create a new function
+            var func = mir.MIR.Function.init(block.allocator);
+
+            // Set the function name
+            block.allocator.free(func.name); // Free the default name "main"
+            func.name = try block.allocator.dupe(u8, func_def.name);
+
+            // Create a block for the function body
+            var body_block = mir.MIR.Block.init(block.allocator);
+
+            // Convert the function body
+            try convertExpression(&body_block, func_def.body.*);
+
+            // Add a return instruction if not present
+            var needs_return = true;
+            if (body_block.instructions.items.len > 0) {
+                const last_instr = body_block.instructions.items[body_block.instructions.items.len - 1];
+                if (isReturnInstruction(last_instr)) {
+                    needs_return = false;
+                }
+            }
+            if (needs_return) {
+                try body_block.instructions.append(.Return);
+            }
+
+            // Add the block to the function
+            try func.blocks.append(body_block);
+
+            // Create a function object with the converted code
+            const func_obj = try block.allocator.create(mir.MIR.Function);
+            func_obj.* = func;
+
+            // Load the function as a constant
+            try block.instructions.append(.{ .LoadFunction = func_obj });
+
+            // Store it in a variable with its name
+            const name_copy = try block.allocator.dupe(u8, func_def.name);
+            try block.instructions.append(.{ .StoreVariable = name_copy });
+        },
+        .var_decl => |var_decl| {
+            // Evaluate the variable's value
+            try convertExpression(block, var_decl.value.*);
+
+            // Store it in a variable
+            const name_copy = try block.allocator.dupe(u8, var_decl.name);
+            try block.instructions.append(.{ .StoreVariable = name_copy });
         },
     }
 }

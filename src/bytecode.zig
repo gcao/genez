@@ -11,6 +11,7 @@ pub const OpCode = enum {
     Add,
     Sub,
     Lt,
+    Gt, // Added GreaterThan opcode
     Print,
     Return,
     Call,
@@ -30,11 +31,15 @@ pub const Instruction = struct {
 pub const Function = struct {
     instructions: std.ArrayList(Instruction),
     allocator: std.mem.Allocator,
+    name: []const u8,
+    param_count: usize,
 
     pub fn init(allocator: std.mem.Allocator) Function {
         return Function{
             .instructions = std.ArrayList(Instruction).init(allocator),
             .allocator = allocator,
+            .name = "",
+            .param_count = 0,
         };
     }
 
@@ -91,12 +96,12 @@ pub const Module = struct {
     pub fn writeToFile(self: *const Module, writer: anytype) !void {
         // Write magic number to identify Gene bytecode files
         try writer.writeAll("GENE");
-        
+
         // Write number of functions
         var buf: [4]u8 = undefined;
         std.mem.writeInt(u32, &buf, @intCast(self.functions.len), .little);
         try writer.writeAll(&buf);
-        
+
         // Write each function
         for (self.functions) |func| {
             try writeFunctionToFile(&func, writer);
@@ -108,12 +113,12 @@ pub const Module = struct {
         var buf: [4]u8 = undefined;
         std.mem.writeInt(u32, &buf, @intCast(func.instructions.items.len), .little);
         try writer.writeAll(&buf);
-        
+
         // Write each instruction
         for (func.instructions.items) |instr| {
             // Write opcode
             try writer.writeByte(@intFromEnum(instr.op));
-            
+
             // Write operand if present
             if (instr.operand) |operand| {
                 try writer.writeByte(1); // Has operand
@@ -127,7 +132,7 @@ pub const Module = struct {
     fn writeValueToFile(value: Value, writer: anytype) !void {
         // Write value type tag
         try writer.writeByte(@intFromEnum(value));
-        
+
         var buf: [8]u8 = undefined;
         switch (value) {
             .Int => |n| {
@@ -159,20 +164,20 @@ pub fn readFromFile(allocator: std.mem.Allocator, reader: anytype) !Module {
     if (!std.mem.eql(u8, &magic, "GENE")) {
         return error.InvalidMagicNumber;
     }
-    
+
     // Read number of functions
     var buf: [4]u8 = undefined;
     try reader.readNoEof(&buf);
     const num_funcs = std.mem.readInt(u32, &buf, .little);
-    
+
     var functions = try allocator.alloc(Function, num_funcs);
-    
+
     // Read each function
     var i: usize = 0;
     while (i < num_funcs) : (i += 1) {
         functions[i] = try readFunctionFromFile(allocator, reader);
     }
-    
+
     return Module{
         .functions = functions,
         .allocator = allocator,
@@ -181,35 +186,35 @@ pub fn readFromFile(allocator: std.mem.Allocator, reader: anytype) !Module {
 
 fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype) !Function {
     var func = Function.init(allocator);
-    
+
     // Read number of instructions
     var buf: [4]u8 = undefined;
     try reader.readNoEof(&buf);
     const num_instrs = std.mem.readInt(u32, &buf, .little);
-    
+
     // Read each instruction
     var i: usize = 0;
     while (i < num_instrs) : (i += 1) {
         // Read opcode
         const op = @as(OpCode, @enumFromInt(try reader.readByte()));
-        
+
         // Read operand if present
         const has_operand = try reader.readByte() == 1;
         const operand = if (has_operand) try readValueFromFile(allocator, reader) else null;
-        
+
         try func.instructions.append(.{
             .op = op,
             .operand = operand,
         });
     }
-    
+
     return func;
 }
 
 fn readValueFromFile(allocator: std.mem.Allocator, reader: anytype) !Value {
     // Read value type tag
     const tag = try reader.readByte();
-    
+
     var buf: [8]u8 = undefined;
     return switch (tag) {
         @intFromEnum(Value.Int) => {
@@ -225,12 +230,12 @@ fn readValueFromFile(allocator: std.mem.Allocator, reader: anytype) !Value {
             // Read string length
             try reader.readNoEof(buf[0..4]);
             const len = std.mem.readInt(u32, buf[0..4], .little);
-            
+
             // Read string data
             const str = try allocator.alloc(u8, len);
             errdefer allocator.free(str);
             try reader.readNoEof(str);
-            
+
             return Value{ .String = str };
         },
         @intFromEnum(Value.Bool) => {
@@ -300,7 +305,7 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
         .BinaryOp => |bin_op| {
             try lowerExpression(allocator, instructions, bin_op.left.*);
             try lowerExpression(allocator, instructions, bin_op.right.*);
-            
+
             switch (bin_op.op) {
                 .add => try instructions.append(.{ .op = .Add }),
                 .lt => try instructions.append(.{ .op = .Lt }),
@@ -317,13 +322,13 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
         .If => |if_expr| {
             // Evaluate condition
             try lowerExpression(allocator, instructions, if_expr.condition.*);
-            
+
             // Placeholder for conditional branching
             // In a real implementation, this would generate conditional jump instructions
-            
+
             // For now, just evaluate the then branch
             try lowerExpression(allocator, instructions, if_expr.then_branch.*);
-            
+
             // If there's an else branch, we would handle it here
             if (if_expr.else_branch) |else_branch| {
                 _ = else_branch; // Avoid unused variable warning
@@ -335,13 +340,56 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             for (func_call.args.items) |arg| {
                 try lowerExpression(allocator, instructions, arg.*);
             }
-            
+
             // Evaluate function expression
             try lowerExpression(allocator, instructions, func_call.func.*);
-            
+
             // Placeholder for function call instruction
             // In a real implementation, this would generate a call instruction
             try instructions.append(.{ .op = .Call });
+        },
+        .FuncDef => |func_def| {
+            // Create a new bytecode function object
+            var func_instructions = std.ArrayList(Instruction).init(allocator);
+            defer func_instructions.deinit();
+
+            // Generate bytecode for the function body
+            try lowerExpression(allocator, &func_instructions, func_def.body.*);
+
+            // Add return instruction at the end if not present
+            try func_instructions.append(.{ .op = .Return });
+
+            // Create a function value and load it as a constant
+            const func_value = ast.Value{ .Function = .{
+                .name = try allocator.dupe(u8, func_def.name),
+                .instructions = try func_instructions.toOwnedSlice(),
+                .param_count = @intCast(func_def.params.len),
+            } };
+
+            try instructions.append(.{
+                .op = .LoadConst,
+                .operand = func_value,
+            });
+
+            // Store the function in a variable with its name
+            try instructions.append(.{
+                .op = .StoreGlobal,
+                .operand = ast.Value{
+                    .String = try allocator.dupe(u8, func_def.name),
+                },
+            });
+        },
+        .VarDecl => |var_decl| {
+            // Evaluate the variable's value
+            try lowerExpression(allocator, instructions, var_decl.value.*);
+
+            // Store it in a variable
+            try instructions.append(.{
+                .op = .StoreGlobal,
+                .operand = ast.Value{
+                    .String = try allocator.dupe(u8, var_decl.name),
+                },
+            });
         },
     }
 }

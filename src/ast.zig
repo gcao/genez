@@ -1,5 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
+const parser = @import("parser.zig");
+const TokenKind = parser.TokenKind;
 
 pub const Type = types.Type;
 pub const Value = types.Value;
@@ -50,14 +52,8 @@ pub const Variable = struct {
     }
 };
 
-pub const BinaryOpType = enum {
-    add,
-    lt,
-    sub,
-};
-
 pub const BinaryOp = struct {
-    op: BinaryOpType,
+    op: TokenKind,
     left: *Expression,
     right: *Expression,
 
@@ -168,12 +164,90 @@ pub const If = struct {
     }
 };
 
+pub const FuncParam = struct {
+    name: []const u8,
+    param_type: ?[]const u8,
+
+    pub fn deinit(self: *FuncParam, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        if (self.param_type) |param_type| {
+            allocator.free(param_type);
+        }
+    }
+
+    pub fn clone(self: FuncParam, allocator: std.mem.Allocator) error{OutOfMemory}!FuncParam {
+        return FuncParam{
+            .name = try allocator.dupe(u8, self.name),
+            .param_type = if (self.param_type) |pt| try allocator.dupe(u8, pt) else null,
+        };
+    }
+};
+
+pub const FuncDef = struct {
+    name: []const u8,
+    params: []FuncParam,
+    body: *Expression,
+
+    pub fn deinit(self: *FuncDef, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        for (self.params) |*param| {
+            param.deinit(allocator);
+        }
+        allocator.free(self.params);
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+    }
+
+    pub fn clone(self: FuncDef, allocator: std.mem.Allocator) error{OutOfMemory}!FuncDef {
+        var params = try allocator.alloc(FuncParam, self.params.len);
+        errdefer allocator.free(params);
+
+        for (self.params, 0..) |param, i| {
+            params[i] = try param.clone(allocator);
+        }
+
+        const body = try allocator.create(Expression);
+        errdefer allocator.destroy(body);
+        body.* = try self.body.clone(allocator);
+
+        return FuncDef{
+            .name = try allocator.dupe(u8, self.name),
+            .params = params,
+            .body = body,
+        };
+    }
+};
+
+pub const VarDecl = struct {
+    name: []const u8,
+    value: *Expression,
+
+    pub fn deinit(self: *VarDecl, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        self.value.deinit(allocator);
+        allocator.destroy(self.value);
+    }
+
+    pub fn clone(self: VarDecl, allocator: std.mem.Allocator) error{OutOfMemory}!VarDecl {
+        const value = try allocator.create(Expression);
+        errdefer allocator.destroy(value);
+        value.* = try self.value.clone(allocator);
+
+        return VarDecl{
+            .name = try allocator.dupe(u8, self.name),
+            .value = value,
+        };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
     BinaryOp: BinaryOp,
     If: If,
     FuncCall: FuncCall,
+    FuncDef: FuncDef,
+    VarDecl: VarDecl,
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -182,6 +256,8 @@ pub const Expression = union(enum) {
             .BinaryOp => |*bin_op| bin_op.deinit(allocator),
             .If => |*if_expr| if_expr.deinit(allocator),
             .FuncCall => |*func_call| func_call.deinit(allocator),
+            .FuncDef => |*func_def| func_def.deinit(allocator),
+            .VarDecl => |*var_decl| var_decl.deinit(allocator),
         }
     }
 
@@ -192,6 +268,8 @@ pub const Expression = union(enum) {
             .BinaryOp => |bin_op| Expression{ .BinaryOp = try bin_op.clone(allocator) },
             .If => |if_expr| Expression{ .If = try if_expr.clone(allocator) },
             .FuncCall => |func_call| Expression{ .FuncCall = try func_call.clone(allocator) },
+            .FuncDef => |func_def| Expression{ .FuncDef = try func_def.clone(allocator) },
+            .VarDecl => |var_decl| Expression{ .VarDecl = try var_decl.clone(allocator) },
         };
     }
 };

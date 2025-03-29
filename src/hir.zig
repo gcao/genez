@@ -66,6 +66,8 @@ pub const HIR = struct {
         binary_op: BinaryOp,
         if_expr: If,
         func_call: FuncCall,
+        func_def: FuncDef,
+        var_decl: VarDecl,
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -74,6 +76,8 @@ pub const HIR = struct {
                 .binary_op => |*bin_op| bin_op.deinit(allocator),
                 .if_expr => |*if_expr| if_expr.deinit(allocator),
                 .func_call => |*func_call| func_call.deinit(allocator),
+                .func_def => |*func_def| func_def.deinit(allocator),
+                .var_decl => |*var_decl| var_decl.deinit(allocator),
             }
         }
     };
@@ -130,6 +134,8 @@ pub const HIR = struct {
         add,
         sub,
         lt,
+        gt, // Added greater than
+        // TODO: Add eq, neq, lte, gte, mul, div etc.
     };
 
     pub const If = struct {
@@ -161,6 +167,45 @@ pub const HIR = struct {
                 allocator.destroy(arg);
             }
             self.args.deinit();
+        }
+    };
+
+    pub const FuncParam = struct {
+        name: []const u8,
+        param_type: ?[]const u8,
+
+        pub fn deinit(self: *FuncParam, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            if (self.param_type) |pt| allocator.free(pt);
+        }
+    };
+
+    pub const FuncDef = struct {
+        name: []const u8,
+        params: []FuncParam,
+        body: *Expression,
+
+        pub fn deinit(self: *FuncDef, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+
+            for (self.params) |*param| {
+                param.deinit(allocator);
+            }
+            allocator.free(self.params);
+
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+    };
+
+    pub const VarDecl = struct {
+        name: []const u8,
+        value: *Expression,
+
+        pub fn deinit(self: *VarDecl, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            self.value.deinit(allocator);
+            allocator.destroy(self.value);
         }
     };
 

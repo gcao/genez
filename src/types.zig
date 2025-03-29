@@ -1,4 +1,5 @@
 const std = @import("std");
+const bytecode = @import("bytecode.zig");
 
 pub const Value = union(enum) {
     Nil: void,
@@ -9,6 +10,11 @@ pub const Value = union(enum) {
     Symbol: []const u8,
     Array: []Value,
     Map: std.StringHashMap(Value),
+    ReturnAddress: struct {
+        stack_ptr: usize,
+        arg_count: usize,
+    },
+    Function: *bytecode.Function,
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -28,6 +34,8 @@ pub const Value = union(enum) {
                 }
                 map.deinit();
             },
+            .ReturnAddress => {},
+            .Function => {},
             else => {},
         }
     }
@@ -73,6 +81,8 @@ pub const Value = union(enum) {
                 }
                 break :blk Value{ .Map = new_map };
             },
+            .ReturnAddress => |addr| Value{ .ReturnAddress = addr },
+            .Function => |func| Value{ .Function = func },
         };
     }
 };
@@ -92,9 +102,9 @@ pub const Type = union(enum) {
     Symbol,
     Array: *ArrayType,
     Map: *MapType,
-    Function: *FunctionType,
-    Class: *ClassType,
-    Instance: *InstanceType,
+    FunctionT: *FunctionType,
+    ClassT: *ClassType,
+    InstanceT: *InstanceType,
     Namespace: *NamespaceType,
     Any, // For gradual typing support
 
