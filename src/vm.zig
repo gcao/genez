@@ -82,15 +82,40 @@ pub const VM = struct {
 
         // Print final stack result
         if (self.stack.items.len > 0) {
-            const result_const = self.stack.pop();
+            const result_const = self.stack.items[self.stack.items.len - 1];
+            self.stack.items.len -= 1; // Remove the item
             var result = result_const; // Create a mutable copy
             defer result.deinit(self.allocator);
             switch (result) {
                 .Int => |val| {
                     try self.stdout.print("Result: {d}\n", .{val});
                 },
-                else => {
-                    try self.stdout.print("Result: {}\n", .{result});
+                .Nil => {
+                    try self.stdout.print("Result: nil\n", .{});
+                },
+                .Bool => |val| {
+                    try self.stdout.print("Result: {}\n", .{val});
+                },
+                .Float => |val| {
+                    try self.stdout.print("Result: {d}\n", .{val});
+                },
+                .String => |val| {
+                    try self.stdout.print("Result: \"{s}\"\n", .{val});
+                },
+                .Symbol => |val| {
+                    try self.stdout.print("Result: {s}\n", .{val});
+                },
+                .Array => {
+                    try self.stdout.print("Result: [Array]\n", .{});
+                },
+                .Map => {
+                    try self.stdout.print("Result: [Map]\n", .{});
+                },
+                .ReturnAddress => {
+                    try self.stdout.print("Result: [ReturnAddress]\n", .{});
+                },
+                .Function => {
+                    try self.stdout.print("Result: [Function]\n", .{});
                 },
             }
         }
@@ -121,17 +146,26 @@ pub const VM = struct {
                     return error.StackUnderflow;
                 }
 
-                var right = self.stack.pop();
-                var left = self.stack.pop();
+                // Pop values from the stack
+                var right = self.stack.items[self.stack.items.len - 1];
+                var left = self.stack.items[self.stack.items.len - 2];
+                self.stack.items.len -= 2; // Remove the two items
 
+                // Handle addition based on types
                 switch (left) {
                     .Int => |left_val| switch (right) {
                         .Int => |right_val| try self.stack.append(.{ .Int = left_val + right_val }),
+                        .Float => |right_val| try self.stack.append(.{ .Float = @as(f64, @floatFromInt(left_val)) + right_val }),
                         else => return error.TypeMismatch,
                     },
-                    .String => |left_str| switch (right) {
-                        .String => |right_str| {
-                            const result = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ left_str, right_str });
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| try self.stack.append(.{ .Float = left_val + @as(f64, @floatFromInt(right_val)) }),
+                        .Float => |right_val| try self.stack.append(.{ .Float = left_val + right_val }),
+                        else => return error.TypeMismatch,
+                    },
+                    .String => |left_val| switch (right) {
+                        .String => |right_val| {
+                            const result = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ left_val, right_val });
                             try self.stack.append(.{ .String = result });
                         },
                         else => return error.TypeMismatch,
@@ -147,7 +181,8 @@ pub const VM = struct {
                 if (self.stack.items.len < 1) {
                     return error.StackUnderflow;
                 }
-                var value = self.stack.pop();
+                var value = self.stack.items[self.stack.items.len - 1];
+                self.stack.items.len -= 1; // Remove the item
                 switch (value) {
                     .Int => |val| try self.stdout.print("{d}\n", .{val}),
                     .String => |str| try self.stdout.print("{s}\n", .{str}),
@@ -188,9 +223,12 @@ pub const VM = struct {
                 debug.log("Calling function: {}", .{func_value});
 
                 // Save the return address and argument count
-                const return_address = .{ .stack_ptr = self.stack.items.len - arg_count_usize - 1, .arg_count = arg_count_usize };
-                debug.log("Pushing return address: {}", .{return_address});
-                try self.stack.append(.{ .ReturnAddress = return_address });
+                const stack_ptr = self.stack.items.len - arg_count_usize - 1;
+                debug.log("Pushing return address: stack_ptr={}, arg_count={}", .{ stack_ptr, arg_count_usize });
+                try self.stack.append(types.Value{ .ReturnAddress = .{
+                    .stack_ptr = stack_ptr,
+                    .arg_count = arg_count_usize,
+                } });
 
                 // Execute function
                 debug.log("Entering function execution", .{});
@@ -198,19 +236,22 @@ pub const VM = struct {
                 debug.log("Returned from function execution", .{});
 
                 // Function returns its value on the stack
-                const return_value = if (self.stack.items.len > 0)
-                    self.stack.pop()
-                else
-                    types.Value.Nil;
+                var return_value: types.Value = undefined;
+                if (self.stack.items.len > 0) {
+                    return_value = self.stack.items[self.stack.items.len - 1];
+                    self.stack.items.len -= 1; // Remove the item
+                } else {
+                    return_value = types.Value{ .Nil = {} };
+                }
                 debug.log("Function return value: {}", .{return_value});
 
                 // Clean up stack to return address
-                debug.log("Cleaning stack to ptr: {}", .{return_address.stack_ptr});
+                debug.log("Cleaning stack to ptr: {}", .{stack_ptr});
                 debug.log("Stack before cleanup:", .{});
                 for (self.stack.items, 0..) |item, i| {
                     debug.log("[{}]: {}", .{ i, item });
                 }
-                self.stack.shrinkRetainingCapacity(return_address.stack_ptr);
+                self.stack.shrinkRetainingCapacity(stack_ptr);
 
                 // Push result onto stack
                 debug.log("Pushing return value onto stack", .{});
@@ -228,10 +269,13 @@ pub const VM = struct {
                 }
 
                 // Pop return value if any
-                const return_value = if (self.stack.items.len > 0)
-                    self.stack.pop()
-                else
-                    types.Value.Nil;
+                var return_value: types.Value = undefined;
+                if (self.stack.items.len > 0) {
+                    return_value = self.stack.items[self.stack.items.len - 1];
+                    self.stack.items.len -= 1; // Remove the item
+                } else {
+                    return_value = types.Value{ .Nil = {} };
+                }
                 debug.log("Return value: {}", .{return_value});
 
                 // Find the return address

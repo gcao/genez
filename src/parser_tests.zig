@@ -75,3 +75,34 @@ test "parse function definition" {
     const node = result.items[0];
     try testing.expect(node == .Expression); // TODO: expect Function node
 }
+
+test "parse fibonacci example" {
+    const allocator = std.testing.allocator;
+
+    // Content from examples/fibonacci.gene, excluding the shebang
+    const source =
+        \\(fn fib [n int]
+        \\  (if (n < 2)
+        \\    n
+        \\  else
+        \\    ((fib (n - 1)) + (fib (n - 2)))
+        \\  )
+        \\)
+        \\
+        \\(var i = 10)
+        \\(print "(fib " i ") = " (fib i))
+    ;
+    var result = try parser.parseGeneSource(allocator, source);
+    defer {
+        for (result.items) |*node| {
+            node.deinit(allocator);
+        }
+        result.deinit();
+    }
+
+    // Expecting 3 top-level nodes: fn definition, var declaration, print expression
+    try testing.expectEqual(@as(usize, 3), result.items.len);
+
+    // TODO: Add more specific assertions about the parsed nodes if needed
+    // For now, just check the count and that parsing succeeded.
+}

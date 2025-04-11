@@ -8,6 +8,7 @@ pub const OpCode = enum {
     LoadConst,
     LoadVar,
     StoreVar,
+    StoreGlobal, // Added for global variable storage
     Add,
     Sub,
     Lt,
@@ -291,6 +292,8 @@ pub fn lowerToBytecode(allocator: std.mem.Allocator, nodes: []ast.AstNode) !Func
     return Function{
         .instructions = instructions,
         .allocator = allocator,
+        .name = "", // Default empty name
+        .param_count = 0, // Default no parameters
     };
 }
 
@@ -306,10 +309,27 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             try lowerExpression(allocator, instructions, bin_op.left.*);
             try lowerExpression(allocator, instructions, bin_op.right.*);
 
+            // Check the TokenKind and compare the identifier string if applicable
             switch (bin_op.op) {
-                .add => try instructions.append(.{ .op = .Add }),
-                .lt => try instructions.append(.{ .op = .Lt }),
-                .sub => try instructions.append(.{ .op = .Sub }),
+                .Ident => |op_ident| {
+                    if (std.mem.eql(u8, op_ident, "+")) {
+                        try instructions.append(.{ .op = .Add });
+                    } else if (std.mem.eql(u8, op_ident, "-")) {
+                        try instructions.append(.{ .op = .Sub });
+                    } else if (std.mem.eql(u8, op_ident, "<")) {
+                        try instructions.append(.{ .op = .Lt });
+                    } else if (std.mem.eql(u8, op_ident, ">")) {
+                        try instructions.append(.{ .op = .Gt });
+                    } else {
+                        std.debug.print("Unsupported binary operator identifier: {s}\n", .{op_ident});
+                        return error.UnsupportedOperator;
+                    }
+                },
+                else => {
+                    // This case should ideally not happen if the parser correctly creates BinaryOp nodes
+                    std.debug.print("Unexpected token kind for binary operator: {any}\n", .{bin_op.op});
+                    return error.InvalidOperatorToken; // Or a more specific error
+                },
             }
         },
         .Variable => |var_expr| {
@@ -360,11 +380,15 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             try func_instructions.append(.{ .op = .Return });
 
             // Create a function value and load it as a constant
-            const func_value = ast.Value{ .Function = .{
+            const func_ptr = try allocator.create(Function);
+            func_ptr.* = Function{
                 .name = try allocator.dupe(u8, func_def.name),
-                .instructions = try func_instructions.toOwnedSlice(),
+                .instructions = std.ArrayList(Instruction).init(allocator),
+                .allocator = allocator,
                 .param_count = @intCast(func_def.params.len),
-            } };
+            };
+            try func_ptr.instructions.appendSlice(try func_instructions.toOwnedSlice());
+            const func_value = ast.Value{ .Function = func_ptr };
 
             try instructions.append(.{
                 .op = .LoadConst,
