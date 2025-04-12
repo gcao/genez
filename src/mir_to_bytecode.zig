@@ -36,26 +36,30 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             .operand = types.Value{ .Bool = val },
         }),
         .LoadString => |val| {
-            // Take ownership of the string
+            // Duplicate the string for the bytecode operand
+            const str_copy = try func.allocator.dupe(u8, val);
+            errdefer func.allocator.free(str_copy); // Free if append fails
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
-                .operand = types.Value{ .String = val },
+                .operand = types.Value{ .String = str_copy },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
+            // No need to clear MIR instr if we're duplicating
+            // instr.* = .LoadNil; // REMOVED
         },
         .LoadNil => try func.instructions.append(.{
             .op = bytecode.OpCode.LoadConst,
             .operand = types.Value{ .Nil = {} },
         }),
         .LoadSymbol => |val| {
-            // Take ownership of the symbol
+            // Duplicate the symbol for the bytecode operand
+            const sym_copy = try func.allocator.dupe(u8, val);
+            errdefer func.allocator.free(sym_copy); // Free if append fails
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
-                .operand = types.Value{ .Symbol = val },
+                .operand = types.Value{ .Symbol = sym_copy },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
+            // No need to clear MIR instr if we're duplicating
+            // instr.* = .LoadNil; // REMOVED
         },
         .LoadArray => |val| {
             // Take ownership of the array
@@ -76,13 +80,15 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             instr.* = .LoadNil;
         },
         .LoadVariable => |val| {
-            // Take ownership of the variable name
+            // Duplicate the variable name (symbol) for the bytecode operand
+            const name_copy = try func.allocator.dupe(u8, val);
+            errdefer func.allocator.free(name_copy); // Free if append fails
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadVar,
-                .operand = types.Value{ .Symbol = val },
+                .operand = types.Value{ .Symbol = name_copy },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
+            // No need to clear MIR instr if we're duplicating
+            // instr.* = .LoadNil; // REMOVED
         },
         .Add => try func.instructions.append(.{
             .op = bytecode.OpCode.Add,
@@ -148,12 +154,17 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             });
         },
         .StoreVariable => |name| {
+            // Duplicate the variable name (string) for the bytecode operand
+            const name_copy = try func.allocator.dupe(u8, name);
+            errdefer func.allocator.free(name_copy); // Free if append fails
             try func.instructions.append(.{
                 .op = bytecode.OpCode.StoreVar,
-                .operand = types.Value{ .String = name },
+                // StoreVar operand should probably be Symbol, not String, like LoadVar
+                // but keeping as String for now to match existing code.
+                .operand = types.Value{ .String = name_copy },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
+            // No need to clear MIR instr if we're duplicating
+            // instr.* = .LoadNil; // REMOVED
         },
     }
 }

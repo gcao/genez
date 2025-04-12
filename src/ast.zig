@@ -58,6 +58,7 @@ pub const BinaryOp = struct {
     right: *Expression,
 
     pub fn deinit(self: *BinaryOp, allocator: std.mem.Allocator) void {
+        // Restore recursive deinit
         self.left.deinit(allocator);
         allocator.destroy(self.left);
         self.right.deinit(allocator);
@@ -86,6 +87,7 @@ pub const FuncCall = struct {
     args: std.ArrayList(*Expression),
 
     pub fn deinit(self: *FuncCall, allocator: std.mem.Allocator) void {
+        // Restore recursive deinit
         self.func.deinit(allocator);
         allocator.destroy(self.func);
         for (self.args.items) |arg| {
@@ -130,6 +132,7 @@ pub const If = struct {
     else_branch: ?*Expression,
 
     pub fn deinit(self: *If, allocator: std.mem.Allocator) void {
+        // Restore recursive deinit
         self.condition.deinit(allocator);
         allocator.destroy(self.condition);
         self.then_branch.deinit(allocator);
@@ -189,11 +192,14 @@ pub const FuncDef = struct {
     body: *Expression,
 
     pub fn deinit(self: *FuncDef, allocator: std.mem.Allocator) void {
+        // Only free memory directly owned by FuncDef
         allocator.free(self.name);
         for (self.params) |*param| {
+            // Call deinit on params as they contain allocated strings
             param.deinit(allocator);
         }
-        allocator.free(self.params);
+        allocator.free(self.params); // Free the slice itself
+        // Restore recursive deinit for body
         self.body.deinit(allocator);
         allocator.destroy(self.body);
     }
@@ -223,7 +229,9 @@ pub const VarDecl = struct {
     value: *Expression,
 
     pub fn deinit(self: *VarDecl, allocator: std.mem.Allocator) void {
+        // Only free memory directly owned by VarDecl
         allocator.free(self.name);
+        // Restore recursive deinit for value
         self.value.deinit(allocator);
         allocator.destroy(self.value);
     }

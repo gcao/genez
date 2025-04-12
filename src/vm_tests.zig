@@ -10,15 +10,54 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    // Parse the source code
     const nodes = try parser.parseGeneSource(allocator, source);
+
+    // Lower to bytecode
     const func = try bytecode.lowerToBytecode(allocator, nodes.items);
+
+    // Print the bytecode for debugging
+    std.debug.print("\nBytecode for source: {s}\n", .{source});
+    for (func.instructions.items, 0..) |instr, i| {
+        std.debug.print("  {}: {s}", .{ i, @tagName(instr.op) });
+        if (instr.operand) |operand| {
+            switch (operand) {
+                .Int => |val| std.debug.print(" {}", .{val}),
+                .String => |val| std.debug.print(" \"{s}\"", .{val}),
+                else => std.debug.print(" (other operand)", .{}),
+            }
+        }
+        std.debug.print("\n", .{});
+    }
+
+    // Create and initialize the VM
     var gene_vm = vm.VM.init(allocator, std.io.getStdOut().writer());
     defer gene_vm.deinit();
 
+    // Execute the function
     try gene_vm.execute(&func);
+
+    // Verify the result
     try testing.expect(gene_vm.stack.items.len == 1);
     const result = gene_vm.stack.items[0];
 
+    // Print the result for debugging
+    std.debug.print("Result: ", .{});
+    switch (result) {
+        .String => |val| std.debug.print("\"{s}\"\n", .{val}),
+        .Int => |val| std.debug.print("{}\n", .{val}),
+        .Bool => |val| std.debug.print("{}\n", .{val}),
+        .Float => |val| std.debug.print("{}\n", .{val}),
+        .Nil => std.debug.print("nil\n", .{}),
+        .Symbol => |val| std.debug.print(":{s}\n", .{val}),
+        .Array => std.debug.print("(array)\n", .{}),
+        .Map => std.debug.print("(map)\n", .{}),
+        .Function => std.debug.print("(function)\n", .{}),
+        .ReturnAddress => std.debug.print("(return address)\n", .{}),
+        .Variable => |val| std.debug.print("(variable {s})\n", .{val.name}),
+    }
+
+    // Check that the result matches the expected value
     switch (expected) {
         .String => |exp_str| {
             try testing.expectEqualStrings(exp_str, result.String);
@@ -46,4 +85,8 @@ test "execute integer literal" {
 
 test "execute binary operation" {
     try testGeneExecution("(+ 1 2)", .{ .Int = 3 });
+}
+
+test "execute infix notation" {
+    try testGeneExecution("(1 + 2)", .{ .Int = 3 });
 }

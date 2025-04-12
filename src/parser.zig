@@ -8,6 +8,7 @@ pub const ParserError = error{
     ExpectedVariableName,
     ExpectedEquals,
     ExpectedRParen,
+    UnexpectedRParen,
     ExpectedFunctionName,
     ExpectedParameterName,
     InvalidTypeAnnotation,
@@ -80,14 +81,16 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
         // Handle delimiters first
         switch (c) {
             '(' => {
-                debug.log("Found left paren", .{});
-                try tokens.append(.{ .kind = .LParen, .loc = i });
+                const token = Token{ .kind = .LParen, .loc = i };
+                debug.log("Found token: {s}", .{debug.formatToken(token)});
+                try tokens.append(token);
                 i += 1;
                 continue;
             },
             ')' => {
-                debug.log("Found right paren", .{});
-                try tokens.append(.{ .kind = .RParen, .loc = i });
+                const token = Token{ .kind = .RParen, .loc = i };
+                debug.log("Found token: {s}", .{debug.formatToken(token)});
+                try tokens.append(token);
                 i += 1;
                 continue;
             },
@@ -198,7 +201,21 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) !std.Ar
 
     var pos: usize = 0;
     while (pos < tokens.items.len) {
-        const result = try parseExpression(allocator, tokens.items[pos..], 0);
+        // Skip any unexpected RParen tokens
+        if (tokens.items[pos].kind == .RParen) {
+            pos += 1;
+            continue;
+        }
+
+        const result = parseExpression(allocator, tokens.items[pos..], 0) catch |err| {
+            if (err == error.UnexpectedRParen) {
+                // Skip the RParen and continue
+                pos += 1;
+                continue;
+            } else {
+                return err;
+            }
+        };
         errdefer @constCast(&result.node).deinit(allocator); // Deinit if append fails
         try result_nodes.append(result.node); // Transfer ownership
         pos += result.consumed;
@@ -212,6 +229,9 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
     if (toks.len == 0) return error.EmptyExpression;
     debug.log("parseExpression depth={} tokens[0]={any}", .{ depth, toks[0] });
+    if (toks[0].kind == .LParen and toks.len > 1) {
+        debug.log("  Next token: {any}", .{toks[1]});
+    }
 
     const tok = toks[0];
     return switch (tok.kind) {
@@ -228,12 +248,14 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
             return .{ .node = .{ .Expression = .{ .Variable = .{ .name = name_copy } } }, .consumed = 1 };
         },
         .LParen => parseList(alloc, toks, depth),
+        .RParen => error.UnexpectedRParen,
         else => error.InvalidExpression,
     };
 }
 
 // Parses content within parentheses (...)
 fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    debug.log("parseList: depth={}", .{depth});
     if (toks[0].kind != .LParen) return error.UnexpectedToken;
     if (toks.len < 2) return error.UnexpectedEOF;
 
@@ -246,12 +268,214 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
     const first = toks[current_pos];
     current_pos += 1;
 
+    // Special case for nested expressions like ((fib (n - 1)) + (fib (n - 2)))
+    // If we have a pattern like ((...) op (...))
+    if (first.kind == .LParen) {
+        // Parse the first nested expression
+        const left_result = try parseExpression(alloc, toks[current_pos - 1 ..], depth + 1);
+        // errdefer left_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+        current_pos += left_result.consumed - 1; // -1 because we already counted the LParen
+
+        // Check if there's an operator after the nested expression
+        if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+            const op_token = toks[current_pos];
+            if (op_token.kind == .Ident) {
+                const op = op_token.kind.Ident;
+                // Check if it's a binary operator
+                if (std.mem.eql(u8, op, "+") or
+                    std.mem.eql(u8, op, "-") or
+                    std.mem.eql(u8, op, "<") or
+                    std.mem.eql(u8, op, ">"))
+                {
+                    current_pos += 1; // Skip the operator
+
+                    // Parse the right operand
+                    if (current_pos >= toks.len) return error.UnexpectedEOF;
+                    const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                    // errdefer right_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+                    current_pos += right_result.consumed;
+
+                    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+
+                    const left_ptr = try alloc.create(ast.Expression);
+                    errdefer alloc.destroy(left_ptr);
+                    left_ptr.* = left_result.node.Expression;
+
+                    const right_ptr = try alloc.create(ast.Expression);
+                    errdefer {
+                        left_ptr.deinit(alloc);
+                        alloc.destroy(left_ptr);
+                        alloc.destroy(right_ptr);
+                    }
+                    right_ptr.* = right_result.node.Expression;
+
+                    return .{
+                        .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op }, .left = left_ptr, .right = right_ptr } } },
+                        .consumed = current_pos + 1,
+                    };
+                }
+            }
+        }
+
+        // If no operator, just return the nested expression
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+
+        return .{
+            .node = left_result.node,
+            .consumed = current_pos + 1,
+        };
+    }
+
+    // Handle infix notation like (1 + 2)
+    if (first.kind == .Bool or first.kind == .String) {
+        // Parse the first operand
+        const left_result: ParseResult = blk: { // Use block to scope const assignment
+            switch (first.kind) {
+                .Bool => |val| {
+                    break :blk .{
+                        .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Bool = val } } } },
+                        .consumed = 0, // We'll add this later
+                    };
+                },
+                .String => |str| {
+                    const str_copy = try alloc.dupe(u8, str);
+                    errdefer alloc.free(str_copy);
+                    break :blk .{
+                        .node = .{ .Expression = .{ .Literal = .{ .value = .{ .String = str_copy } } } },
+                        .consumed = 0, // We'll add this later
+                    };
+                },
+                else => unreachable, // We already checked for these types
+            }
+        };
+
+        // errdefer left_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+
+        // We've consumed the first token (the literal)
+        // current_pos += 1; // This was incorrect, current_pos already advanced
+        // left_result.consumed = 1; // This was incorrect, consumed is handled later
+
+        // Check if there's an operator after the literal
+        if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+            const op_token = toks[current_pos];
+            const op = op_token.kind.Ident;
+
+            // Check if it's a binary operator
+            if (std.mem.eql(u8, op, "+") or
+                std.mem.eql(u8, op, "-") or
+                std.mem.eql(u8, op, "<") or
+                std.mem.eql(u8, op, ">"))
+            {
+                current_pos += 1; // Skip the operator
+                // left_result.consumed += 1; // Incorrect
+
+                // Parse the right operand
+                if (current_pos >= toks.len) return error.UnexpectedEOF;
+                const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                // errdefer right_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+                current_pos += right_result.consumed;
+                // left_result.consumed += right_result.consumed; // Incorrect
+
+                if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+
+                const left_ptr = try alloc.create(ast.Expression);
+                errdefer alloc.destroy(left_ptr);
+                left_ptr.* = left_result.node.Expression;
+
+                const right_ptr = try alloc.create(ast.Expression);
+                errdefer {
+                    left_ptr.deinit(alloc);
+                    alloc.destroy(left_ptr);
+                    alloc.destroy(right_ptr);
+                }
+                right_ptr.* = right_result.node.Expression;
+
+                // Add 1 for the closing parenthesis and 1 for the operator
+                const total_consumed = 1 + 1 + right_result.consumed + 1; // literal + op + right + RParen
+
+                return .{
+                    .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op }, .left = left_ptr, .right = right_ptr } } },
+                    .consumed = total_consumed,
+                };
+            }
+        }
+        // If it wasn't a binary op, it's an error for bool/string literal alone in parens
+        return error.InvalidExpression;
+    }
+
+    // Restore the switch statement
     return switch (first.kind) {
         .If => parseIf(alloc, toks, current_pos, depth),
         .Var => parseVar(alloc, toks, current_pos, depth),
         .Fn => parseFn(alloc, toks, current_pos, depth),
         .Ident => |ident_val| parseCall(alloc, toks, current_pos, depth, ident_val),
-        .LParen => parseExpression(alloc, toks[current_pos - 1 ..], depth + 1), // Re-parse from the '(' token
+        .Int => |val| {
+            // Handle case like (1 + 2)
+            debug.log("Handling integer literal: {}", .{val});
+            // Create a literal node for the integer
+            const int_node = ast.AstNode{ .Expression = .{ .Literal = .{ .value = .{ .Int = val } } } };
+
+            // Check if the next token is an operator
+            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+                const op = toks[current_pos].kind.Ident;
+                debug.log("Found operator: {s}", .{op});
+
+                // Check if it's a binary operator
+                if (std.mem.eql(u8, op, "+") or
+                    std.mem.eql(u8, op, "-") or
+                    std.mem.eql(u8, op, "<") or
+                    std.mem.eql(u8, op, ">"))
+                {
+                    debug.log("Recognized binary operator: {s}", .{op});
+                    current_pos += 1; // Skip the operator
+
+                    // Parse the right operand
+                    if (current_pos >= toks.len) return error.UnexpectedEOF;
+                    debug.log("Parsing right operand at position {}", .{current_pos});
+                    debug.log("Right operand token: {}", .{toks[current_pos]});
+                    // Change var to const here
+                    const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                    // errdefer right_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+                    debug.log("Right operand parsed successfully", .{});
+                    current_pos += right_result.consumed;
+                    debug.log("Current position after parsing right operand: {}", .{current_pos});
+
+                    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+                    debug.log("Found closing parenthesis", .{});
+
+                    // Create the left operand pointer
+                    debug.log("Creating left operand pointer", .{});
+                    const left_ptr = try alloc.create(ast.Expression);
+                    // errdefer alloc.destroy(left_ptr); // REMOVED: Rely on top-level cleanup
+                    left_ptr.* = int_node.Expression;
+                    debug.log("Left operand pointer created successfully", .{});
+
+                    // Create the right operand pointer
+                    debug.log("Creating right operand pointer", .{});
+                    const right_ptr = try alloc.create(ast.Expression);
+                    // errdefer { // REMOVED: Rely on top-level cleanup
+                    //     // left_ptr.deinit(alloc); // Incorrect anyway
+                    //     alloc.destroy(left_ptr);
+                    //     alloc.destroy(right_ptr);
+                    // }
+                    debug.log("Right operand pointer created successfully", .{});
+                    debug.log("Right result node type: {}", .{@TypeOf(right_result.node)});
+                    debug.log("Right result node: {}", .{right_result.node});
+                    right_ptr.* = right_result.node.Expression;
+                    debug.log("Right operand pointer assigned successfully", .{});
+
+                    debug.log("Creating binary operation result", .{});
+                    debug.log("Binary operation result created successfully", .{});
+                    return ParseResult{
+                        .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op }, .left = left_ptr, .right = right_ptr } } },
+                        .consumed = current_pos + 1, // +1 for the closing parenthesis
+                    };
+                }
+            }
+
+            // If we get here, it's not a binary operation
+            return error.InvalidExpression;
+        }, // Ensure comma is present
         else => error.InvalidExpression,
     };
 }
@@ -260,21 +484,21 @@ fn parseIf(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dept
     var current_pos = start_pos;
 
     if (current_pos >= toks.len) return error.UnexpectedEOF;
-    var cond_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    errdefer cond_result.node.deinit(alloc); // Use alloc parameter
+    const cond_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    // errdefer cond_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
     current_pos += cond_result.consumed;
 
     if (current_pos >= toks.len) return error.UnexpectedEOF;
-    var then_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    errdefer then_result.node.deinit(alloc); // Use alloc parameter
+    const then_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    // errdefer then_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
     current_pos += then_result.consumed;
 
-    var else_node: ?ast.AstNode = null;
+    var else_node: ?ast.AstNode = null; // Keep var as it might be reassigned
     if (current_pos < toks.len and toks[current_pos].kind == .Else) {
         current_pos += 1;
         if (current_pos >= toks.len) return error.UnexpectedEOF;
-        var else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        errdefer else_result.node.deinit(alloc); // Use alloc parameter
+        const else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        // errdefer else_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
         current_pos += else_result.consumed;
         else_node = else_result.node;
     }
@@ -322,8 +546,8 @@ fn parseVar(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dep
     current_pos += 1;
 
     if (current_pos >= toks.len) return error.UnexpectedEOF;
-    var value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    errdefer value_result.node.deinit(alloc); // Use alloc parameter
+    const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    // errdefer value_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
     current_pos += value_result.consumed;
 
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
@@ -373,8 +597,8 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dept
     }
 
     if (current_pos >= toks.len) return error.UnexpectedEOF;
-    var body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    errdefer body_result.node.deinit(alloc); // Use alloc parameter
+    const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    // errdefer body_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
     const final_pos_after_body = current_pos + body_result.consumed;
 
     const name_copy = try alloc.dupe(u8, name);
@@ -390,6 +614,7 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dept
 }
 
 fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize, func_ident: []const u8) !ParseResult {
+    debug.log("parseCall: function={s} depth={}", .{ func_ident, depth });
     var current_pos = start_pos;
     var args = std.ArrayList(*ast.Expression).init(alloc);
     errdefer {
@@ -400,9 +625,55 @@ fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, de
         args.deinit();
     }
 
+    // Special case for binary operators
+    if (std.mem.eql(u8, func_ident, "+") or
+        std.mem.eql(u8, func_ident, "-") or
+        std.mem.eql(u8, func_ident, "<") or
+        std.mem.eql(u8, func_ident, ">"))
+    {
+
+        // Parse left operand
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        const left_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        // errdefer left_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+        current_pos += left_result.consumed;
+
+        // Parse right operand
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        // errdefer right_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+        current_pos += right_result.consumed;
+
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+
+        const left_ptr = try alloc.create(ast.Expression);
+        errdefer alloc.destroy(left_ptr);
+        left_ptr.* = left_result.node.Expression;
+
+        const right_ptr = try alloc.create(ast.Expression);
+        errdefer {
+            left_ptr.deinit(alloc);
+            alloc.destroy(left_ptr);
+            alloc.destroy(right_ptr);
+        }
+        right_ptr.* = right_result.node.Expression;
+
+        return .{
+            .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = func_ident }, .left = left_ptr, .right = right_ptr } } },
+            .consumed = current_pos + 1,
+        };
+    }
+
+    // Regular function call
+    debug.log("Regular function call: {s}", .{func_ident});
     while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
-        var arg_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        errdefer arg_result.node.deinit(alloc); // Use alloc parameter
+        debug.log("  Parsing argument at position {}", .{current_pos});
+        if (current_pos < toks.len) {
+            debug.log("  Argument token: {any}", .{toks[current_pos]});
+        }
+        const arg_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        // errdefer arg_result.node.deinit(alloc); // REMOVED: Top-level deinit handles this
+        debug.log("  Argument parsed successfully, consumed {} tokens", .{arg_result.consumed});
         current_pos += arg_result.consumed;
 
         const arg_ptr = try alloc.create(ast.Expression);
@@ -413,10 +684,13 @@ fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, de
 
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
 
+    // Create a variable expression for the function name
     const func_name_copy = try alloc.dupe(u8, func_ident);
     errdefer alloc.free(func_name_copy);
     const func_expr_ptr = try alloc.create(ast.Expression);
     errdefer alloc.destroy(func_expr_ptr);
+
+    // For built-in functions like 'print', we need to create a Variable expression
     func_expr_ptr.* = .{ .Variable = .{ .name = func_name_copy } }; // Transfer ownership
 
     return .{

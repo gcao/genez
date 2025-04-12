@@ -35,13 +35,8 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
 fn convertStatement(block: *mir.MIR.Block, stmt: hir.HIR.Statement) !void {
     switch (stmt) {
         .Expression => |expr| {
-            if (expr == .variable and std.mem.eql(u8, expr.variable.name, "print")) {
-                // This is a print statement - first convert the argument to print
-                // The argument should be the next expression in the HIR
-                try block.instructions.append(.Print);
-            } else {
-                try convertExpression(block, expr);
-            }
+            // REMOVED: Special handling for print statement. Treat it like a regular expression.
+            _ = try convertExpression(block, expr); // Evaluate the expression for its side effects or result
         },
     }
 }
@@ -95,13 +90,10 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
             }
         },
         .variable => |var_expr| {
-            if (std.mem.eql(u8, var_expr.name, "print")) {
-                // Skip loading the print variable - it will be handled by the next expression
-            } else {
-                const name_copy = try block.allocator.dupe(u8, var_expr.name);
-                errdefer block.allocator.free(name_copy);
-                try block.instructions.append(.{ .LoadVariable = name_copy });
-            }
+            // REMOVED: Special handling for print variable. Load it like any other variable.
+            const name_copy = try block.allocator.dupe(u8, var_expr.name);
+            // errdefer block.allocator.free(name_copy); // Deferring free might be problematic if append fails
+            try block.instructions.append(.{ .LoadVariable = name_copy });
         },
         .if_expr => |if_expr| {
             // First, evaluate the condition

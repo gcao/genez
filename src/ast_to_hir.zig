@@ -48,6 +48,7 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             },
             .ReturnAddress => |_| .{ .literal = .{ .nil = {} } }, // Fallback for ReturnAddress
             .Function => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Function
+            .Variable => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Variable
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -84,70 +85,12 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             };
         },
         .FuncCall => |func_call| {
-            // Check if it's a potential binary operator call like (+ 1 2)
-            if (func_call.func.* == .Variable) {
-                const op_name = func_call.func.*.Variable.name;
-                var op_type: ?hir.HIR.BinaryOpType = null;
-
-                if (std.mem.eql(u8, op_name, "+")) {
-                    op_type = .add;
-                } else if (std.mem.eql(u8, op_name, "-")) {
-                    op_type = .sub;
-                } else if (std.mem.eql(u8, op_name, "<")) {
-                    op_type = .lt;
-                } else if (std.mem.eql(u8, op_name, ">")) {
-                    op_type = .gt;
-                } else if (std.mem.eql(u8, op_name, "=")) {
-                    // Distinguish between assignment (= in var) and comparison (= in expr)?
-                    // Assuming comparison for now if used as a function call.
-                    // TODO: Revisit if '=' should be allowed as a binary comparison operator call.
-                    // For now, let it fall through to regular func call.
-                    // op_type = .eq;
-                }
-                // Add other operators like *, / here
-
-                if (op_type) |op| {
-                    // It's a binary operator call
-                    if (func_call.args.items.len != 2) {
-                        std.debug.print("Binary operator '{s}' called with {} arguments, expected 2\n", .{ op_name, func_call.args.items.len });
-                        return error.InvalidOperatorArity;
-                    }
-
-                    var left = try lowerExpression(allocator, func_call.args.items[0].*);
-                    errdefer left.deinit(allocator);
-
-                    var right = try lowerExpression(allocator, func_call.args.items[1].*);
-                    errdefer right.deinit(allocator);
-
-                    const left_ptr = try allocator.create(hir.HIR.Expression);
-                    errdefer allocator.destroy(left_ptr);
-                    left_ptr.* = left;
-
-                    const right_ptr = try allocator.create(hir.HIR.Expression);
-                    errdefer {
-                        left_ptr.deinit(allocator);
-                        allocator.destroy(left_ptr);
-                        allocator.destroy(right_ptr);
-                    }
-                    right_ptr.* = right;
-
-                    // Deallocate the original function variable name ('+') as it's not needed
-                    allocator.free(op_name);
-
-                    return hir.HIR.Expression{
-                        .binary_op = .{
-                            .op = op,
-                            .left = left_ptr,
-                            .right = right_ptr,
-                        },
-                    };
-                }
-                // If not a recognized binary operator, fall through to regular function call
-            }
+            // REMOVED: Logic to detect binary operators disguised as function calls.
+            // The parser should generate BinaryOp nodes directly for infix expressions.
 
             // Regular function call logic
-            var func = try lowerExpression(allocator, func_call.func.*);
-            errdefer func.deinit(allocator);
+            const func = try lowerExpression(allocator, func_call.func.*); // Changed var to const
+            // errdefer func.deinit(allocator); // Let caller manage deinit
 
             const func_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(func_ptr);
@@ -180,11 +123,54 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 },
             };
         },
-        // .BinaryOp case is removed as operators are now parsed as FuncCall
-        // However, the switch needs to be exhaustive. Add a case that errors.
-        .BinaryOp => |_| {
-            std.debug.print("Unexpected BinaryOp encountered during HIR lowering.\n", .{});
-            return error.UnexpectedAstNode; // Or panic
+        // Handle binary operations directly
+        .BinaryOp => |bin_op| {
+            const op_type: hir.HIR.BinaryOpType = op_switch: switch (bin_op.op) { // Added label op_switch:
+                .Ident => |ident| {
+                    if (std.mem.eql(u8, ident, "+")) {
+                        break :op_switch .add; // Break to the label
+                    } else if (std.mem.eql(u8, ident, "-")) {
+                        break :op_switch .sub;
+                    } else if (std.mem.eql(u8, ident, "<")) {
+                        break :op_switch .lt;
+                    } else if (std.mem.eql(u8, ident, ">")) {
+                        break :op_switch .gt;
+                    } else {
+                        // TODO: Add support for other binary operators like *, /, = etc.
+                        std.debug.print("Unsupported binary operator '{s}' during HIR lowering.\n", .{ident});
+                        return error.UnsupportedOperator;
+                    }
+                },
+                // Add cases for other potential operator token kinds if needed
+                else => {
+                    std.debug.print("Unexpected operator type in BinaryOp during HIR lowering.\n", .{});
+                    return error.UnexpectedAstNode;
+                },
+            };
+
+            // Convert left and right operands
+            const left = try lowerExpression(allocator, bin_op.left.*); // Changed var to const
+            // errdefer left.deinit(allocator); // Let caller manage deinit
+
+            const right = try lowerExpression(allocator, bin_op.right.*); // Changed var to const
+            // errdefer right.deinit(allocator); // Let caller manage deinit
+
+            const left_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(left_ptr); // Destroy only if subsequent alloc fails
+            left_ptr.* = left;
+
+            const right_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(right_ptr); // Destroy only if return fails
+            right_ptr.* = right;
+
+            // Ownership of left_ptr and right_ptr is transferred to the returned node
+            return hir.HIR.Expression{
+                .binary_op = .{
+                    .op = op_type,
+                    .left = left_ptr,
+                    .right = right_ptr,
+                },
+            };
         },
         .FuncDef => |func_def| {
             // Convert function body

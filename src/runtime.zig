@@ -40,10 +40,10 @@ pub const Runtime = struct {
 
         // Compile AST to bytecode
         var func = try compiler.compile(ctx, nodes_list.items);
-        
+
         // Execute bytecode
         try self.execute(&func);
-        func.deinit();
+        func.deinit(); // Pass mutable func (already was mutable 'var func')
     }
 
     fn runBytecodeFile(self: *Runtime, path: []const u8) !void {
@@ -93,7 +93,7 @@ pub const Runtime = struct {
 
         // Compile AST to bytecode
         var func = try compiler.compile(ctx, nodes_list.items);
-        
+
         // Execute bytecode
         try self.execute(&func);
         func.deinit();
@@ -101,11 +101,17 @@ pub const Runtime = struct {
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {
         // Print bytecode if debug mode
-        if (self.debug_mode) {
-            std.debug.print("\n[DEBUG] === Bytecode ===\n", .{});
-            for (func.instructions.items) |instr| {
-                std.debug.print("{any}\n", .{instr});
+        std.debug.print("\n[DEBUG] === Bytecode ===\n", .{});
+        for (func.instructions.items, 0..) |instr, i| {
+            std.debug.print("[{}] {s}", .{ i, @tagName(instr.op) });
+            if (instr.operand) |operand| {
+                switch (operand) {
+                    .Int => |val| std.debug.print(" {}", .{val}),
+                    .String => |val| std.debug.print(" \"{s}\"", .{val}),
+                    else => std.debug.print(" (other operand)", .{}),
+                }
             }
+            std.debug.print("\n", .{});
         }
 
         // Create VM and execute bytecode
@@ -135,7 +141,7 @@ pub const Runtime = struct {
 
         // Compile AST to bytecode
         const func = try compiler.compile(ctx, nodes_list.items);
-        
+
         // Create module with the function
         const functions = try self.allocator.alloc(bytecode.Function, 1);
         functions[0] = func;
@@ -147,7 +153,7 @@ pub const Runtime = struct {
 
         // Create output file with .gbc extension
         const output_path = if (std.mem.endsWith(u8, file_path, ".gene"))
-            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path[0..file_path.len - 5]})
+            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path[0 .. file_path.len - 5]})
         else
             try std.fmt.allocPrint(self.allocator, "{s}", .{file_path});
         defer self.allocator.free(output_path);
@@ -162,6 +168,7 @@ pub const Runtime = struct {
         try module.writeToFile(output_file.writer());
 
         // Deinit module after writing to file
+        // Module.deinit already takes *Module (mutable)
         module.deinit();
 
         if (self.debug_mode) {

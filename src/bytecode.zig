@@ -44,9 +44,12 @@ pub const Function = struct {
         };
     }
 
-    pub fn deinit(self: *const Function) void {
+    // Changed self to mutable *Function
+    pub fn deinit(self: *Function) void {
         for (self.instructions.items) |*instr| {
+            // instr is already *Instruction (mutable pointer from iterator)
             if (instr.operand) |*operand| {
+                // operand is *Value (mutable pointer)
                 operand.deinit(self.allocator);
             }
         }
@@ -333,11 +336,11 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             }
         },
         .Variable => |var_expr| {
-            if (std.mem.eql(u8, var_expr.name, "print")) {
-                try instructions.append(.{ .op = .Print });
-            } else {
-                // Handle other variables here
-            }
+            // Load the variable onto the stack
+            try instructions.append(.{
+                .op = .LoadVar,
+                .operand = .{ .String = try allocator.dupe(u8, var_expr.name) },
+            });
         },
         .If => |if_expr| {
             // Evaluate condition
@@ -356,17 +359,43 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             }
         },
         .FuncCall => |func_call| {
-            // Evaluate arguments in reverse order (for stack-based evaluation)
+            // Check if it's a call to a built-in function
+            if (func_call.func.* == .Variable) {
+                const func_name = func_call.func.*.Variable.name;
+
+                // Handle built-in functions
+                if (std.mem.eql(u8, func_name, "print")) {
+                    // For print, we just need to evaluate the argument and then print it
+                    if (func_call.args.items.len != 1) {
+                        return error.InvalidOperatorArity;
+                    }
+
+                    // For print, we just need to evaluate the argument and then print it
+                    try lowerExpression(allocator, instructions, func_call.args.items[0].*);
+
+                    // Add the print instruction
+                    try instructions.append(.{
+                        .op = .Print,
+                    });
+
+                    return;
+                }
+            }
+
+            // Regular function call
+            // First, evaluate the function expression
+            try lowerExpression(allocator, instructions, func_call.func.*);
+
+            // Then evaluate arguments
             for (func_call.args.items) |arg| {
                 try lowerExpression(allocator, instructions, arg.*);
             }
 
-            // Evaluate function expression
-            try lowerExpression(allocator, instructions, func_call.func.*);
-
-            // Placeholder for function call instruction
-            // In a real implementation, this would generate a call instruction
-            try instructions.append(.{ .op = .Call });
+            // Add the call instruction with the argument count
+            try instructions.append(.{
+                .op = .Call,
+                .operand = .{ .Int = @intCast(func_call.args.items.len) },
+            });
         },
         .FuncDef => |func_def| {
             // Create a new bytecode function object

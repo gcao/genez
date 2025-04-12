@@ -27,15 +27,15 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function
         std.debug.print("\n=== AST to HIR ===\n", .{});
     }
     // AST -> HIR
-    var hir_prog = try ast_to_hir.convert(ctx.allocator, nodes);
-    defer hir_prog.deinit();
+    var hir_prog = try ast_to_hir.convert(ctx.allocator, nodes); // Changed back to var
+    defer hir_prog.deinit(); // RESTORED
 
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== HIR to MIR ===\n", .{});
     }
     // HIR -> MIR
-    var mir_prog = try hir_to_mir.convert(ctx.allocator, hir_prog);
-    defer mir_prog.deinit();
+    var mir_prog = try hir_to_mir.convert(ctx.allocator, hir_prog); // Changed back to var
+    defer mir_prog.deinit(); // RESTORED
 
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== MIR to Bytecode ===\n", .{});

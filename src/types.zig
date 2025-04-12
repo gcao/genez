@@ -15,6 +15,9 @@ pub const Value = union(enum) {
         arg_count: usize,
     },
     Function: *bytecode.Function,
+    Variable: struct {
+        name: []const u8,
+    },
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -36,6 +39,7 @@ pub const Value = union(enum) {
             },
             .ReturnAddress => {},
             .Function => {},
+            .Variable => |var_val| allocator.free(var_val.name),
             else => {},
         }
     }
@@ -83,6 +87,7 @@ pub const Value = union(enum) {
             },
             .ReturnAddress => |addr| Value{ .ReturnAddress = addr },
             .Function => |func| Value{ .Function = func },
+            .Variable => |var_val| Value{ .Variable = .{ .name = try allocator.dupe(u8, var_val.name) } },
         };
     }
 };
