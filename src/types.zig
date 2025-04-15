@@ -38,7 +38,11 @@ pub const Value = union(enum) {
                 map.deinit();
             },
             .ReturnAddress => {},
-            .Function => {},
+            .Function => |func_ptr| {
+                // Deallocate the bytecode function object pointed to
+                func_ptr.deinit();
+                allocator.destroy(func_ptr);
+            },
             .Variable => |var_val| allocator.free(var_val.name),
             else => {},
         }

@@ -93,10 +93,14 @@ pub const Runtime = struct {
 
         // Compile AST to bytecode
         var func = try compiler.compile(ctx, nodes_list.items);
+        // std.debug.print("[DEBUG_TRACE] Received bytecode function from compiler.compile\n", .{}); // TRACE 6
 
         // Execute bytecode
+        // std.debug.print("[DEBUG_TRACE] Calling self.execute\n", .{}); // TRACE 7
         try self.execute(&func);
+        // std.debug.print("[DEBUG_TRACE] Returned from self.execute\n", .{}); // TRACE 8
         func.deinit();
+        // std.debug.print("[DEBUG_TRACE] Deinitialized bytecode function\n", .{}); // TRACE 9
     }
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {

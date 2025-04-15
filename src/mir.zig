@@ -73,6 +73,12 @@ pub const MIR = struct {
                         }
                         map.deinit();
                     },
+                    .StoreVariable => |name| self.allocator.free(name), // Free the stored name
+                    .LoadFunction => |func_ptr| {
+                        // Deallocate the function object pointed to
+                        func_ptr.deinit();
+                        self.allocator.destroy(func_ptr);
+                    },
                     else => {},
                 }
             }

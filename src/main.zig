@@ -16,6 +16,7 @@ fn printHelp(writer: anytype) !void {
 }
 
 pub fn main() !void {
+    // Revert back to GeneralPurposeAllocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();

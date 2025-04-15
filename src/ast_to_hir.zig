@@ -8,7 +8,10 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
 
     // Create main function for top-level code
     var main_func = hir.HIR.Function.init(allocator);
-    main_func.name = "main";
+    // Duplicate the name string to avoid freeing a literal
+    main_func.name = try allocator.dupe(u8, "main");
+    // Add errdefer *after* successful initialization and name allocation
+    errdefer main_func.deinit();
 
     // Convert each AST node to HIR statements
     for (nodes) |node| {
@@ -89,12 +92,12 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             // The parser should generate BinaryOp nodes directly for infix expressions.
 
             // Regular function call logic
-            const func = try lowerExpression(allocator, func_call.func.*); // Changed var to const
+            const func = try lowerExpression(allocator, func_call.func.*);
             // errdefer func.deinit(allocator); // Let caller manage deinit
 
             const func_ptr = try allocator.create(hir.HIR.Expression);
-            errdefer allocator.destroy(func_ptr);
-            func_ptr.* = func;
+            errdefer allocator.destroy(func_ptr); // If copy fails
+            func_ptr.* = func; // Copy the lowered func expression
 
             var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
             errdefer {
@@ -107,11 +110,11 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
 
             for (func_call.args.items) |arg| {
                 var arg_expr = try lowerExpression(allocator, arg.*);
-                errdefer arg_expr.deinit(allocator);
+                errdefer arg_expr.deinit(allocator); // If alloc/append fails
 
                 const arg_ptr = try allocator.create(hir.HIR.Expression);
-                errdefer allocator.destroy(arg_ptr);
-                arg_ptr.* = arg_expr;
+                errdefer allocator.destroy(arg_ptr); // If copy fails
+                arg_ptr.* = arg_expr; // Copy the lowered arg expression
 
                 try args.append(arg_ptr);
             }
@@ -149,19 +152,30 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             };
 
             // Convert left and right operands
-            const left = try lowerExpression(allocator, bin_op.left.*); // Changed var to const
-            // errdefer left.deinit(allocator); // Let caller manage deinit
+            var left = try lowerExpression(allocator, bin_op.left.*);
+            // Deinit left if right lowering or subsequent steps fail
+            errdefer left.deinit(allocator);
 
-            const right = try lowerExpression(allocator, bin_op.right.*); // Changed var to const
-            // errdefer right.deinit(allocator); // Let caller manage deinit
+            var right = try lowerExpression(allocator, bin_op.right.*);
+            // Deinit right if subsequent steps fail (left errdefer still active)
+            errdefer right.deinit(allocator);
 
             const left_ptr = try allocator.create(hir.HIR.Expression);
-            errdefer allocator.destroy(left_ptr); // Destroy only if subsequent alloc fails
-            left_ptr.* = left;
+            // If left_ptr alloc fails, errdefers for left/right run
+            errdefer allocator.destroy(left_ptr); // Destroy ptr if right_ptr alloc fails
 
             const right_ptr = try allocator.create(hir.HIR.Expression);
-            errdefer allocator.destroy(right_ptr); // Destroy only if return fails
+            // If right_ptr alloc fails, errdefers for left/right run, and left_ptr errdefer runs
+            errdefer allocator.destroy(right_ptr); // Destroy ptr if return fails
+
+            // Copy the lowered expressions into the pointers
+            // Ownership of the *content* is effectively transferred here.
+            left_ptr.* = left;
             right_ptr.* = right;
+
+            // The original left/right vars are now just containers whose contents
+            // have been moved. Their errdefers are cancelled by reaching this point.
+            // The ownership of the actual HIR data is now with left_ptr/right_ptr.
 
             // Ownership of left_ptr and right_ptr is transferred to the returned node
             return hir.HIR.Expression{

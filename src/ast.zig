@@ -58,6 +58,12 @@ pub const BinaryOp = struct {
     right: *Expression,
 
     pub fn deinit(self: *BinaryOp, allocator: std.mem.Allocator) void {
+        // Free the operator identifier if it was allocated
+        // Use switch to correctly capture the payload
+        switch (self.op) {
+            .Ident => |ident| allocator.free(ident),
+            else => {}, // Other TokenKind variants don't need freeing here
+        }
         // Restore recursive deinit
         self.left.deinit(allocator);
         allocator.destroy(self.left);
@@ -67,15 +73,33 @@ pub const BinaryOp = struct {
 
     pub fn clone(self: BinaryOp, allocator: std.mem.Allocator) error{OutOfMemory}!BinaryOp {
         const left = try allocator.create(Expression);
-        errdefer allocator.destroy(left);
+        errdefer allocator.destroy(left); // Destroy container if left.clone fails
+
         left.* = try self.left.clone(allocator);
+        // If left.clone succeeded, add errdefer to clean it up if right side fails
+        errdefer left.deinit(allocator);
 
         const right = try allocator.create(Expression);
-        errdefer allocator.destroy(right);
+        // If right allocation fails, the two errdefers above handle 'left' cleanup
+        errdefer allocator.destroy(right); // Destroy container if right.clone fails
+
         right.* = try self.right.clone(allocator);
+        // If right.clone succeeded, add errdefer to clean it up if return fails (unlikely but safe)
+        errdefer right.deinit(allocator);
+
+        // If we reach here, all clones succeeded. Ownership is transferred on return.
+        // The errdefers are cancelled upon successful return.
+
+        // Clone the operator TokenKind if it's an Ident
+        const op_clone: TokenKind = switch (self.op) {
+            .Ident => |ident| .{ .Ident = try allocator.dupe(u8, ident) },
+            else => self.op, // Other kinds don't need cloning
+        };
+        // Add errdefer to free the cloned ident if return fails
+        errdefer if (op_clone == .Ident) |ident| allocator.free(ident);
 
         return BinaryOp{
-            .op = self.op,
+            .op = op_clone,
             .left = left,
             .right = right,
         };
@@ -98,30 +122,47 @@ pub const FuncCall = struct {
     }
 
     pub fn clone(self: FuncCall, allocator: std.mem.Allocator) error{OutOfMemory}!FuncCall {
-        var args = std.ArrayList(*Expression).init(allocator);
-        errdefer {
-            for (args.items) |arg| {
-                arg.deinit(allocator);
-                allocator.destroy(arg);
-            }
-            args.deinit();
-        }
+        var args_list = std.ArrayList(*Expression).init(allocator);
+        // Deinit list structure itself if anything below fails
+        errdefer args_list.deinit();
 
-        try args.ensureTotalCapacity(self.args.items.len);
+        // Clone arguments, ensuring cleanup on failure
         for (self.args.items) |arg| {
             const new_arg = try allocator.create(Expression);
-            errdefer allocator.destroy(new_arg);
-            new_arg.* = try arg.clone(allocator);
-            try args.append(new_arg);
+            // If new_arg allocation fails, loop terminates, top errdefer cleans partially filled args_list
+
+            // Use a block to scope errdefers for this specific argument clone
+            {
+                errdefer allocator.destroy(new_arg); // If new_arg.clone fails, destroy container
+                new_arg.* = try arg.clone(allocator);
+                // If new_arg.clone fails, the errdefer above destroys container, top errdefer cleans list
+
+                errdefer new_arg.deinit(allocator); // If append fails, deinit the cloned content
+                try args_list.append(new_arg); // Ownership of new_arg transferred to list
+                // If append fails, the two errdefers above clean new_arg, top errdefer cleans list
+            }
+            // If block completes successfully, new_arg is safely in the list
+        }
+        // If loop completes, args_list owns all cloned args. Add errdefer for args cleanup if func clone fails
+        errdefer {
+            for (args_list.items) |item| {
+                item.deinit(allocator);
+                allocator.destroy(item);
+            }
         }
 
         const func = try allocator.create(Expression);
-        errdefer allocator.destroy(func);
-        func.* = try self.func.clone(allocator);
+        // If func allocation fails, the args cleanup errdefer runs
+        errdefer allocator.destroy(func); // If func.clone fails
 
+        func.* = try self.func.clone(allocator);
+        // If func.clone fails, the errdefer above destroys container, args cleanup errdefer runs
+        errdefer func.deinit(allocator); // If return fails
+
+        // Success, transfer ownership
         return FuncCall{
             .func = func,
-            .args = args,
+            .args = args_list, // Transfer ownership of list and its contents
         };
     }
 };
