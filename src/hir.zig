@@ -43,6 +43,11 @@ pub const HIR = struct {
         }
 
         pub fn deinit(self: *Function) void {
+            std.debug.print("[DEBUG_TRACE] Deinit HIR.Function: {s}\n", .{self.name}); // HIR Deinit Trace 1
+            std.debug.print("[DEBUG_TRACE]   Freeing name: {s}\n", .{self.name}); // HIR Deinit Trace 2
+            self.allocator.free(self.name);
+            std.debug.print("[DEBUG_TRACE]   Freed name\n", .{}); // HIR Deinit Trace 3
+
             for (self.body.items) |*stmt| {
                 stmt.deinit(self.allocator);
             }
