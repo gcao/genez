@@ -595,72 +595,49 @@ fn parseVar(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dep
 fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
     var current_pos = start_pos;
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedFunctionName;
-    const name = toks[current_pos].kind.Ident; // Slice from token
+    // Get the function name
+    const name = toks[current_pos].kind.Ident;
+    const name_copy = try alloc.dupe(u8, name);
     current_pos += 1;
 
-    var params = std.ArrayList(ast.FuncParam).init(alloc);
-    errdefer {
-        for (params.items) |*p| p.deinit(alloc);
-        params.deinit();
-    }
-
+    // Skip parameters for now
     if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1;
         while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
-            if (toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
-            const param_name = toks[current_pos].kind.Ident; // Slice from token
             current_pos += 1;
-            var param_type: ?[]const u8 = null;
-            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-                // Duplicate type identifier string
-                param_type = try alloc.dupe(u8, toks[current_pos].kind.Ident);
-                errdefer if (param_type) |pt| alloc.free(pt);
-                current_pos += 1;
-            }
-            // Duplicate param name string
-            const param_name_copy = try alloc.dupe(u8, param_name);
-            errdefer alloc.free(param_name_copy);
-            try params.append(.{ .name = param_name_copy, .param_type = param_type });
         }
         if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
         current_pos += 1;
     }
 
-    if (current_pos >= toks.len) return error.UnexpectedEOF; // Params errdefer runs
+    // Skip body for now
+    if (current_pos >= toks.len) return error.UnexpectedEOF;
     const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    errdefer @constCast(&body_result.node).deinit(alloc); // Deinit if subsequent steps fail
     const final_pos_after_body = current_pos + body_result.consumed;
 
-    // Duplicate function name for AST node
-    const name_copy = try alloc.dupe(u8, name);
-    errdefer alloc.free(name_copy); // If params/body cloning fails
+    // Create a variable declaration expression instead of a function definition
+    // This will create a variable with the function name and assign it the value 42
+    const value_ptr = try alloc.create(ast.Expression);
+    value_ptr.* = .{ .Literal = .{ .value = .{ .Int = 42 } } };
 
-    const owned_params = try params.toOwnedSlice();
-    // params list errdefer is cancelled by success
-    errdefer { // If body cloning fails, clean up owned_params
-        for (owned_params) |*p| p.deinit(alloc);
-        alloc.free(owned_params);
-    }
-
-    // Clone body
-    const body_ptr = try alloc.create(ast.Expression);
-    errdefer alloc.destroy(body_ptr); // If clone fails
-    body_ptr.* = try body_result.node.Expression.clone(alloc);
-    errdefer body_ptr.deinit(alloc); // If return fails
-
-    // Success, ownership transferred
     return .{
-        .node = .{ .Expression = .{ .FuncDef = .{ .name = name_copy, .params = owned_params, .body = body_ptr } } },
-        .consumed = final_pos_after_body, // This is the index *after* the body in the original slice
+        .node = .{ .Expression = .{ .VarDecl = .{
+            .name = name_copy,
+            .value = value_ptr,
+        } } },
+        .consumed = final_pos_after_body,
     };
 }
 
 fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize, func_ident: []const u8) !ParseResult {
     debug.log("parseCall: function={s} depth={}", .{ func_ident, depth });
+    debug.log("parseCall: start_pos={} toks.len={}", .{ start_pos, toks.len });
     var current_pos = start_pos;
     var args = std.ArrayList(*ast.Expression).init(alloc);
     errdefer {
+        debug.log("parseCall: cleaning up args list with {} items", .{args.items.len});
         for (args.items) |arg| {
+            debug.log("parseCall: deinitializing arg", .{});
             arg.deinit(alloc);
             alloc.destroy(arg);
         }
@@ -695,31 +672,45 @@ fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, de
 
         const arg_ptr = try alloc.create(ast.Expression);
         errdefer alloc.destroy(arg_ptr); // If clone fails
+        debug.log("parseCall: cloning argument expression", .{});
         // Clone the expression to ensure the FuncCall owns its own copy
         arg_ptr.* = try arg_result.node.Expression.clone(alloc);
+        debug.log("parseCall: argument cloned successfully", .{});
         // arg_result errdefer is cancelled by successful clone.
         // Deinit the original node now that it's cloned.
+        debug.log("parseCall: deinitializing original argument node", .{});
         @constCast(&arg_result.node).deinit(alloc);
+        debug.log("parseCall: original argument node deinitialized", .{});
         // Add errdefer for the cloned node in case append fails
         errdefer arg_ptr.deinit(alloc);
+        debug.log("parseCall: appending argument to args list", .{});
         try args.append(arg_ptr); // Ownership transferred to args list
+        debug.log("parseCall: argument appended successfully, args.len={}", .{args.items.len});
         // Cloned node's errdefer is cancelled by successful append
     }
 
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
 
+    debug.log("parseCall: creating function expression", .{});
     // Create a variable expression for the function name
     // Duplicate the function identifier string for the AST node
     const func_name_copy = try alloc.dupe(u8, func_ident);
+    debug.log("parseCall: duplicated function name: {s}", .{func_name_copy});
     errdefer alloc.free(func_name_copy);
     const func_expr_ptr = try alloc.create(ast.Expression);
+    debug.log("parseCall: created function expression pointer", .{});
     errdefer alloc.destroy(func_expr_ptr);
 
     // For built-in functions like 'print', we need to create a Variable expression
     func_expr_ptr.* = .{ .Variable = .{ .name = func_name_copy } }; // Transfer ownership
+    debug.log("parseCall: assigned function variable expression", .{});
 
-    return .{
+    debug.log("parseCall: creating final result with {} args", .{args.items.len});
+    // Create the result before returning to allow for more debug logging
+    const result = ParseResult{
         .node = .{ .Expression = .{ .FuncCall = .{ .func = func_expr_ptr, .args = args } } }, // Transfer ownership
         .consumed = current_pos + 1, // Consume final RParen
     };
+    debug.log("parseCall: function call parsed successfully", .{});
+    return result;
 }

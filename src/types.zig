@@ -1,5 +1,6 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
+const debug = @import("debug.zig");
 
 pub const Value = union(enum) {
     Nil: void,
@@ -90,7 +91,74 @@ pub const Value = union(enum) {
                 break :blk Value{ .Map = new_map };
             },
             .ReturnAddress => |addr| Value{ .ReturnAddress = addr },
-            .Function => |func| Value{ .Function = func },
+            .Function => |func| {
+                debug.log("Cloning function: {s}", .{func.name});
+                // Create a deep copy of the function
+                debug.log("Value.clone: Creating deep copy of function: {s}", .{func.name});
+                debug.log("Value.clone: Function has {} parameters", .{func.param_count});
+                debug.log("Value.clone: Function has {} instructions", .{func.instructions.items.len});
+
+                const func_ptr = try allocator.create(bytecode.Function);
+                debug.log("Value.clone: Function pointer created successfully", .{});
+                errdefer allocator.destroy(func_ptr);
+
+                // Clone the function name
+                const name_copy = try allocator.dupe(u8, func.name);
+                debug.log("Value.clone: Function name duplicated successfully: {s}", .{name_copy});
+                errdefer allocator.free(name_copy);
+
+                // Create a new instruction list
+                var instructions = std.ArrayList(bytecode.Instruction).init(allocator);
+                debug.log("Value.clone: Instruction list created successfully", .{});
+                errdefer instructions.deinit();
+
+                // Clone each instruction
+                debug.log("Value.clone: Cloning {} instructions", .{func.instructions.items.len});
+                try instructions.ensureTotalCapacity(func.instructions.items.len);
+                for (func.instructions.items, 0..) |instr, i| {
+                    debug.log("Value.clone: Cloning instruction {}/{}: {}", .{ i + 1, func.instructions.items.len, instr.op });
+                    var new_instr = bytecode.Instruction{
+                        .op = instr.op,
+                        .operand = null,
+                    };
+
+                    // Clone the operand if it exists
+                    if (instr.operand) |op| {
+                        debug.log("Value.clone: Cloning operand: {}", .{op});
+                        new_instr.operand = try op.clone(allocator);
+                        debug.log("Value.clone: Operand cloned successfully", .{});
+                    }
+
+                    try instructions.append(new_instr);
+                    debug.log("Value.clone: Instruction appended successfully", .{});
+                }
+                debug.log("Value.clone: All instructions cloned successfully", .{});
+                debug.log("Value.clone: New instruction list has {} instructions", .{instructions.items.len});
+
+                // Verify the instructions were copied correctly
+                if (instructions.items.len != func.instructions.items.len) {
+                    debug.log("Value.clone: ERROR - Instruction count mismatch: {} vs {}", .{ instructions.items.len, func.instructions.items.len });
+                    return error.OutOfMemory; // Use an existing error type
+                }
+
+                // Create the function
+                debug.log("Value.clone: Creating function object", .{});
+                func_ptr.* = bytecode.Function{
+                    .name = name_copy,
+                    .instructions = instructions,
+                    .allocator = allocator,
+                    .param_count = func.param_count,
+                };
+                debug.log("Value.clone: Function object created successfully", .{});
+                debug.log("Value.clone: Function name: {s}", .{func_ptr.name});
+                debug.log("Value.clone: Function has {} parameters", .{func_ptr.param_count});
+                debug.log("Value.clone: Function has {} instructions", .{func_ptr.instructions.items.len});
+
+                debug.log("Value.clone: Creating function value", .{});
+                const result = Value{ .Function = func_ptr };
+                debug.log("Value.clone: Function value created successfully", .{});
+                return result;
+            },
             .Variable => |var_val| Value{ .Variable = .{ .name = try allocator.dupe(u8, var_val.name) } },
         };
     }
