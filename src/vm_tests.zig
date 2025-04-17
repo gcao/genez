@@ -11,10 +11,15 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     const allocator = arena.allocator();
 
     // Parse the source code
-    const nodes = try parser.parseGeneSource(allocator, source);
+    var parse_result = try parser.parseGeneSource(allocator, source);
+    defer {
+        // Clean up the arena after we're done with the AST
+        parse_result.arena.deinit();
+        parse_result.nodes.deinit();
+    }
 
     // Lower to bytecode
-    const func = try bytecode.lowerToBytecode(allocator, nodes.items);
+    const func = try bytecode.lowerToBytecode(allocator, parse_result.nodes.items);
 
     // Print the bytecode for debugging
     std.debug.print("\nBytecode for source: {s}\n", .{source});

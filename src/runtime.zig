@@ -29,17 +29,16 @@ pub const Runtime = struct {
         };
         const ctx = compiler.CompilationContext.init(self.allocator, options);
 
-        // Parse source into AST
-        var nodes_list = try parser.parseGeneSource(self.allocator, source);
+        // Parse source into AST using arena allocator
+        var parse_result = try parser.parseGeneSource(self.allocator, source);
         defer {
-            for (nodes_list.items) |*node| {
-                node.deinit(self.allocator);
-            }
-            nodes_list.deinit();
+            // Clean up the arena after we're done with the AST
+            parse_result.arena.deinit();
+            parse_result.nodes.deinit();
         }
 
         // Compile AST to bytecode
-        var func = try compiler.compile(ctx, nodes_list.items);
+        var func = try compiler.compile(ctx, parse_result.nodes.items);
 
         // Execute bytecode
         try self.execute(&func);
@@ -83,16 +82,15 @@ pub const Runtime = struct {
             .optimize = false,
         });
 
-        var nodes_list = try parser.parseGeneSource(self.allocator, source);
+        var parse_result = try parser.parseGeneSource(self.allocator, source);
         defer {
-            for (nodes_list.items) |*node| {
-                node.deinit(self.allocator);
-            }
-            nodes_list.deinit();
+            // Clean up the arena after we're done with the AST
+            parse_result.arena.deinit();
+            parse_result.nodes.deinit();
         }
 
         // Compile AST to bytecode
-        var func = try compiler.compile(ctx, nodes_list.items);
+        var func = try compiler.compile(ctx, parse_result.nodes.items);
         // std.debug.print("[DEBUG_TRACE] Received bytecode function from compiler.compile\n", .{}); // TRACE 6
 
         // Execute bytecode
@@ -135,16 +133,15 @@ pub const Runtime = struct {
         };
         const ctx = compiler.CompilationContext.init(self.allocator, options);
 
-        var nodes_list = try parser.parseGeneSource(self.allocator, source);
+        var parse_result = try parser.parseGeneSource(self.allocator, source);
         defer {
-            for (nodes_list.items) |*node| {
-                node.deinit(self.allocator);
-            }
-            nodes_list.deinit();
+            // Clean up the arena after we're done with the AST
+            parse_result.arena.deinit();
+            parse_result.nodes.deinit();
         }
 
         // Compile AST to bytecode
-        const func = try compiler.compile(ctx, nodes_list.items);
+        const func = try compiler.compile(ctx, parse_result.nodes.items);
 
         // Create module with the function
         const functions = try self.allocator.alloc(bytecode.Function, 1);

@@ -10,16 +10,15 @@ test "lower simple expression to HIR" {
 
     // Parse the source code
     const source = "(print \"Hello, world!\")";
-    var ast_nodes = try parser.parseGeneSource(allocator, source);
+    var parse_result = try parser.parseGeneSource(allocator, source);
     defer {
-        for (ast_nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        ast_nodes.deinit();
+        // Clean up the arena after we're done with the AST
+        parse_result.arena.deinit();
+        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, ast_nodes.items);
+    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
     defer hir_module.deinit();
 
     // Verify the HIR structure
@@ -52,16 +51,15 @@ test "lower binary operation to HIR" {
 
     // Parse the source code
     const source = "(+ 1 2)";
-    var ast_nodes = try parser.parseGeneSource(allocator, source);
+    var parse_result = try parser.parseGeneSource(allocator, source);
     defer {
-        for (ast_nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        ast_nodes.deinit();
+        // Clean up the arena after we're done with the AST
+        parse_result.arena.deinit();
+        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, ast_nodes.items);
+    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
     defer hir_module.deinit();
 
     // Verify the HIR structure
@@ -96,16 +94,15 @@ test "lower infix notation to HIR" {
 
     // Parse the source code
     const source = "(1 + 2)";
-    var ast_nodes = try parser.parseGeneSource(allocator, source);
+    var parse_result = try parser.parseGeneSource(allocator, source);
     defer {
-        for (ast_nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        ast_nodes.deinit();
+        // Clean up the arena after we're done with the AST
+        parse_result.arena.deinit();
+        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, ast_nodes.items);
+    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
     defer hir_module.deinit();
 
     // Verify the HIR structure

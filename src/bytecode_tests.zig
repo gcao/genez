@@ -14,16 +14,15 @@ test "compile simple expression to bytecode" {
 
     // Parse the source code
     const source = "(print \"Hello, world!\")";
-    var ast_nodes = try parser.parseGeneSource(allocator, source);
+    var parse_result = try parser.parseGeneSource(allocator, source);
     defer {
-        for (ast_nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        ast_nodes.deinit();
+        // Clean up the arena after we're done with the AST
+        parse_result.arena.deinit();
+        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, ast_nodes.items);
+    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
     defer hir_module.deinit();
 
     // Lower to MIR
@@ -59,16 +58,15 @@ test "compile binary operation to bytecode" {
 
     // Parse the source code
     const source = "(+ 1 2)";
-    var ast_nodes = try parser.parseGeneSource(allocator, source);
+    var parse_result = try parser.parseGeneSource(allocator, source);
     defer {
-        for (ast_nodes.items) |*node| {
-            node.deinit(allocator);
-        }
-        ast_nodes.deinit();
+        // Clean up the arena after we're done with the AST
+        parse_result.arena.deinit();
+        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, ast_nodes.items);
+    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
     defer hir_module.deinit();
 
     // Lower to MIR

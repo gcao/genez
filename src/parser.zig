@@ -42,6 +42,16 @@ pub const TokenKind = union(enum) {
     Fn, // Keyword
 };
 
+/// Tokenize a Gene source string.
+///
+/// Ownership: The caller is responsible for freeing the returned tokens using `tokens.deinit()`.
+/// If using an arena allocator, the tokens will be freed when the arena is freed.
+///
+/// Args:
+///   allocator: The allocator to use for allocating the tokens.
+///   source: The source string to tokenize.
+///
+/// Returns: An ArrayList of tokens.
 fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Token) {
     var tokens = std.ArrayList(Token).init(allocator);
     errdefer { // Ensure tokens are cleaned up on tokenizer error
@@ -181,17 +191,42 @@ const MAX_RECURSION_DEPTH = 50;
 
 // Forward declarations removed
 
-pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(ast.AstNode) {
-    // Tokenizer no longer allocates Ident strings
-    var tokens = try tokenize(allocator, source);
-    // Defer cleanup for the token list itself, but not the strings within,
-    // as their ownership is transferred to the AST.
-    defer tokens.deinit();
+/// Parse a Gene source string into an AST.
+///
+/// This function uses an arena allocator internally for all AST nodes.
+/// The caller is responsible for freeing the returned nodes and the arena.
+///
+/// Example:
+/// ```
+/// var parse_result = try parser.parseGeneSource(allocator, source);
+/// defer {
+///     for (parse_result.nodes.items) |*node| {
+///         node.deinit(parse_result.arena.allocator());
+///     }
+///     parse_result.nodes.deinit();
+///     parse_result.arena.deinit();
+/// }
+/// ```
+pub const ParseSourceResult = struct {
+    nodes: std.ArrayList(ast.AstNode),
+    arena: std.heap.ArenaAllocator,
+};
+
+pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) !ParseSourceResult {
+    // Create an arena allocator for all AST allocations
+    var arena = std.heap.ArenaAllocator.init(parent_allocator);
+    errdefer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
+    // Use the arena allocator for tokens as well
+    var tokens = try tokenize(arena_allocator, source);
+    // No need to defer cleanup for tokens since they'll be freed with the arena
 
     debug.log("Starting to parse tokens into AST", .{});
-    var result_nodes = std.ArrayList(ast.AstNode).init(allocator);
+    var result_nodes = std.ArrayList(ast.AstNode).init(parent_allocator);
     errdefer {
-        for (result_nodes.items) |*node| node.deinit(allocator);
+        // No need to deinit individual nodes since the arena will be freed
         result_nodes.deinit();
     }
 
@@ -203,7 +238,7 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) !std.Ar
             continue;
         }
 
-        const result = parseExpression(allocator, tokens.items[pos..], 0) catch |err| {
+        const result = parseExpression(arena_allocator, tokens.items[pos..], 0) catch |err| {
             if (err == error.UnexpectedRParen) {
                 // Skip the RParen and continue
                 pos += 1;
@@ -217,10 +252,23 @@ pub fn parseGeneSource(allocator: std.mem.Allocator, source: []const u8) !std.Ar
         pos += result.consumed;
     }
 
-    return result_nodes;
+    return ParseSourceResult{
+        .nodes = result_nodes,
+        .arena = arena,
+    };
 }
 
-// Main recursive parse function
+/// Parse a Gene expression.
+///
+/// Ownership: The caller is responsible for freeing the returned node using `node.deinit(allocator)`
+/// unless the node is transferred to another data structure.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
 fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) ParserError!ParseResult {
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
     if (toks.len == 0) return error.EmptyExpression;
@@ -249,7 +297,17 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
     };
 }
 
-// Parses content within parentheses (...)
+/// Parse a Gene list expression (content within parentheses).
+///
+/// Ownership: The caller is responsible for freeing the returned node using `node.deinit(allocator)`
+/// unless the node is transferred to another data structure.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
 fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
     debug.log("parseList: depth={}", .{depth});
     if (toks[0].kind != .LParen) return error.UnexpectedToken;
@@ -491,6 +549,18 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
     };
 }
 
+/// Parse a Gene if expression.
+///
+/// Ownership: The caller is responsible for freeing the returned node using `node.deinit(allocator)`
+/// unless the node is transferred to another data structure.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   start_pos: The position in the token stream to start parsing from.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
 fn parseIf(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
     var current_pos = start_pos;
 
@@ -559,6 +629,18 @@ fn parseIf(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dept
     };
 }
 
+/// Parse a Gene variable declaration.
+///
+/// Ownership: The caller is responsible for freeing the returned node using `node.deinit(allocator)`
+/// unless the node is transferred to another data structure.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   start_pos: The position in the token stream to start parsing from.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
 fn parseVar(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
     var current_pos = start_pos;
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedVariableName;
@@ -592,6 +674,18 @@ fn parseVar(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dep
     };
 }
 
+/// Parse a Gene function definition.
+///
+/// Ownership: The caller is responsible for freeing the returned node using `node.deinit(allocator)`
+/// unless the node is transferred to another data structure.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   start_pos: The position in the token stream to start parsing from.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
 fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
     var current_pos = start_pos;
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedFunctionName;
@@ -629,6 +723,19 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dept
     };
 }
 
+/// Parse a Gene function call.
+///
+/// Ownership: The caller is responsible for freeing the returned node using `node.deinit(allocator)`
+/// unless the node is transferred to another data structure.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   start_pos: The position in the token stream to start parsing from.
+///   depth: The current recursion depth.
+///   func_ident: The identifier of the function being called.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
 fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize, func_ident: []const u8) !ParseResult {
     debug.log("parseCall: function={s} depth={}", .{ func_ident, depth });
     debug.log("parseCall: start_pos={} toks.len={}", .{ start_pos, toks.len });
