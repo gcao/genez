@@ -92,32 +92,32 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
         switch (c) {
             '(' => {
                 const token = Token{ .kind = .LParen, .loc = i };
-                debug.log("Found token: {s}", .{debug.formatToken(token)});
+                debug.log("Found (", .{});
                 try tokens.append(token);
                 i += 1;
                 continue;
             },
             ')' => {
                 const token = Token{ .kind = .RParen, .loc = i };
-                debug.log("Found token: {s}", .{debug.formatToken(token)});
+                debug.log("Found )", .{});
                 try tokens.append(token);
                 i += 1;
                 continue;
             },
             '[' => {
-                debug.log("Found left bracket", .{});
+                debug.log("Found [", .{});
                 try tokens.append(.{ .kind = .LBracket, .loc = i });
                 i += 1;
                 continue;
             },
             ']' => {
-                debug.log("Found right bracket", .{});
+                debug.log("Found ]", .{});
                 try tokens.append(.{ .kind = .RBracket, .loc = i });
                 i += 1;
                 continue;
             },
             '=' => {
-                debug.log("Found equals operator", .{});
+                debug.log("Found =", .{});
                 try tokens.append(.{ .kind = .Equals, .loc = i });
                 i += 1;
                 continue;
@@ -134,7 +134,7 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                 std.debug.print("Error parsing int '{s}': {any}\n", .{ int_str, err });
                 return err;
             };
-            debug.log("Found integer: {}", .{int_val});
+            debug.log("Found {}", .{int_val});
             try tokens.append(.{ .kind = .{ .Int = int_val }, .loc = start });
             i += 1;
             continue;
@@ -148,7 +148,7 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             if (i >= source_to_parse.len) return error.UnterminatedString;
             // Allocate string here
             const str = try allocator.dupe(u8, source_to_parse[start..i]);
-            debug.log("Found string: {s}", .{str});
+            debug.log("Found \"{s}\"", .{str});
             try tokens.append(.{ .kind = .{ .String = str }, .loc = start - 1 });
             i += 1; // Move past closing quote
             continue;
@@ -168,7 +168,7 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                 token_kind = .{ .Ident = word };
             }
 
-            debug.log("Found identifier/keyword: {s}", .{word});
+            debug.log("Found {s}", .{word});
             try tokens.append(.{ .kind = token_kind, .loc = start });
             i += 1;
             continue;

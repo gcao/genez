@@ -29,26 +29,35 @@ pub fn main() !void {
         return;
     }
 
+    // Check for debug flag
+    var debug_mode = false;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--debug")) {
+            debug_mode = true;
+            break;
+        }
+    }
+
     const command = args[1];
     if (std.mem.eql(u8, command, "run")) {
         if (args.len < 3) {
-            std.debug.print("Usage: gene run <file>\n", .{});
+            std.debug.print("Usage: gene run <file> [--debug]\n", .{});
             return;
         }
 
         const file = args[2];
-        var rt = runtime.Runtime.init(allocator, false, std.io.getStdOut().writer());
+        var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
 
         try rt.runFile(file);
     } else if (std.mem.eql(u8, command, "compile")) {
         if (args.len < 3) {
-            std.debug.print("Usage: gene compile <file>\n", .{});
+            std.debug.print("Usage: gene compile <file> [--debug]\n", .{});
             return;
         }
 
         const file = args[2];
-        var rt = runtime.Runtime.init(allocator, false, std.io.getStdOut().writer());
+        var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
 
         try rt.compileFile(file);

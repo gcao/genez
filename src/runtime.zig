@@ -24,7 +24,7 @@ pub const Runtime = struct {
 
     pub fn eval(self: *Runtime, source: []const u8) !void {
         const options = compiler.CompilerOptions{
-            .debug_mode = false,
+            .debug_mode = self.debug_mode,
             .optimize = false,
         };
         const ctx = compiler.CompilationContext.init(self.allocator, options);
@@ -78,7 +78,7 @@ pub const Runtime = struct {
         defer self.allocator.free(source);
 
         const ctx = compiler.CompilationContext.init(self.allocator, compiler.CompilerOptions{
-            .debug_mode = false,
+            .debug_mode = self.debug_mode,
             .optimize = false,
         });
 
@@ -103,17 +103,19 @@ pub const Runtime = struct {
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {
         // Print bytecode if debug mode
-        std.debug.print("\n[DEBUG] === Bytecode ===\n", .{});
-        for (func.instructions.items, 0..) |instr, i| {
-            std.debug.print("[{}] {s}", .{ i, @tagName(instr.op) });
-            if (instr.operand) |operand| {
-                switch (operand) {
-                    .Int => |val| std.debug.print(" {}", .{val}),
-                    .String => |val| std.debug.print(" \"{s}\"", .{val}),
-                    else => std.debug.print(" (other operand)", .{}),
+        if (self.debug_mode) {
+            std.debug.print("\n[DEBUG] === Bytecode ===\n", .{});
+            for (func.instructions.items, 0..) |instr, i| {
+                std.debug.print("[{}] {s}", .{ i, @tagName(instr.op) });
+                if (instr.operand) |operand| {
+                    switch (operand) {
+                        .Int => |val| std.debug.print(" {}", .{val}),
+                        .String => |val| std.debug.print(" \"{s}\"", .{val}),
+                        else => std.debug.print(" (other operand)", .{}),
+                    }
                 }
+                std.debug.print("\n", .{});
             }
-            std.debug.print("\n", .{});
         }
 
         // Create VM and execute bytecode
