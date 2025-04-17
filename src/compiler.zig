@@ -1,10 +1,17 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const bytecode = @import("bytecode.zig");
-const ast_to_hir = @import("ast_to_hir.zig");
-const hir_to_mir = @import("hir_to_mir.zig");
-const mir_to_bytecode = @import("mir_to_bytecode.zig");
-const serialize = @import("serialize.zig");
+
+// Stage transformation interfaces
+const ast_to_hir = @import("ast_to_hir_interface.zig");
+const hir_to_mir = @import("hir_to_mir_interface.zig");
+const mir_to_bytecode = @import("mir_to_bytecode_interface.zig");
+
+// Stage-specific serialization modules
+const ast_serialize = @import("ast_serialize.zig");
+const hir_serialize = @import("hir_serialize.zig");
+const mir_serialize = @import("mir_serialize.zig");
+const bytecode_serialize = @import("bytecode_serialize.zig");
 
 pub const CompilerOptions = struct {
     debug_mode: bool = false,
@@ -28,7 +35,7 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== AST ===\n", .{});
         for (nodes) |node| {
-            try serialize.serializeAst(std.io.getStdOut().writer(), node, 0);
+            try ast_serialize.serializeNode(std.io.getStdOut().writer(), node, 0);
             std.debug.print("\n", .{});
         }
     }
@@ -43,7 +50,7 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function
     // Display HIR
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== HIR ===\n", .{});
-        try serialize.serializeHir(std.io.getStdOut().writer(), hir_prog, 0);
+        try hir_serialize.serializeModule(std.io.getStdOut().writer(), hir_prog, 0);
         std.debug.print("\n", .{});
     }
 
@@ -57,7 +64,7 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function
     // Display MIR
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== MIR ===\n", .{});
-        try serialize.serializeMir(std.io.getStdOut().writer(), mir_prog, 0);
+        try mir_serialize.serializeModule(std.io.getStdOut().writer(), mir_prog, 0);
         std.debug.print("\n", .{});
     }
 
@@ -70,7 +77,7 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function
     // Display Bytecode
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== Bytecode ===\n", .{});
-        try serialize.serializeBytecode(std.io.getStdOut().writer(), func, 0);
+        try bytecode_serialize.serializeFunction(std.io.getStdOut().writer(), func, 0);
         std.debug.print("\n", .{});
     }
 
