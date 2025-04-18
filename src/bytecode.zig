@@ -8,12 +8,14 @@ pub const Value = types.Value;
 pub const OpCode = enum {
     LoadConst,
     LoadVar,
+    LoadParam, // Added for loading function parameters
     StoreVar,
     StoreGlobal, // Added for global variable storage
     Add,
     Sub,
     Lt,
     Gt, // Added GreaterThan opcode
+    Eq, // Added Equal opcode
     Print,
     Return,
     Call,
@@ -326,6 +328,8 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
                         try instructions.append(.{ .op = .Lt });
                     } else if (std.mem.eql(u8, op_ident, ">")) {
                         try instructions.append(.{ .op = .Gt });
+                    } else if (std.mem.eql(u8, op_ident, "==")) {
+                        try instructions.append(.{ .op = .Eq });
                     } else {
                         std.debug.print("Unsupported binary operator identifier: {s}\n", .{op_ident});
                         return error.UnsupportedOperator;

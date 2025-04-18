@@ -188,21 +188,49 @@ pub const VM = struct {
                     }
                 }
 
-                // If not a parameter, check global scope
-                debug.log("Checking global scope for variable: {s}", .{name});
-                debug.log("Variables in scope: {}", .{self.variables.count()});
-                var it = self.variables.iterator();
-                while (it.next()) |entry| {
-                    debug.log("  Variable: {s}", .{entry.key_ptr.*});
+                // Check for built-in operators
+                if (std.mem.eql(u8, name, "==")) {
+                    // Handle == as a built-in operator by pushing a special function onto the stack
+                    try self.stack.append(.{ .BuiltinOperator = .Eq });
+                } else {
+                    // If not a parameter, check global scope
+                    debug.log("Checking global scope for variable: {s}", .{name});
+                    debug.log("Variables in scope: {}", .{self.variables.count()});
+                    var it = self.variables.iterator();
+                    while (it.next()) |entry| {
+                        debug.log("  Variable: {s}", .{entry.key_ptr.*});
+                    }
+
+                    if (self.variables.get(name)) |value| {
+                        debug.log("Found variable in global scope: {}", .{value});
+                        try self.stack.append(try value.clone(self.allocator));
+                    } else {
+                        debug.log("ERROR: Variable {s} not found", .{name});
+                        return error.UndefinedVariable;
+                    }
+                }
+            },
+            .LoadParam => {
+                debug.log("LoadParam instruction", .{});
+                if (instruction.operand == null) return error.UnsupportedInstruction;
+                if (instruction.operand.? != .Int) return error.TypeMismatch;
+                const param_index = @as(usize, @intCast(instruction.operand.?.Int));
+                debug.log("LoadParam: {}", .{param_index});
+
+                // Calculate the position of the parameter on the stack
+                // Parameters are stored at bp, bp+1, bp+2, etc.
+                const param_pos = self.bp + param_index;
+
+                if (param_pos >= self.stack.items.len) {
+                    debug.log("Parameter index out of bounds: {} (stack size: {})", .{ param_pos, self.stack.items.len });
+                    return error.StackUnderflow;
                 }
 
-                if (self.variables.get(name)) |value| {
-                    debug.log("Found variable in global scope: {}", .{value});
-                    try self.stack.append(try value.clone(self.allocator));
-                } else {
-                    debug.log("ERROR: Variable {s} not found", .{name});
-                    return error.UndefinedVariable;
-                }
+                // Clone the parameter value and push it onto the stack
+                const param_value = try self.stack.items[param_pos].clone(self.allocator);
+                try self.stack.append(param_value);
+                debug.log("Loaded parameter: {}", .{param_value});
+                debug.log("Stack size after instruction: {}", .{self.stack.items.len});
             },
             .StoreVar => {
                 debug.log("StoreVar instruction", .{});
@@ -360,6 +388,56 @@ pub const VM = struct {
                 // Push result onto stack
                 try self.stack.append(.{ .Bool = result });
             },
+            .Eq => {
+                if (self.stack.items.len < 2) {
+                    return error.StackUnderflow;
+                }
+
+                // Get values from the stack (without removing them yet)
+                const right_ref = self.stack.items[self.stack.items.len - 1];
+                const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                // Clone the values to avoid use-after-free issues
+                var right = try right_ref.clone(self.allocator);
+                var left = try left_ref.clone(self.allocator);
+
+                // Now remove the items from the stack
+                self.stack.items.len -= 2;
+
+                // Handle equality comparison based on types
+                const result = switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| left_val == right_val,
+                        .Float => |right_val| @as(f64, @floatFromInt(left_val)) == right_val,
+                        else => false, // Different types are never equal
+                    },
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| left_val == @as(f64, @floatFromInt(right_val)),
+                        .Float => |right_val| left_val == right_val,
+                        else => false, // Different types are never equal
+                    },
+                    .String => |left_val| switch (right) {
+                        .String => |right_val| std.mem.eql(u8, left_val, right_val),
+                        else => false, // Different types are never equal
+                    },
+                    .Bool => |left_val| switch (right) {
+                        .Bool => |right_val| left_val == right_val,
+                        else => false, // Different types are never equal
+                    },
+                    .Nil => switch (right) {
+                        .Nil => true, // nil == nil
+                        else => false, // nil is not equal to any other type
+                    },
+                    else => false, // Other types not supported for equality comparison yet
+                };
+
+                // Clean up operands
+                left.deinit(self.allocator);
+                right.deinit(self.allocator);
+
+                // Push result onto stack
+                try self.stack.append(.{ .Bool = result });
+            },
             .Print => {
                 if (self.stack.items.len < 1) {
                     return error.StackUnderflow;
@@ -379,6 +457,7 @@ pub const VM = struct {
                     .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {}\n", .{addr}),
                     .Function => |func| try self.stdout.print("Function: {}\n", .{func}),
                     .Variable => |var_val| try self.stdout.print("Variable: {s}\n", .{var_val.name}),
+                    .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {}\n", .{op}),
                 }
                 value.deinit(self.allocator);
                 debug.log("Stack size after instruction: {}", .{self.stack.items.len});
@@ -398,55 +477,121 @@ pub const VM = struct {
                 const func_val = self.stack.items[self.stack.items.len - arg_count_usize - 1];
                 debug.logValue(func_val);
 
-                if (func_val == .Variable and std.mem.eql(u8, func_val.Variable.name, "print")) {
+                // Handle built-in functions
+                if (func_val == .Variable) {
+                    const func_name = func_val.Variable.name;
+
                     // Handle print function
-                    if (arg_count_usize != 1) {
-                        return error.ArgumentCountMismatch;
+                    if (std.mem.eql(u8, func_name, "print")) {
+                        // Print can take any number of arguments
+                        for (0..arg_count_usize) |i| {
+                            const arg_index = self.stack.items.len - arg_count_usize + i;
+                            const arg = self.stack.items[arg_index];
+
+                            // Clone the argument before printing
+                            var arg_clone = try arg.clone(self.allocator);
+                            errdefer arg_clone.deinit(self.allocator);
+
+                            // Print without newline except for the last argument
+                            switch (arg_clone) {
+                                .Int => |val| try self.stdout.print("{d}", .{val}),
+                                .String => |str| try self.stdout.print("{s}", .{str}),
+                                .Symbol => |sym| try self.stdout.print("{s}", .{sym}),
+                                .Bool => |b| try self.stdout.print("{}", .{b}),
+                                .Float => |f| try self.stdout.print("{d}", .{f}),
+                                .Nil => try self.stdout.print("nil", .{}),
+                                .Array => |arr| try self.stdout.print("{any}", .{arr}),
+                                .Map => |map| try self.stdout.print("{any}", .{map}),
+                                .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {}", .{addr}),
+                                .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
+                                .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
+                                .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {}", .{op}),
+                            }
+
+                            arg_clone.deinit(self.allocator);
+                        }
+
+                        // Add a newline at the end
+                        try self.stdout.print("\n", .{});
+
+                        // Clean up the stack - remove function AND argument(s)
+                        // Deinit values before shrinking
+                        for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                            v.deinit(self.allocator);
+                        }
+                        self.stack.items.len -= (arg_count_usize + 1); // Remove function and arguments
+
+                        // Push nil as the return value
+                        try self.stack.append(.{ .Nil = {} });
+
+                        return;
                     }
-
-                    // Get the argument
-                    if (self.stack.items.len < arg_count_usize + 1) {
-                        return error.StackUnderflow;
-                    }
-                    const arg = self.stack.items[self.stack.items.len - 1];
-                    debug.log("Print argument:", .{});
-                    debug.logValue(arg);
-
-                    // Print the argument
-                    // Clone the argument before printing, in case printing modifies it (though unlikely here)
-                    var arg_clone = try arg.clone(self.allocator);
-                    errdefer arg_clone.deinit(self.allocator);
-
-                    switch (arg_clone) {
-                        .Int => |val| try self.stdout.print("{d}\n", .{val}),
-                        .String => |str| try self.stdout.print("{s}\n", .{str}),
-                        .Symbol => |sym| try self.stdout.print("{s}\n", .{sym}),
-                        .Bool => |b| try self.stdout.print("{}\n", .{b}),
-                        .Float => |f| try self.stdout.print("{d}\n", .{f}),
-                        .Nil => try self.stdout.print("nil\n", .{}),
-                        .Array => |arr| try self.stdout.print("{any}\n", .{arr}),
-                        .Map => |map| try self.stdout.print("{any}\n", .{map}),
-                        .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {}\n", .{addr}),
-                        .Function => |func| try self.stdout.print("Function: {}\n", .{func}),
-                        .Variable => |var_name| try self.stdout.print("Variable: {s}\n", .{var_name.name}),
-                    }
-
-                    arg_clone.deinit(self.allocator);
-
-                    // Clean up the stack - remove function AND argument(s)
-                    // Deinit values before shrinking
-                    for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
-                        v.deinit(self.allocator);
-                    }
-                    self.stack.items.len -= (arg_count_usize + 1); // Remove function and arguments
-
-                    // No need to increment pc here, the main loop does it.
-                    // self.pc += 1; // REMOVED
-                    // This return was inside the print handler block
-                    return;
                 }
 
-                // REMOVED Redundant check for built-in print function
+                // Handle built-in operators
+                if (func_val == .BuiltinOperator) {
+                    debug.log("Executing built-in operator: {}", .{func_val.BuiltinOperator});
+
+                    switch (func_val.BuiltinOperator) {
+                        .Eq => {
+                            // Check if we have two arguments
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the arguments
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                            // Clone the values to avoid use-after-free issues
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+
+                            // Handle equality comparison based on types
+                            const result = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| left_val == right_val,
+                                    .Float => |right_val| @as(f64, @floatFromInt(left_val)) == right_val,
+                                    else => false, // Different types are never equal
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| left_val == @as(f64, @floatFromInt(right_val)),
+                                    .Float => |right_val| left_val == right_val,
+                                    else => false, // Different types are never equal
+                                },
+                                .String => |left_val| switch (right) {
+                                    .String => |right_val| std.mem.eql(u8, left_val, right_val),
+                                    else => false, // Different types are never equal
+                                },
+                                .Bool => |left_val| switch (right) {
+                                    .Bool => |right_val| left_val == right_val,
+                                    else => false, // Different types are never equal
+                                },
+                                .Nil => switch (right) {
+                                    .Nil => true, // nil == nil
+                                    else => false, // nil is not equal to any other type
+                                },
+                                else => false, // Other types not supported for equality comparison yet
+                            };
+
+                            // Clean up the stack - remove operator AND arguments
+                            // Deinit values before shrinking
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1); // Remove operator and arguments
+
+                            // Clean up operands
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+
+                            // Push result onto stack
+                            try self.stack.append(.{ .Bool = result });
+
+                            return;
+                        },
+                    }
+                }
 
                 // Handle user-defined functions
                 if (func_val != .Function) {

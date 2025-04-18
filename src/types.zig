@@ -2,6 +2,10 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 const debug = @import("debug.zig");
 
+pub const BuiltinOperatorType = enum {
+    Eq,
+};
+
 pub const Value = union(enum) {
     Nil: void,
     Bool: bool,
@@ -19,6 +23,7 @@ pub const Value = union(enum) {
     Variable: struct {
         name: []const u8,
     },
+    BuiltinOperator: BuiltinOperatorType,
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -45,6 +50,7 @@ pub const Value = union(enum) {
                 allocator.destroy(func_ptr);
             },
             .Variable => |var_val| allocator.free(var_val.name),
+            .BuiltinOperator => {},
             else => {},
         }
     }
@@ -160,6 +166,7 @@ pub const Value = union(enum) {
                 return result;
             },
             .Variable => |var_val| Value{ .Variable = .{ .name = try allocator.dupe(u8, var_val.name) } },
+            .BuiltinOperator => |op| Value{ .BuiltinOperator = op },
         };
     }
 };

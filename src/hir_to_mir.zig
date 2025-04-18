@@ -86,6 +86,7 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
                 .sub => try block.instructions.append(.Sub),
                 .lt => try block.instructions.append(.LessThan),
                 .gt => try block.instructions.append(.GreaterThan), // Added GreaterThan
+                .eq => try block.instructions.append(.Equal), // Added Equal
                 // TODO: Add other MIR binary instructions
             }
         },
@@ -142,13 +143,18 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
         .func_def => |func_def| {
             // Create a new function
             var func = mir.MIR.Function.init(block.allocator);
+            errdefer func.deinit();
 
             // Set the function name
             block.allocator.free(func.name); // Free the default name "main"
             func.name = try block.allocator.dupe(u8, func_def.name);
 
+            // Set the parameter count
+            func.param_count = func_def.params.len;
+
             // Create a block for the function body
             var body_block = mir.MIR.Block.init(block.allocator);
+            errdefer body_block.deinit();
 
             // Convert the function body
             try convertExpression(&body_block, func_def.body.*);
@@ -170,6 +176,7 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
 
             // Create a function object with the converted code
             const func_obj = try block.allocator.create(mir.MIR.Function);
+            errdefer block.allocator.destroy(func_obj);
             func_obj.* = func;
 
             // Load the function as a constant

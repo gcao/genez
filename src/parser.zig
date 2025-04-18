@@ -117,9 +117,18 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                 continue;
             },
             '=' => {
-                debug.log("Found =", .{});
-                try tokens.append(.{ .kind = .Equals, .loc = i });
-                i += 1;
+                // Check for == operator
+                if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '=') {
+                    debug.log("Found ==", .{});
+                    // Create an identifier token for ==
+                    const op_str = source_to_parse[i .. i + 2];
+                    try tokens.append(.{ .kind = .{ .Ident = op_str }, .loc = i });
+                    i += 2;
+                } else {
+                    debug.log("Found =", .{});
+                    try tokens.append(.{ .kind = .Equals, .loc = i });
+                    i += 1;
+                }
                 continue;
             },
             else => {},
@@ -340,7 +349,8 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
                 if (std.mem.eql(u8, op, "+") or
                     std.mem.eql(u8, op, "-") or
                     std.mem.eql(u8, op, "<") or
-                    std.mem.eql(u8, op, ">"))
+                    std.mem.eql(u8, op, ">") or
+                    std.mem.eql(u8, op, "=="))
                 {
                     current_pos += 1; // Skip the operator
 
@@ -423,7 +433,8 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
             if (std.mem.eql(u8, op, "+") or
                 std.mem.eql(u8, op, "-") or
                 std.mem.eql(u8, op, "<") or
-                std.mem.eql(u8, op, ">"))
+                std.mem.eql(u8, op, ">") or
+                std.mem.eql(u8, op, "=="))
             {
                 current_pos += 1; // Skip the operator
 
@@ -487,7 +498,8 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
                 if (std.mem.eql(u8, op, "+") or
                     std.mem.eql(u8, op, "-") or
                     std.mem.eql(u8, op, "<") or
-                    std.mem.eql(u8, op, ">"))
+                    std.mem.eql(u8, op, ">") or
+                    std.mem.eql(u8, op, "=="))
                 {
                     debug.log("Recognized binary operator: {s}", .{op});
                     current_pos += 1; // Skip the operator
@@ -688,36 +700,81 @@ fn parseVar(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dep
 /// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
 fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
     var current_pos = start_pos;
-    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedFunctionName;
-    // Get the function name
-    const name = toks[current_pos].kind.Ident;
-    const name_copy = try alloc.dupe(u8, name);
-    current_pos += 1;
 
-    // Skip parameters for now
-    if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
+    // Get the function name if present
+    var name_copy: []const u8 = "";
+    if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+        const name = toks[current_pos].kind.Ident;
+        name_copy = try alloc.dupe(u8, name);
         current_pos += 1;
-        while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
-            current_pos += 1;
+    } else {
+        // Anonymous function
+        name_copy = try alloc.dupe(u8, "anonymous");
+    }
+    errdefer alloc.free(name_copy);
+
+    // Parse parameters
+    var params = std.ArrayList(ast.FuncParam).init(alloc);
+    errdefer {
+        for (params.items) |*param| {
+            param.deinit(alloc);
         }
-        if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
-        current_pos += 1;
+        params.deinit();
     }
 
-    // Skip body for now
+    if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
+        current_pos += 1; // Skip '['
+        while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+            // Parse parameter name
+            if (current_pos >= toks.len or toks[current_pos].kind != .Ident) {
+                return error.ExpectedParameterName;
+            }
+            const param_name = toks[current_pos].kind.Ident;
+            const param_name_copy = try alloc.dupe(u8, param_name);
+            errdefer alloc.free(param_name_copy);
+            current_pos += 1;
+
+            // Parse optional parameter type
+            var param_type: ?[]const u8 = null;
+            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+                const type_name = toks[current_pos].kind.Ident;
+                param_type = try alloc.dupe(u8, type_name);
+                current_pos += 1;
+            }
+
+            // Add parameter to list
+            try params.append(.{
+                .name = param_name_copy,
+                .param_type = param_type,
+            });
+        }
+
+        if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) {
+            return error.ExpectedRBracket;
+        }
+        current_pos += 1; // Skip ']'
+    }
+
+    // Parse function body
     if (current_pos >= toks.len) return error.UnexpectedEOF;
     const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    errdefer @constCast(&body_result.node).deinit(alloc);
     const final_pos_after_body = current_pos + body_result.consumed;
 
-    // Create a variable declaration expression instead of a function definition
-    // This will create a variable with the function name and assign it the value 42
-    const value_ptr = try alloc.create(ast.Expression);
-    value_ptr.* = .{ .Literal = .{ .value = .{ .Int = 42 } } };
+    // Create a pointer to the body expression
+    const body_ptr = try alloc.create(ast.Expression);
+    errdefer alloc.destroy(body_ptr);
+    body_ptr.* = try body_result.node.Expression.clone(alloc);
+    @constCast(&body_result.node).deinit(alloc);
+
+    // Convert params ArrayList to slice
+    const params_slice = try params.toOwnedSlice();
 
     return .{
-        .node = .{ .Expression = .{ .VarDecl = .{
+        .node = .{ .Expression = .{ .FuncDef = .{
             .name = name_copy,
-            .value = value_ptr,
+            .params = params_slice,
+            .body = body_ptr,
         } } },
         .consumed = final_pos_after_body,
     };
@@ -751,17 +808,59 @@ fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, de
         args.deinit();
     }
 
-    // Special case for binary operators (handled in parseList)
-    // This check should ideally not be needed if parseList handles infix correctly
-    // Keeping it defensively for now, but it might indicate a parser logic issue
+    // Handle binary operators in infix notation
     if (std.mem.eql(u8, func_ident, "+") or
         std.mem.eql(u8, func_ident, "-") or
         std.mem.eql(u8, func_ident, "<") or
-        std.mem.eql(u8, func_ident, ">"))
+        std.mem.eql(u8, func_ident, ">") or
+        std.mem.eql(u8, func_ident, "=="))
     {
-        // This path should likely return an error or be unreachable if parseList is correct
-        std.debug.print("WARNING: parseCall encountered binary operator '{s}' - should be handled by parseList\n", .{func_ident});
-        return error.InvalidExpression; // Or handle appropriately if this path is valid
+        debug.log("Handling infix binary operator: {s}", .{func_ident});
+
+        // We need exactly two arguments for binary operators
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+
+        // Parse left operand
+        debug.log("Parsing left operand", .{});
+        const left_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        errdefer @constCast(&left_result.node).deinit(alloc);
+        current_pos += left_result.consumed;
+
+        // Parse right operand
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        debug.log("Parsing right operand", .{});
+        const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        errdefer @constCast(&right_result.node).deinit(alloc);
+        current_pos += right_result.consumed;
+
+        // Check for closing parenthesis
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+
+        // Create left operand pointer
+        const left_ptr = try alloc.create(ast.Expression);
+        errdefer alloc.destroy(left_ptr);
+        left_ptr.* = try left_result.node.Expression.clone(alloc);
+        errdefer left_ptr.deinit(alloc);
+
+        // Create right operand pointer
+        const right_ptr = try alloc.create(ast.Expression);
+        errdefer alloc.destroy(right_ptr);
+        right_ptr.* = try right_result.node.Expression.clone(alloc);
+        errdefer right_ptr.deinit(alloc);
+
+        // Duplicate the operator identifier string for the AST node
+        const op_ident_copy = try alloc.dupe(u8, func_ident);
+        errdefer alloc.free(op_ident_copy);
+
+        // Clean up original nodes
+        @constCast(&left_result.node).deinit(alloc);
+        @constCast(&right_result.node).deinit(alloc);
+
+        debug.log("Binary operation parsed successfully", .{});
+        return .{
+            .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op_ident_copy }, .left = left_ptr, .right = right_ptr } } },
+            .consumed = current_pos + 1, // +1 for the closing parenthesis
+        };
     }
 
     // Regular function call

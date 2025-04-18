@@ -136,7 +136,8 @@ pub const HIR = struct {
         sub,
         lt,
         gt, // Added greater than
-        // TODO: Add eq, neq, lte, gte, mul, div etc.
+        eq, // Added equals
+        // TODO: Add neq, lte, gte, mul, div etc.
     };
 
     pub const If = struct {

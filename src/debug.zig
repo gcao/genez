@@ -17,6 +17,7 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .Function => |func| log("Function: {}", .{func}),
         .ReturnAddress => |addr| log("ReturnAddress: {}", .{addr}),
         .Variable => |var_val| log("Variable: {s}", .{var_val.name}),
+        .BuiltinOperator => |op| log("BuiltinOperator: {}", .{op}),
     }
 }
 

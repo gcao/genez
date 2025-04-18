@@ -24,12 +24,15 @@ pub const MIR = struct {
         allocator: std.mem.Allocator,
         name: []const u8,
         blocks: std.ArrayList(Block),
+        param_count: usize = 0,
+        param_names: std.ArrayList([]const u8),
 
         pub fn init(allocator: std.mem.Allocator) Function {
             return Function{
                 .allocator = allocator,
                 .name = "main",
                 .blocks = std.ArrayList(Block).init(allocator),
+                .param_names = std.ArrayList([]const u8).init(allocator),
             };
         }
 
@@ -39,6 +42,12 @@ pub const MIR = struct {
                 block.deinit();
             }
             self.blocks.deinit();
+
+            // Free parameter names
+            for (self.param_names.items) |name| {
+                self.allocator.free(name);
+            }
+            self.param_names.deinit();
         }
     };
 
@@ -96,12 +105,14 @@ pub const MIR = struct {
         LoadArray: []types.Value,
         LoadMap: std.StringHashMap(types.Value),
         LoadVariable: []const u8,
+        LoadParameter: usize, // Load parameter by index
         LoadFunction: *Function,
         StoreVariable: []const u8,
         Add,
         Sub,
         LessThan,
         GreaterThan, // Added GreaterThan instruction
+        Equal, // Added Equal instruction
         Jump: usize,
         JumpIfFalse: usize,
         Call: usize,

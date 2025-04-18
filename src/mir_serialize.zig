@@ -14,17 +14,17 @@ const types = @import("types.zig");
 pub fn serializeModule(writer: anytype, module: mir.MIR, indent: usize) !void {
     try writeIndent(writer, indent);
     try writer.writeAll("(mir-module\n");
-    
+
     // Serialize functions
     for (module.functions.items, 0..) |func, i| {
         try writeIndent(writer, indent + 1);
         try writer.print("(function {d}\n", .{i});
-        
+
         // Serialize blocks
         for (func.blocks.items, 0..) |block, j| {
             try writeIndent(writer, indent + 2);
             try writer.print("(block {d}\n", .{j});
-            
+
             // Serialize instructions
             for (block.instructions.items, 0..) |instr, k| {
                 try writeIndent(writer, indent + 3);
@@ -32,15 +32,15 @@ pub fn serializeModule(writer: anytype, module: mir.MIR, indent: usize) !void {
                 try serializeInstruction(writer, instr);
                 try writer.writeAll(")\n");
             }
-            
+
             try writeIndent(writer, indent + 2);
             try writer.writeAll(")\n");
         }
-        
+
         try writeIndent(writer, indent + 1);
         try writer.writeAll(")\n");
     }
-    
+
     try writeIndent(writer, indent);
     try writer.writeAll(")");
 }
@@ -75,6 +75,9 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .LoadVariable => |name| {
             try writer.print("load-variable \"{s}\"", .{name});
         },
+        .LoadParameter => |index| {
+            try writer.print("load-parameter {d}", .{index});
+        },
         .LoadFunction => |_| {
             try writer.writeAll("load-function");
         },
@@ -92,6 +95,9 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         },
         .GreaterThan => {
             try writer.writeAll("greater-than");
+        },
+        .Equal => {
+            try writer.writeAll("equal");
         },
         .Jump => |target| {
             try writer.print("jump {d}", .{target});

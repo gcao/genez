@@ -90,6 +90,13 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             // No need to clear MIR instr if we're duplicating
             // instr.* = .LoadNil; // REMOVED
         },
+        .LoadParameter => |param_index| {
+            // Load parameter from the stack frame
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.LoadParam,
+                .operand = types.Value{ .Int = @as(i64, @intCast(param_index)) },
+            });
+        },
         .Add => try func.instructions.append(.{
             .op = bytecode.OpCode.Add,
             .operand = null,
@@ -104,6 +111,10 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
         }),
         .GreaterThan => try func.instructions.append(.{
             .op = bytecode.OpCode.Gt,
+            .operand = null,
+        }),
+        .Equal => try func.instructions.append(.{
+            .op = bytecode.OpCode.Eq,
             .operand = null,
         }),
         .Jump => |target| try func.instructions.append(.{
@@ -142,7 +153,7 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
                 .instructions = bc_func.instructions,
                 .allocator = func.allocator,
                 .name = try func.allocator.dupe(u8, func_ptr.name),
-                .param_count = 0, // TODO: Update when MIR function params are implemented
+                .param_count = func_ptr.param_count,
             };
 
             const func_value = types.Value{ .Function = temp_func };

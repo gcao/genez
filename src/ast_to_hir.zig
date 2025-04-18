@@ -52,6 +52,7 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .ReturnAddress => |_| .{ .literal = .{ .nil = {} } }, // Fallback for ReturnAddress
             .Function => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Function
             .Variable => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Variable
+            .BuiltinOperator => |_| .{ .literal = .{ .nil = {} } }, // Fallback for BuiltinOperator
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -138,6 +139,8 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                         break :op_switch .lt;
                     } else if (std.mem.eql(u8, ident, ">")) {
                         break :op_switch .gt;
+                    } else if (std.mem.eql(u8, ident, "==")) {
+                        break :op_switch .eq;
                     } else {
                         // TODO: Add support for other binary operators like *, /, = etc.
                         std.debug.print("Unsupported binary operator '{s}' during HIR lowering.\n", .{ident});
