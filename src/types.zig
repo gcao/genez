@@ -49,7 +49,7 @@ pub const Value = union(enum) {
                 func_ptr.deinit();
                 allocator.destroy(func_ptr);
             },
-            .Variable => |var_val| allocator.free(var_val.name),
+            .Variable => {}, // No need to free the name as it's a string literal
             .BuiltinOperator => {},
             else => {},
         }
@@ -165,7 +165,7 @@ pub const Value = union(enum) {
                 debug.log("Value.clone: Function value created successfully", .{});
                 return result;
             },
-            .Variable => |var_val| Value{ .Variable = .{ .name = try allocator.dupe(u8, var_val.name) } },
+            .Variable => |var_val| Value{ .Variable = .{ .name = var_val.name } },
             .BuiltinOperator => |op| Value{ .BuiltinOperator = op },
         };
     }

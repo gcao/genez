@@ -57,6 +57,11 @@ pub const Function = struct {
             }
         }
         self.instructions.deinit();
+
+        // Free the function name
+        if (self.name.len > 0) {
+            self.allocator.free(self.name);
+        }
     }
 };
 

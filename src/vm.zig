@@ -38,7 +38,7 @@ pub const VM = struct {
     allocator: std.mem.Allocator,
     stdout: std.fs.File.Writer,
     stack: std.ArrayList(types.Value),
-    variables: std.StringHashMap(types.Value),
+    variables: std.StringArrayHashMap(types.Value),
     call_frames: std.ArrayList(CallFrame),
     current_func: ?*const bytecode.Function, // Current function being executed
     pc: usize, // Program counter
@@ -48,8 +48,10 @@ pub const VM = struct {
         debug.log("Initializing VM", .{});
 
         // Initialize variables with builtins
-        var variables = std.StringHashMap(types.Value).init(allocator);
-        const print_name = allocator.dupe(u8, "print") catch return VM{
+        var variables = std.StringArrayHashMap(types.Value).init(allocator);
+
+        // Store the print function as a variable
+        variables.put("print", .{ .Variable = .{ .name = "print" } }) catch return VM{
             .allocator = allocator,
             .stdout = stdout,
             .stack = std.ArrayList(types.Value).init(allocator),
@@ -59,7 +61,6 @@ pub const VM = struct {
             .pc = 0,
             .bp = 0,
         };
-        variables.put("print", .{ .Variable = .{ .name = print_name } }) catch {};
 
         return VM{
             .allocator = allocator,
@@ -97,6 +98,11 @@ pub const VM = struct {
             // self.allocator.free(entry.key_ptr.*);
         }
         self.variables.deinit();
+
+        // Clean up current function if it exists
+        // Note: We don't deinit the function itself as it's owned by the caller
+        // or has already been cleaned up as part of the stack or variables
+        self.current_func = null;
     }
 
     pub fn execute(self: *VM, func: *const bytecode.Function) VMError!void {
@@ -192,6 +198,7 @@ pub const VM = struct {
                 if (std.mem.eql(u8, name, "==")) {
                     // Handle == as a built-in operator by pushing a special function onto the stack
                     try self.stack.append(.{ .BuiltinOperator = .Eq });
+                    // No need to free the name since we didn't allocate it
                 } else {
                     // If not a parameter, check global scope
                     debug.log("Checking global scope for variable: {s}", .{name});
@@ -258,16 +265,19 @@ pub const VM = struct {
                 self.stack.items.len -= 1;
 
                 // Store the value in the variables map
-                // First check if the variable already exists
-                if (self.variables.get(name)) |old_value| {
+                // Check if the variable already exists
+                if (self.variables.getIndex(name)) |idx| {
                     // Free the old value
-                    var old_value_copy = old_value;
+                    var old_value_copy = self.variables.values()[idx];
                     old_value_copy.deinit(self.allocator);
+
+                    // Update the value in place
+                    self.variables.values()[idx] = value;
+                } else {
+                    // No existing key, add a new entry
+                    try self.variables.put(name, value);
                 }
 
-                // Duplicate the name for the variable
-                const name_copy = try self.allocator.dupe(u8, name);
-                try self.variables.put(name_copy, value);
                 debug.log("Stored variable {s} = {}", .{ name, value });
             },
             .StoreGlobal => {
@@ -296,16 +306,19 @@ pub const VM = struct {
                 self.stack.items.len -= 1;
 
                 // Store the value in the variables map
-                // First check if the variable already exists
-                if (self.variables.get(name)) |old_value| {
+                // Check if the variable already exists
+                if (self.variables.getIndex(name)) |idx| {
                     // Free the old value
-                    var old_value_copy = old_value;
+                    var old_value_copy = self.variables.values()[idx];
                     old_value_copy.deinit(self.allocator);
+
+                    // Update the value in place
+                    self.variables.values()[idx] = value;
+                } else {
+                    // No existing key, add a new entry
+                    try self.variables.put(name, value);
                 }
 
-                // Duplicate the name for the variable
-                const name_copy = try self.allocator.dupe(u8, name);
-                try self.variables.put(name_copy, value);
                 debug.log("Stored global variable {s} = {}", .{ name, value });
             },
             .Add => {
