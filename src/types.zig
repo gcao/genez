@@ -46,8 +46,12 @@ pub const Value = union(enum) {
             .ReturnAddress => {},
             .Function => |func_ptr| {
                 // Deallocate the bytecode function object pointed to
+                debug.log("Value.deinit: Deinitializing function at {*}: {s}", .{ func_ptr, func_ptr.name });
+                debug.log("Value.deinit: Function has {} instructions", .{func_ptr.instructions.items.len});
                 func_ptr.deinit();
+                debug.log("Value.deinit: Function deinitialized, now destroying function object", .{});
                 allocator.destroy(func_ptr);
+                debug.log("Value.deinit: Function object destroyed", .{});
             },
             .Variable => {}, // No need to free the name as it's a string literal
             .BuiltinOperator => {},

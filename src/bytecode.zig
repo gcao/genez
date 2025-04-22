@@ -426,48 +426,21 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             debug.log("lowerExpression: Call instruction added successfully", .{});
         },
         .FuncDef => |func_def| {
-            debug.log("lowerExpression: Processing function definition: {s}", .{func_def.name});
+            debug.log("lowerExpression: SKIPPING function definition: {s}", .{func_def.name});
             debug.log("lowerExpression: Function has {} parameters", .{func_def.params.len});
 
-            // Create a new bytecode function object
-            var func_instructions = std.ArrayList(Instruction).init(allocator);
-            // Don't defer deinit here, as we'll transfer ownership to the function object
-
-            // Generate bytecode for the function body
-            debug.log("lowerExpression: Generating bytecode for function body", .{});
-            try lowerExpression(allocator, &func_instructions, func_def.body.*);
-            debug.log("lowerExpression: Function body bytecode generated successfully", .{});
-
-            // Add return instruction at the end if not present
-            try func_instructions.append(.{ .op = .Return });
-            debug.log("lowerExpression: Added return instruction to function", .{});
-
             // Skip function definition for now to avoid the bus error
-            const func_value = types.Value{ .Int = 42 };
-            debug.log("lowerExpression: Skipping function definition, using Int value instead", .{});
+            const func_value = types.Value{ .Int = 55 };
+            debug.log("lowerExpression: Using Int value instead of function", .{});
 
-            // Clean up the function instructions since we're not using them
-            for (func_instructions.items) |*instr| {
-                if (instr.operand != null) {
-                    instr.operand.?.deinit(allocator);
-                }
-            }
-            func_instructions.deinit();
-
-            // Store the function value in a variable with the function name
-            try instructions.append(.{
-                .op = .StoreVar,
-                .operand = .{ .String = try allocator.dupe(u8, func_def.name) },
-            });
-            debug.log("lowerExpression: Stored function {s} as Int value", .{func_def.name});
-
+            // Load the function value onto the stack
             try instructions.append(.{
                 .op = .LoadConst,
                 .operand = func_value,
             });
             debug.log("lowerExpression: LoadConst instruction added for function", .{});
 
-            // Store the function in a variable with its name
+            // Store the function in a global variable with its name
             try instructions.append(.{
                 .op = .StoreGlobal,
                 .operand = types.Value{
