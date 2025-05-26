@@ -18,6 +18,8 @@ pub fn convert(allocator: std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
 
 fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MIR.Function {
     var mir_func = mir.MIR.Function.init(allocator);
+    // Free the default name before overwriting it to avoid memory leak
+    allocator.free(mir_func.name);
     mir_func.name = try allocator.dupe(u8, func.name);
 
     // Create entry block
@@ -48,10 +50,34 @@ fn isReturnInstruction(instruction: mir.MIR.Instruction) bool {
     };
 }
 
+// Context for converting expressions within functions
+const ConversionContext = struct {
+    param_names: ?[][]const u8,
+
+    fn isParameter(self: ConversionContext, name: []const u8) ?usize {
+        if (self.param_names) |params| {
+            for (params, 0..) |param_name, i| {
+                if (std.mem.eql(u8, name, param_name)) {
+                    return i;
+                }
+            }
+        }
+        return null;
+    }
+};
+
 fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
+    const empty_context = ConversionContext{ .param_names = null };
+    try convertExpressionWithContext(block, expr, empty_context);
+}
+
+fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression, context: ConversionContext) !void {
     switch (expr) {
         .literal => |lit| switch (lit) {
-            .int => |val| try block.instructions.append(.{ .LoadInt = val }),
+            .int => |val| {
+                std.debug.print("[HIR->MIR] LoadInt: {}\n", .{val});
+                try block.instructions.append(.{ .LoadInt = val });
+            },
             .string => |val| try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, val) }),
             .bool => |val| try block.instructions.append(.{ .LoadBool = val }),
             .float => |val| try block.instructions.append(.{ .LoadFloat = val }),
@@ -74,38 +100,49 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
             },
         },
         .binary_op => |bin_op| {
+            std.debug.print("[HIR->MIR] Binary op: {}\n", .{bin_op.op});
             // First convert and load the left operand
-            try convertExpression(block, bin_op.left.*);
+            try convertExpressionWithContext(block, bin_op.left.*, context);
 
             // Then convert and load the right operand
-            try convertExpression(block, bin_op.right.*);
+            try convertExpressionWithContext(block, bin_op.right.*, context);
 
             // Finally add the operation
             switch (bin_op.op) {
                 .add => try block.instructions.append(.Add),
                 .sub => try block.instructions.append(.Sub),
-                .lt => try block.instructions.append(.LessThan),
+                .lt => {
+                    std.debug.print("[HIR->MIR] Appending LessThan\n", .{});
+                    try block.instructions.append(.LessThan);
+                },
                 .gt => try block.instructions.append(.GreaterThan), // Added GreaterThan
                 .eq => try block.instructions.append(.Equal), // Added Equal
                 // TODO: Add other MIR binary instructions
             }
         },
         .variable => |var_expr| {
-            // REMOVED: Special handling for print variable. Load it like any other variable.
-            const name_copy = try block.allocator.dupe(u8, var_expr.name);
-            // errdefer block.allocator.free(name_copy); // Deferring free might be problematic if append fails
-            try block.instructions.append(.{ .LoadVariable = name_copy });
+            // Check if this is a parameter reference
+            if (context.isParameter(var_expr.name)) |param_index| {
+                // Load parameter by index
+                std.debug.print("[HIR->MIR] LoadParameter: {} (name: {s})\n", .{ param_index, var_expr.name });
+                try block.instructions.append(.{ .LoadParameter = param_index });
+            } else {
+                // Load regular variable
+                std.debug.print("[HIR->MIR] LoadVariable: {s}\n", .{var_expr.name});
+                const name_copy = try block.allocator.dupe(u8, var_expr.name);
+                try block.instructions.append(.{ .LoadVariable = name_copy });
+            }
         },
         .if_expr => |if_expr| {
             // First, evaluate the condition
-            try convertExpression(block, if_expr.condition.*);
+            try convertExpressionWithContext(block, if_expr.condition.*, context);
 
             // Create a JumpIfFalse instruction - we'll set the target later
             const jump_if_false_index = block.instructions.items.len;
             try block.instructions.append(.{ .JumpIfFalse = 0 });
 
             // Generate code for the then branch
-            try convertExpression(block, if_expr.then_branch.*);
+            try convertExpressionWithContext(block, if_expr.then_branch.*, context);
 
             // If there's an else branch, we need to jump over it after the then branch
             const jump_over_else_index = if (if_expr.else_branch != null) block.instructions.items.len else 0;
@@ -119,7 +156,7 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
 
             // Generate code for the else branch if it exists
             if (if_expr.else_branch) |else_branch| {
-                try convertExpression(block, else_branch.*);
+                try convertExpressionWithContext(block, else_branch.*, context);
             }
 
             // Now we know where the code after the if statement starts, so we can set the Jump target
@@ -130,11 +167,11 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
         },
         .func_call => |func_call| {
             // First, evaluate the function
-            try convertExpression(block, func_call.func.*);
+            try convertExpressionWithContext(block, func_call.func.*, context);
 
             // Then evaluate all the arguments in order
             for (func_call.args.items) |arg| {
-                try convertExpression(block, arg.*);
+                try convertExpressionWithContext(block, arg.*, context);
             }
 
             // Finally, call the function with the number of arguments
@@ -145,19 +182,26 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
             var func = mir.MIR.Function.init(block.allocator);
             errdefer func.deinit();
 
-            // Set the function name
-            block.allocator.free(func.name); // Free the default name "main"
+            // Set the function name - now safe to free default since it's allocated
+            block.allocator.free(func.name);
             func.name = try block.allocator.dupe(u8, func_def.name);
 
-            // Set the parameter count
+            // Set the parameter count and names
             func.param_count = func_def.params.len;
+            for (func_def.params) |param| {
+                const param_name = try block.allocator.dupe(u8, param.name);
+                try func.param_names.append(param_name);
+            }
 
             // Create a block for the function body
             var body_block = mir.MIR.Block.init(block.allocator);
             errdefer body_block.deinit();
 
-            // Convert the function body
-            try convertExpression(&body_block, func_def.body.*);
+            // Create context for the function body with parameter names
+            const func_context = ConversionContext{ .param_names = func.param_names.items };
+
+            // Convert the function body with parameter context
+            try convertExpressionWithContext(&body_block, func_def.body.*, func_context);
 
             // Add a return instruction if not present
             var needs_return = true;
@@ -188,7 +232,7 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
         },
         .var_decl => |var_decl| {
             // Evaluate the variable's value
-            try convertExpression(block, var_decl.value.*);
+            try convertExpressionWithContext(block, var_decl.value.*, context);
 
             // Store it in a variable
             const name_copy = try block.allocator.dupe(u8, var_decl.name);

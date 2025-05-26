@@ -237,5 +237,26 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 },
             };
         },
+        .SimpleFuncDef => |func_def| {
+            // Convert SimpleFuncDef to HIR function
+            const body_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(body_ptr);
+            body_ptr.* = hir.HIR.Expression{
+                .literal = .{
+                    .int = func_def.body_literal,
+                },
+            };
+
+            // Create empty params slice for SimpleFuncDef
+            const params = try allocator.alloc(hir.HIR.FuncParam, 0);
+
+            return hir.HIR.Expression{
+                .func_def = .{
+                    .name = try allocator.dupe(u8, func_def.getName()),
+                    .params = params,
+                    .body = body_ptr,
+                },
+            };
+        },
     };
 }

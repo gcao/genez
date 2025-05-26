@@ -22,6 +22,7 @@ build/
 benchmark-results/
 .lsp/
 *.dylib
+.vscode/
 callgrind.out*
 scratch*
 gene.wasm

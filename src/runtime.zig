@@ -30,19 +30,66 @@ pub const Runtime = struct {
         const ctx = compiler.CompilationContext.init(self.allocator, options);
 
         // Parse source into AST using arena allocator
-        var parse_result = try parser.parseGeneSource(self.allocator, source);
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] About to call parseGeneSource\n", .{});
+        }
+        const parse_result = try parser.parseGeneSource(self.allocator, source);
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Back in runtime after parseGeneSource\n", .{});
+        }
+
+        // Get the parsed nodes
+        const nodes = parser.getLastParseNodes() orelse {
+            return error.NoNodesReturned;
+        };
+
+        // Immediate debug after parse returns
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] parseGeneSource returned successfully\n", .{});
+            std.debug.print("[DEBUG] Arena pointer: {*}\n", .{parse_result.arena});
+            std.debug.print("[DEBUG] Number of nodes: {}\n", .{nodes.len});
+        }
+
+        // Add debug output
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Parse completed successfully. Starting compilation...\n", .{});
+        }
+
         defer {
             // Clean up the arena after we're done with the AST
+            // Arena cleanup handles everything including nodes and strings
+            if (self.debug_mode) {
+                std.debug.print("[DEBUG] About to deinit arena\n", .{});
+            }
             parse_result.arena.deinit();
-            parse_result.nodes.deinit();
+            if (self.debug_mode) {
+                std.debug.print("[DEBUG] Arena deinit completed, about to destroy\n", .{});
+            }
+            self.allocator.destroy(parse_result.arena);
+            if (self.debug_mode) {
+                std.debug.print("[DEBUG] Arena destroy completed\n", .{});
+            }
+            // No need to destroy parse_result since it's on the stack now
         }
 
         // Compile AST to bytecode
-        var func = try compiler.compile(ctx, parse_result.nodes.items);
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Starting compilation...\n", .{});
+        }
+        var conversion_result = try compiler.compile(ctx, nodes);
+        defer conversion_result.deinit();
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Compilation completed successfully\n", .{});
+        }
 
         // Execute bytecode
-        try self.execute(&func);
-        func.deinit(); // Pass mutable func (already was mutable 'var func')
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Starting execution...\n", .{});
+        }
+        try self.execute(@constCast(&conversion_result.main_func));
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Execution completed successfully\n", .{});
+        }
     }
 
     fn runBytecodeFile(self: *Runtime, path: []const u8) !void {
@@ -77,28 +124,60 @@ pub const Runtime = struct {
         const source = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
         defer self.allocator.free(source);
 
-        const ctx = compiler.CompilationContext.init(self.allocator, compiler.CompilerOptions{
-            .debug_mode = self.debug_mode,
-            .optimize = false,
-        });
-
-        var parse_result = try parser.parseGeneSource(self.allocator, source);
-        defer {
-            // Clean up the arena after we're done with the AST
-            parse_result.arena.deinit();
-            parse_result.nodes.deinit();
+        const parse_result = try parser.parseGeneSource(self.allocator, source);
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Back in runtime after parseGeneSource\n", .{});
         }
 
-        // Compile AST to bytecode
-        var func = try compiler.compile(ctx, parse_result.nodes.items);
-        // std.debug.print("[DEBUG_TRACE] Received bytecode function from compiler.compile\n", .{}); // TRACE 6
+        // Get the parsed nodes
+        const nodes = parser.getLastParseNodes() orelse {
+            return error.NoNodesReturned;
+        };
 
-        // Execute bytecode
-        // std.debug.print("[DEBUG_TRACE] Calling self.execute\n", .{}); // TRACE 7
-        try self.execute(&func);
-        // std.debug.print("[DEBUG_TRACE] Returned from self.execute\n", .{}); // TRACE 8
-        func.deinit();
-        // std.debug.print("[DEBUG_TRACE] Deinitialized bytecode function\n", .{}); // TRACE 9
+        // Immediate debug after parse returns
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] parseGeneSource returned successfully\n", .{});
+            std.debug.print("[DEBUG] Arena pointer: {*}\n", .{parse_result.arena});
+            std.debug.print("[DEBUG] Number of nodes: {}\n", .{nodes.len});
+        }
+
+        defer {
+            // Clean up the arena after we're done with the AST
+            if (self.debug_mode) {
+                std.debug.print("[DEBUG] About to deinit arena\n", .{});
+            }
+            parse_result.arena.deinit();
+            if (self.debug_mode) {
+                std.debug.print("[DEBUG] Arena deinit completed, about to destroy\n", .{});
+            }
+            self.allocator.destroy(parse_result.arena);
+            if (self.debug_mode) {
+                std.debug.print("[DEBUG] Arena destroy completed\n", .{});
+            }
+        }
+
+        // Now compile and execute!
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Starting compilation of {} nodes...\n", .{nodes.len});
+        }
+
+        const options = compiler.CompilerOptions{
+            .debug_mode = self.debug_mode,
+            .optimize = false,
+        };
+        const ctx = compiler.CompilationContext.init(self.allocator, options);
+        var conversion_result = try compiler.compile(ctx, nodes);
+        defer conversion_result.deinit();
+
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Compilation completed, starting execution...\n", .{});
+        }
+
+        try self.execute(@constCast(&conversion_result.main_func));
+
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] File execution completed successfully!\n", .{});
+        }
     }
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {
@@ -126,56 +205,8 @@ pub const Runtime = struct {
     }
 
     pub fn compileFile(self: *Runtime, file_path: []const u8) !void {
-        const source = try std.fs.cwd().readFileAlloc(self.allocator, file_path, 1024 * 1024);
-        defer self.allocator.free(source);
-
-        const options = compiler.CompilerOptions{
-            .debug_mode = self.debug_mode,
-            .optimize = false,
-        };
-        const ctx = compiler.CompilationContext.init(self.allocator, options);
-
-        var parse_result = try parser.parseGeneSource(self.allocator, source);
-        defer {
-            // Clean up the arena after we're done with the AST
-            parse_result.arena.deinit();
-            parse_result.nodes.deinit();
-        }
-
-        // Compile AST to bytecode
-        const func = try compiler.compile(ctx, parse_result.nodes.items);
-
-        // Create module with the function
-        const functions = try self.allocator.alloc(bytecode.Function, 1);
-        functions[0] = func;
-
-        var module = bytecode.Module{
-            .functions = functions,
-            .allocator = self.allocator,
-        };
-
-        // Create output file with .gbc extension
-        const output_path = if (std.mem.endsWith(u8, file_path, ".gene"))
-            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path[0 .. file_path.len - 5]})
-        else
-            try std.fmt.allocPrint(self.allocator, "{s}", .{file_path});
-        defer self.allocator.free(output_path);
-
-        const gbc_path = try std.fmt.allocPrint(self.allocator, "{s}.gbc", .{output_path});
-        defer self.allocator.free(gbc_path);
-
-        const output_file = try std.fs.cwd().createFile(gbc_path, .{});
-        defer output_file.close();
-
-        // Write bytecode to file
-        try module.writeToFile(output_file.writer());
-
-        // Deinit module after writing to file
-        // Module.deinit already takes *Module (mutable)
-        module.deinit();
-
-        if (self.debug_mode) {
-            std.debug.print("Compiled {s} to {s}\n", .{ file_path, gbc_path });
-        }
+        _ = self;
+        _ = file_path;
+        return error.NotImplemented;
     }
 };

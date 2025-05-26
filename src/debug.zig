@@ -14,10 +14,10 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .Symbol => |s| log("Symbol: {s}", .{s}),
         .Array => |arr| log("Array of length {}", .{arr.len}),
         .Map => |map| log("Map with {} entries", .{map.count()}),
-        .Function => |func| log("Function: {}", .{func}),
-        .ReturnAddress => |addr| log("ReturnAddress: {}", .{addr}),
+        .Function => |func| log("Function: {any}", .{func}),
+        .ReturnAddress => |addr| log("ReturnAddress: {any}", .{addr}),
         .Variable => |var_val| log("Variable: {s}", .{var_val.name}),
-        .BuiltinOperator => |op| log("BuiltinOperator: {}", .{op}),
+        .BuiltinOperator => |op| log("BuiltinOperator: {any}", .{op}),
     }
 }
 

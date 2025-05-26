@@ -3,25 +3,63 @@ const mir = @import("mir.zig");
 const bytecode = @import("bytecode.zig");
 const types = @import("types.zig");
 
-pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !bytecode.Function {
-    var func = bytecode.Function.init(allocator);
-    errdefer func.deinit();
+pub const ConversionResult = struct {
+    main_func: bytecode.Function,
+    created_functions: std.ArrayList(*bytecode.Function),
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *ConversionResult) void {
+        // Clean up created functions
+        for (self.created_functions.items) |func| {
+            func.deinit();
+            self.allocator.destroy(func);
+        }
+        self.created_functions.deinit();
+
+        // Clean up main function
+        self.main_func.deinit();
+    }
+};
+
+pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResult {
+    var main_func = bytecode.Function.init(allocator);
+    errdefer main_func.deinit();
+
+    var created_functions = std.ArrayList(*bytecode.Function).init(allocator);
+    errdefer {
+        for (created_functions.items) |f| {
+            f.deinit();
+            allocator.destroy(f);
+        }
+        created_functions.deinit();
+    }
+
+    // The main function should only contain top-level statements
+    // For now, we'll assume all MIR functions are function definitions that should be
+    // loaded and stored as variables in the main function
 
     // Convert each MIR function to bytecode
     for (mir_prog.functions.items) |*mir_func| {
-        // Convert each block to bytecode instructions
+        // Each MIR function's blocks contain the main program code
+        // (This is because the parser currently puts everything in functions)
         for (mir_func.blocks.items) |*block| {
             // Convert each instruction to bytecode
             for (block.instructions.items) |*instr| {
-                try convertInstruction(&func, instr);
+                try convertInstruction(&main_func, instr, &created_functions);
             }
         }
     }
 
-    return func;
+    return ConversionResult{
+        .main_func = main_func,
+        .created_functions = created_functions,
+        .allocator = allocator,
+    };
 }
 
-fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !void {
+fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, created_functions: *std.ArrayList(*bytecode.Function)) !void {
+    _ = created_functions;
+    std.debug.print("[MIR->BC] Converting instruction: {s} to function with {} instructions\n", .{ @tagName(instr.*), func.instructions.items.len });
     switch (instr.*) {
         .LoadInt => |val| try func.instructions.append(.{
             .op = bytecode.OpCode.LoadConst,
@@ -118,11 +156,11 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             .operand = null,
         }),
         .Jump => |target| try func.instructions.append(.{
-            .op = bytecode.OpCode.LoadConst,
+            .op = bytecode.OpCode.Jump,
             .operand = types.Value{ .Int = @as(i64, @intCast(target)) },
         }),
         .JumpIfFalse => |target| try func.instructions.append(.{
-            .op = bytecode.OpCode.LoadConst,
+            .op = bytecode.OpCode.JumpIfFalse,
             .operand = types.Value{ .Int = @as(i64, @intCast(target)) },
         }),
         .Call => |arg_count| try func.instructions.append(.{
@@ -138,31 +176,15 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction) !vo
             .operand = null,
         }),
         .LoadFunction => |func_ptr| {
-            // Convert the function's blocks to bytecode
-            var bc_func = bytecode.Function.init(func.allocator);
-
-            for (func_ptr.blocks.items) |*block| {
-                for (block.instructions.items) |*block_instr| {
-                    try convertInstruction(&bc_func, block_instr);
-                }
-            }
-
-            // Create a function value
-            const temp_func = try func.allocator.create(bytecode.Function);
-            temp_func.* = .{
-                .instructions = bc_func.instructions,
-                .allocator = func.allocator,
-                .name = try func.allocator.dupe(u8, func_ptr.name),
-                .param_count = func_ptr.param_count,
-            };
-
-            const func_value = types.Value{ .Function = temp_func };
-
-            // Load it as a constant
+            // Instead of loading the function object directly, store it in a variable by name
+            // and load the variable when needed
+            // Store the function in a variable
             try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadConst,
-                .operand = func_value,
+                .op = bytecode.OpCode.StoreVar,
+                .operand = types.Value{ .String = try func.allocator.dupe(u8, func_ptr.name) },
             });
+            // When the function is referenced, it should be loaded by name (LoadVar)
+            // So we do not push the function object directly onto the stack here
         },
         .StoreVariable => |name| {
             // Duplicate the variable name (string) for the bytecode operand

@@ -14,22 +14,22 @@ const types = @import("types.zig");
 pub fn serializeModule(writer: anytype, module: hir.HIR, indent: usize) !void {
     try writeIndent(writer, indent);
     try writer.writeAll("(hir-module\n");
-    
+
     for (module.functions.items, 0..) |func, i| {
         try writeIndent(writer, indent + 1);
         try writer.print("(function {d}\n", .{i});
-        
+
         // Serialize function body
         for (func.body.items) |stmt| {
             try writeIndent(writer, indent + 2);
             try serializeStatement(writer, stmt, indent + 2);
             try writer.writeAll("\n");
         }
-        
+
         try writeIndent(writer, indent + 1);
         try writer.writeAll(")\n");
     }
-    
+
     try writeIndent(writer, indent);
     try writer.writeAll(")");
 }
@@ -56,12 +56,12 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             try writer.writeAll("(call ");
             try serializeExpression(writer, call.func.*, indent);
             try writer.writeAll(" ");
-            
+
             for (call.args.items, 0..) |arg, i| {
                 if (i > 0) try writer.writeAll(" ");
                 try serializeExpression(writer, arg.*, indent + 1);
             }
-            
+
             try writer.writeAll(")");
         },
         .binary_op => |bin_op| {
@@ -76,17 +76,17 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             try serializeExpression(writer, if_expr.condition.*, indent + 1);
             try writer.writeAll(" ");
             try serializeExpression(writer, if_expr.then_branch.*, indent + 1);
-            
+
             if (if_expr.else_branch) |else_branch| {
                 try writer.writeAll(" ");
                 try serializeExpression(writer, else_branch.*, indent + 1);
             }
-            
+
             try writer.writeAll(")");
         },
         .func_def => |func_def| {
             try writer.print("(fn \"{s}\" [", .{func_def.name});
-            
+
             for (func_def.params, 0..) |param, i| {
                 if (i > 0) try writer.writeAll(" ");
                 try writer.print("\"{s}\"", .{param.name});
@@ -94,7 +94,7 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
                     try writer.print(" : \"{s}\"", .{param_type});
                 }
             }
-            
+
             try writer.writeAll("] ");
             try serializeExpression(writer, func_def.body.*, indent + 1);
             try writer.writeAll(")");

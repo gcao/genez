@@ -28,9 +28,11 @@ pub const MIR = struct {
         param_names: std.ArrayList([]const u8),
 
         pub fn init(allocator: std.mem.Allocator) Function {
+            // Allocate the default name properly to avoid freeing string literals
+            const default_name = allocator.dupe(u8, "main") catch @panic("Failed to allocate default function name");
             return Function{
                 .allocator = allocator,
-                .name = "main",
+                .name = default_name,
                 .blocks = std.ArrayList(Block).init(allocator),
                 .param_names = std.ArrayList([]const u8).init(allocator),
             };

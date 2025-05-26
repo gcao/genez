@@ -30,12 +30,12 @@ test "compile simple expression to bytecode" {
     defer mir_module.deinit();
 
     // Lower to bytecode
-    var bytecode_module = try mir_to_bytecode.convert(allocator, &mir_module);
-    defer bytecode_module.deinit();
+    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module);
+    defer conversion_result.deinit();
 
     // Verify the bytecode structure
-    // bytecode_module is a Function, not a Module
-    const main_func = bytecode_module;
+    // conversion_result.main_func is a Function
+    const main_func = conversion_result.main_func;
 
     // Check that we have the expected instructions
     try std.testing.expectEqual(@as(usize, 3), main_func.instructions.items.len);
@@ -74,12 +74,12 @@ test "compile binary operation to bytecode" {
     defer mir_module.deinit();
 
     // Lower to bytecode
-    var bytecode_module = try mir_to_bytecode.convert(allocator, &mir_module);
-    defer bytecode_module.deinit();
+    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module);
+    defer conversion_result.deinit();
 
     // Verify the bytecode structure
-    // bytecode_module is a Function, not a Module
-    const main_func = bytecode_module;
+    // conversion_result.main_func is a Function
+    const main_func = conversion_result.main_func;
 
     // Check that we have the expected instructions
     try std.testing.expectEqual(@as(usize, 4), main_func.instructions.items.len);

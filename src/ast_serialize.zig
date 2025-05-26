@@ -3,7 +3,7 @@ const ast = @import("ast.zig");
 const types = @import("types.zig");
 
 /// Serialize an AST node to Gene format
-/// 
+///
 /// This function takes an AST node and serializes it to a human-readable
 /// Gene format, writing the result to the provided writer.
 ///
@@ -13,7 +13,7 @@ const types = @import("types.zig");
 ///   - indent: The current indentation level
 pub fn serializeNode(writer: anytype, node: ast.AstNode, indent: usize) !void {
     try writeIndent(writer, indent);
-    
+
     switch (node) {
         .Expression => |expr| {
             try serializeExpression(writer, expr, indent);
@@ -34,12 +34,12 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try writer.writeAll("(call ");
             try serializeExpression(writer, call.func.*, indent);
             try writer.writeAll(" ");
-            
+
             for (call.args.items, 0..) |arg, i| {
                 if (i > 0) try writer.writeAll(" ");
                 try serializeExpression(writer, arg.*, indent + 1);
             }
-            
+
             try writer.writeAll(")");
         },
         .BinaryOp => |bin_op| {
@@ -54,17 +54,17 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try serializeExpression(writer, if_expr.condition.*, indent + 1);
             try writer.writeAll(" ");
             try serializeExpression(writer, if_expr.then_branch.*, indent + 1);
-            
+
             if (if_expr.else_branch) |else_branch| {
                 try writer.writeAll(" ");
                 try serializeExpression(writer, else_branch.*, indent + 1);
             }
-            
+
             try writer.writeAll(")");
         },
         .FuncDef => |func_def| {
             try writer.print("(fn \"{s}\" [", .{func_def.name});
-            
+
             for (func_def.params, 0..) |param, i| {
                 if (i > 0) try writer.writeAll(" ");
                 try writer.print("\"{s}\"", .{param.name});
@@ -72,7 +72,7 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
                     try writer.print(" : \"{s}\"", .{param_type});
                 }
             }
-            
+
             try writer.writeAll("] ");
             try serializeExpression(writer, func_def.body.*, indent + 1);
             try writer.writeAll(")");
@@ -81,6 +81,9 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try writer.print("(var-decl \"{s}\" ", .{var_decl.name});
             try serializeExpression(writer, var_decl.value.*, indent + 1);
             try writer.writeAll(")");
+        },
+        .SimpleFuncDef => |func_def| {
+            try writer.print("(simple-fn \"{s}\" {d})", .{ func_def.getName(), func_def.body_literal });
         },
     }
 }

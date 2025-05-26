@@ -297,6 +297,7 @@ pub const Expression = union(enum) {
     FuncCall: FuncCall,
     FuncDef: FuncDef,
     VarDecl: VarDecl,
+    SimpleFuncDef: SimpleFuncDef,
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -307,6 +308,7 @@ pub const Expression = union(enum) {
             .FuncCall => |*func_call| func_call.deinit(allocator),
             .FuncDef => |*func_def| func_def.deinit(allocator),
             .VarDecl => |*var_decl| var_decl.deinit(allocator),
+            .SimpleFuncDef => |*func_def| func_def.deinit(allocator),
         }
     }
 
@@ -319,7 +321,30 @@ pub const Expression = union(enum) {
             .FuncCall => |func_call| Expression{ .FuncCall = try func_call.clone(allocator) },
             .FuncDef => |func_def| Expression{ .FuncDef = try func_def.clone(allocator) },
             .VarDecl => |var_decl| Expression{ .VarDecl = try var_decl.clone(allocator) },
+            .SimpleFuncDef => |func_def| Expression{ .SimpleFuncDef = try func_def.clone(allocator) },
         };
+    }
+};
+
+pub const SimpleFuncDef = struct {
+    name: []const u8,
+    param_count: usize,
+    body_literal: i64,
+
+    pub fn deinit(self: *SimpleFuncDef, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+    }
+
+    pub fn clone(self: SimpleFuncDef, allocator: std.mem.Allocator) error{OutOfMemory}!SimpleFuncDef {
+        return SimpleFuncDef{
+            .name = try allocator.dupe(u8, self.name),
+            .param_count = self.param_count,
+            .body_literal = self.body_literal,
+        };
+    }
+
+    pub fn getName(self: SimpleFuncDef) []const u8 {
+        return self.name;
     }
 };
 

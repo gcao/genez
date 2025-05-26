@@ -60,7 +60,7 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
         .Function => std.debug.print("(function)\n", .{}),
         .ReturnAddress => std.debug.print("(return address)\n", .{}),
         .Variable => |val| std.debug.print("(variable {s})\n", .{val.name}),
-        .BuiltinOperator => |op| std.debug.print("(builtin operator {})\n", .{op}),
+        .BuiltinOperator => |op| std.debug.print("(builtin operator {any})\n", .{op}),
     }
 
     // Check that the result matches the expected value

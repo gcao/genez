@@ -19,6 +19,8 @@ pub const OpCode = enum {
     Print,
     Return,
     Call,
+    Jump, // Unconditional jump
+    JumpIfFalse, // Conditional jump if top of stack is false
 };
 
 pub const Instruction = struct {

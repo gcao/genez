@@ -30,7 +30,7 @@ pub const CompilationContext = struct {
     }
 };
 
-pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function {
+pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.ConversionResult {
     // Display AST
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== AST ===\n", .{});
@@ -72,15 +72,15 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !bytecode.Function
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== MIR to Bytecode ===\n", .{});
     }
-    const func = try mir_to_bytecode.convert(ctx.allocator, &mir_prog);
+    const conversion_result = try mir_to_bytecode.convert(ctx.allocator, &mir_prog);
 
     // Display Bytecode
     if (ctx.options.debug_mode) {
         std.debug.print("\n=== Bytecode ===\n", .{});
-        try bytecode_serialize.serializeFunction(std.io.getStdOut().writer(), func, 0);
+        try bytecode_serialize.serializeFunction(std.io.getStdOut().writer(), conversion_result.main_func, 0);
         std.debug.print("\n", .{});
     }
 
     // std.debug.print("[DEBUG_TRACE] Exiting compiler.compile\n", .{}); // TRACE 5
-    return func;
+    return conversion_result;
 }

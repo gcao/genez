@@ -43,6 +43,7 @@ pub const VM = struct {
     current_func: ?*const bytecode.Function, // Current function being executed
     pc: usize, // Program counter
     bp: usize, // Base pointer (stack frame base)
+    allocated_functions: std.ArrayList(*bytecode.Function), // Track allocated function objects for cleanup
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
         debug.log("Initializing VM", .{});
@@ -60,6 +61,7 @@ pub const VM = struct {
             .current_func = null,
             .pc = 0,
             .bp = 0,
+            .allocated_functions = std.ArrayList(*bytecode.Function).init(allocator),
         };
 
         return VM{
@@ -71,6 +73,7 @@ pub const VM = struct {
             .current_func = null,
             .pc = 0,
             .bp = 0,
+            .allocated_functions = std.ArrayList(*bytecode.Function).init(allocator),
         };
     }
 
@@ -80,10 +83,17 @@ pub const VM = struct {
         debug.log("Cleaning up call frames", .{});
         self.call_frames.deinit();
 
+        debug.log("Cleaning up allocated functions", .{});
+        for (self.allocated_functions.items) |func| {
+            func.deinit();
+            self.allocator.destroy(func);
+        }
+        self.allocated_functions.deinit();
+
         debug.log("Cleaning up stack with {} items", .{self.stack.items.len});
         for (self.stack.items) |*value| {
             debug.log("Deinitializing stack value:", .{});
-            debug.log("{}", .{value.*});
+            debug.log("{any}", .{value.*});
             value.deinit(self.allocator);
         }
         self.stack.deinit();
@@ -92,7 +102,7 @@ pub const VM = struct {
         var it = self.variables.iterator();
         while (it.next()) |entry| {
             debug.log("Deinitializing variable {s}:", .{entry.key_ptr.*});
-            debug.log("{}", .{entry.value_ptr.*});
+            debug.log("{any}", .{entry.value_ptr.*});
             entry.value_ptr.deinit(self.allocator);
             // Don't free the key here, as it's owned by the Variable value
             // self.allocator.free(entry.key_ptr.*);
@@ -124,8 +134,11 @@ pub const VM = struct {
         }
 
         while (true) {
+            // Use current_func if available, otherwise use the original func
+            const executing_func = self.current_func orelse func;
+
             // Check if we're done with the current function
-            if (self.pc >= func.instructions.items.len) {
+            if (self.pc >= executing_func.instructions.items.len) {
                 // If we have no call frames, we're done with the program
                 if (self.call_frames.items.len == 0) {
                     break;
@@ -141,8 +154,8 @@ pub const VM = struct {
             }
 
             // Execute the current instruction
-            const instruction = func.instructions.items[self.pc];
-            debug.log("Executing instruction {}: {}", .{ self.pc, instruction.op });
+            const instruction = executing_func.instructions.items[self.pc];
+            debug.log("Executing instruction {}: {any}", .{ self.pc, instruction.op });
             try self.executeInstruction(instruction);
             self.pc += 1;
         }
@@ -155,7 +168,12 @@ pub const VM = struct {
             .LoadConst => {
                 debug.log("LoadConst:", .{});
                 debug.logValue(instruction.operand.?);
-                try self.stack.append(try instruction.operand.?.clone(self.allocator));
+                // For functions, don't clone - just use the reference directly
+                const value = if (instruction.operand.? == .Function)
+                    instruction.operand.?
+                else
+                    try instruction.operand.?.clone(self.allocator);
+                try self.stack.append(value);
                 debug.log("Stack size after instruction: {}", .{self.stack.items.len});
             },
             .LoadVar => {
@@ -163,7 +181,7 @@ pub const VM = struct {
                     .String => |str| str,
                     .Symbol => |sym| sym,
                     else => {
-                        debug.log("LoadVar: unexpected operand type: {}", .{instruction.operand.?});
+                        debug.log("LoadVar: unexpected operand type: {any}", .{instruction.operand.?});
                         return error.TypeMismatch;
                     },
                 };
@@ -187,7 +205,7 @@ pub const VM = struct {
                         if (self.bp < self.stack.items.len) {
                             debug.log("Checking for parameter x at bp={}", .{self.bp});
                             const param_value = self.stack.items[self.bp];
-                            debug.log("Found parameter 'x' at bp={}: {}", .{ self.bp, param_value });
+                            debug.log("Found parameter 'x' at bp={}: {any}", .{ self.bp, param_value });
                             try self.stack.append(try param_value.clone(self.allocator));
                             return;
                         }
@@ -209,7 +227,7 @@ pub const VM = struct {
                     }
 
                     if (self.variables.get(name)) |value| {
-                        debug.log("Found variable in global scope: {}", .{value});
+                        debug.log("Found variable in global scope: {any}", .{value});
                         try self.stack.append(try value.clone(self.allocator));
                     } else {
                         debug.log("ERROR: Variable {s} not found", .{name});
@@ -224,6 +242,14 @@ pub const VM = struct {
                 const param_index = @as(usize, @intCast(instruction.operand.?.Int));
                 debug.log("LoadParam: {}", .{param_index});
 
+                // Debug: print stack contents around bp
+                debug.log("Stack contents around bp={}", .{self.bp});
+                const start = if (self.bp > 2) self.bp - 2 else 0;
+                const end = if (self.bp + 3 < self.stack.items.len) self.bp + 3 else self.stack.items.len;
+                for (start..end) |i| {
+                    debug.log("  Stack[{}] = {any}", .{ i, self.stack.items[i] });
+                }
+
                 // Calculate the position of the parameter on the stack
                 // Parameters are stored at bp, bp+1, bp+2, etc.
                 const param_pos = self.bp + param_index;
@@ -236,7 +262,7 @@ pub const VM = struct {
                 // Clone the parameter value and push it onto the stack
                 const param_value = try self.stack.items[param_pos].clone(self.allocator);
                 try self.stack.append(param_value);
-                debug.log("Loaded parameter: {}", .{param_value});
+                debug.log("Loaded parameter: {any}", .{param_value});
                 debug.log("Stack size after instruction: {}", .{self.stack.items.len});
             },
             .StoreVar => {
@@ -249,7 +275,7 @@ pub const VM = struct {
                     .String => |str| str,
                     .Symbol => |sym| sym,
                     else => {
-                        debug.log("StoreVar: unexpected operand type: {}", .{instruction.operand.?});
+                        debug.log("StoreVar: unexpected operand type: {any}", .{instruction.operand.?});
                         return error.TypeMismatch;
                     },
                 };
@@ -278,7 +304,7 @@ pub const VM = struct {
                     try self.variables.put(name, value);
                 }
 
-                debug.log("Stored variable {s} = {}", .{ name, value });
+                debug.log("Stored variable {s} = {any}", .{ name, value });
             },
             .StoreGlobal => {
                 debug.log("StoreGlobal instruction", .{});
@@ -290,7 +316,7 @@ pub const VM = struct {
                     .String => |str| str,
                     .Symbol => |sym| sym,
                     else => {
-                        debug.log("StoreGlobal: unexpected operand type: {}", .{instruction.operand.?});
+                        debug.log("StoreGlobal: unexpected operand type: {any}", .{instruction.operand.?});
                         return error.TypeMismatch;
                     },
                 };
@@ -319,7 +345,7 @@ pub const VM = struct {
                     try self.variables.put(name, value);
                 }
 
-                debug.log("Stored global variable {s} = {}", .{ name, value });
+                debug.log("Stored global variable {s} = {any}", .{ name, value });
             },
             .Add => {
                 if (self.stack.items.len < 2) {
@@ -363,7 +389,61 @@ pub const VM = struct {
                 left.deinit(self.allocator);
                 right.deinit(self.allocator);
             },
+            .Sub => {
+                debug.log("Sub instruction - stack before:", .{});
+                for (0..self.stack.items.len) |i| {
+                    debug.log("  Stack[{}] = {any}", .{ i, self.stack.items[i] });
+                }
+
+                if (self.stack.items.len < 2) {
+                    return error.StackUnderflow;
+                }
+
+                // Get values from the stack (without removing them yet)
+                const right_ref = self.stack.items[self.stack.items.len - 1];
+                const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                // Clone the values to avoid use-after-free issues
+                var right = try right_ref.clone(self.allocator);
+                var left = try left_ref.clone(self.allocator);
+
+                // Now remove the items from the stack
+                self.stack.items.len -= 2;
+
+                // Handle subtraction based on types
+                switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| try self.stack.append(.{ .Int = left_val - right_val }),
+                        .Float => |right_val| try self.stack.append(.{ .Float = @as(f64, @floatFromInt(left_val)) - right_val }),
+                        else => {
+                            debug.log("TypeMismatch in Sub: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| try self.stack.append(.{ .Float = left_val - @as(f64, @floatFromInt(right_val)) }),
+                        .Float => |right_val| try self.stack.append(.{ .Float = left_val - right_val }),
+                        else => {
+                            debug.log("TypeMismatch in Sub: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    else => {
+                        debug.log("TypeMismatch in Sub: left={}, right={}", .{ left, right });
+                        return error.TypeMismatch;
+                    },
+                }
+
+                // Clean up operands
+                left.deinit(self.allocator);
+                right.deinit(self.allocator);
+            },
             .Lt => {
+                debug.log("Lt instruction - stack before:", .{});
+                for (0..self.stack.items.len) |i| {
+                    debug.log("  Stack[{}] = {any}", .{ i, self.stack.items[i] });
+                }
+
                 if (self.stack.items.len < 2) {
                     return error.StackUnderflow;
                 }
@@ -389,6 +469,44 @@ pub const VM = struct {
                     .Float => |left_val| switch (right) {
                         .Int => |right_val| left_val < @as(f64, @floatFromInt(right_val)),
                         .Float => |right_val| left_val < right_val,
+                        else => return error.TypeMismatch,
+                    },
+                    else => return error.TypeMismatch,
+                };
+
+                // Clean up operands
+                left.deinit(self.allocator);
+                right.deinit(self.allocator);
+
+                // Push result onto stack
+                try self.stack.append(.{ .Bool = result });
+            },
+            .Gt => {
+                if (self.stack.items.len < 2) {
+                    return error.StackUnderflow;
+                }
+
+                // Get values from the stack (without removing them yet)
+                const right_ref = self.stack.items[self.stack.items.len - 1];
+                const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                // Clone the values to avoid use-after-free issues
+                var right = try right_ref.clone(self.allocator);
+                var left = try left_ref.clone(self.allocator);
+
+                // Now remove the items from the stack
+                self.stack.items.len -= 2;
+
+                // Handle comparison based on types
+                const result = switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| left_val > right_val,
+                        .Float => |right_val| @as(f64, @floatFromInt(left_val)) > right_val,
+                        else => return error.TypeMismatch,
+                    },
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| left_val > @as(f64, @floatFromInt(right_val)),
+                        .Float => |right_val| left_val > right_val,
                         else => return error.TypeMismatch,
                     },
                     else => return error.TypeMismatch,
@@ -467,10 +585,10 @@ pub const VM = struct {
                     .Nil => try self.stdout.print("nil\n", .{}),
                     .Array => |arr| try self.stdout.print("{any}\n", .{arr}),
                     .Map => |map| try self.stdout.print("{any}\n", .{map}),
-                    .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {}\n", .{addr}),
-                    .Function => |func| try self.stdout.print("Function: {}\n", .{func}),
+                    .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {any}", .{addr}),
+                    .Function => |func| try self.stdout.print("Function: {any}\n", .{func}),
                     .Variable => |var_val| try self.stdout.print("Variable: {s}\n", .{var_val.name}),
-                    .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {}\n", .{op}),
+                    .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}\n", .{op}),
                 }
                 value.deinit(self.allocator);
                 debug.log("Stack size after instruction: {}", .{self.stack.items.len});
@@ -483,6 +601,13 @@ pub const VM = struct {
 
                 if (self.stack.items.len < arg_count_usize + 1) {
                     return error.StackUnderflow;
+                }
+
+                // Debug: print stack before function call
+                debug.log("Stack before function call (arg_count={}):", .{arg_count});
+                const start = if (self.stack.items.len > 5) self.stack.items.len - 5 else 0;
+                for (start..self.stack.items.len) |i| {
+                    debug.log("  Stack[{}] = {any}", .{ i, self.stack.items[i] });
                 }
 
                 // Get function from stack
@@ -515,10 +640,10 @@ pub const VM = struct {
                                 .Nil => try self.stdout.print("nil", .{}),
                                 .Array => |arr| try self.stdout.print("{any}", .{arr}),
                                 .Map => |map| try self.stdout.print("{any}", .{map}),
-                                .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {}", .{addr}),
+                                .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {any}", .{addr}),
                                 .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
                                 .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
-                                .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {}", .{op}),
+                                .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}", .{op}),
                             }
 
                             arg_clone.deinit(self.allocator);
@@ -543,7 +668,7 @@ pub const VM = struct {
 
                 // Handle built-in operators
                 if (func_val == .BuiltinOperator) {
-                    debug.log("Executing built-in operator: {}", .{func_val.BuiltinOperator});
+                    debug.log("Executing built-in operator: {any}", .{func_val.BuiltinOperator});
 
                     switch (func_val.BuiltinOperator) {
                         .Eq => {
@@ -608,10 +733,10 @@ pub const VM = struct {
 
                 // Handle user-defined functions
                 if (func_val != .Function) {
-                    debug.log("Error: Expected function on stack, found {}", .{func_val});
+                    debug.log("Error: Expected function on stack, found {any}", .{func_val});
                     debug.log("Stack dump:", .{});
                     for (self.stack.items, 0..) |item, i| {
-                        debug.log("  Stack[{}] = {}", .{ i, item });
+                        debug.log("  Stack[{}] = {any}", .{ i, item });
                     }
 
                     // Check if the function is in the global variables
@@ -620,12 +745,12 @@ pub const VM = struct {
                         debug.log("Looking up function in global variables: {s}", .{func_name});
 
                         if (self.variables.get(func_name)) |global_val| {
-                            debug.log("Found function in global variables: {}", .{global_val});
+                            debug.log("Found function in global variables: {any}", .{global_val});
 
                             if (global_val == .Function) {
                                 // Replace the variable with the actual function
                                 self.stack.items[self.stack.items.len - arg_count_usize - 1] = try global_val.clone(self.allocator);
-                                debug.log("Replaced variable with function: {}", .{self.stack.items[self.stack.items.len - arg_count_usize - 1]});
+                                debug.log("Replaced variable with function: {any}", .{self.stack.items[self.stack.items.len - arg_count_usize - 1]});
                                 // Use the updated value from the stack
                                 const updated_func_val = self.stack.items[self.stack.items.len - arg_count_usize - 1];
 
@@ -646,6 +771,9 @@ pub const VM = struct {
                                     const old_bp = self.bp;
                                     const return_addr = self.pc + 1;
 
+                                    // Calculate new bp (where arguments start)
+                                    const new_bp = self.stack.items.len - arg_count_usize;
+
                                     // Create new call frame
                                     // Check if current_func is null
                                     if (self.current_func == null) {
@@ -655,23 +783,23 @@ pub const VM = struct {
                                         // Dump function instructions
                                         debug.log("Function instructions:", .{});
                                         for (func.instructions.items, 0..) |instr, i| {
-                                            debug.log("  [{}] {}", .{ i, instr.op });
+                                            debug.log("  [{}] {any}", .{ i, instr.op });
                                             if (instr.operand) |op| {
-                                                debug.log("    Operand: {}", .{op});
+                                                debug.log("    Operand: {any}", .{op});
                                             }
                                         }
 
-                                        const frame = CallFrame.init(func, self.bp, old_bp, return_addr);
+                                        const frame = CallFrame.init(func, new_bp, old_bp, return_addr);
                                         try self.call_frames.append(frame);
                                     } else {
                                         debug.log("Using current function for call frame: {s}", .{self.current_func.?.name});
-                                        const frame = CallFrame.init(self.current_func.?, self.bp, old_bp, return_addr);
+                                        const frame = CallFrame.init(self.current_func.?, new_bp, old_bp, return_addr);
                                         try self.call_frames.append(frame);
                                     }
 
                                     // Set up new stack frame
                                     // The base pointer points to the first argument
-                                    self.bp = self.stack.items.len - arg_count_usize;
+                                    self.bp = new_bp;
 
                                     // Switch to the new function
                                     self.current_func = func;
@@ -681,11 +809,11 @@ pub const VM = struct {
 
                                     return;
                                 } else {
-                                    debug.log("Updated value is not a function: {}", .{updated_func_val});
+                                    debug.log("Updated value is not a function: {any}", .{updated_func_val});
                                     return error.TypeMismatch;
                                 }
                             } else {
-                                debug.log("Global variable is not a function: {}", .{global_val});
+                                debug.log("Global variable is not a function: {any}", .{global_val});
                                 return error.TypeMismatch;
                             }
                         } else {
@@ -697,7 +825,7 @@ pub const VM = struct {
                     }
                 } else {
                     // Direct function call (not via variable)
-                    debug.log("Found function on stack: {}", .{func_val});
+                    debug.log("Found function on stack: {any}", .{func_val});
 
                     debug.log("VM: Direct function call", .{});
                     const func = func_val.Function;
@@ -714,6 +842,9 @@ pub const VM = struct {
                     const old_bp = self.bp;
                     const return_addr = self.pc + 1;
 
+                    // Calculate new bp (where arguments start)
+                    const new_bp = self.stack.items.len - arg_count_usize;
+
                     // Create new call frame
                     // Check if current_func is null
                     if (self.current_func == null) {
@@ -723,56 +854,27 @@ pub const VM = struct {
                         // Dump function instructions
                         debug.log("Function instructions:", .{});
                         for (func.instructions.items, 0..) |instr, i| {
-                            debug.log("  [{}] {}", .{ i, instr.op });
+                            debug.log("  [{}] {any}", .{ i, instr.op });
                             if (instr.operand) |op| {
-                                debug.log("    Operand: {}", .{op});
+                                debug.log("    Operand: {any}", .{op});
                             }
                         }
 
-                        const frame = CallFrame.init(func, self.bp, old_bp, return_addr);
+                        const frame = CallFrame.init(func, new_bp, old_bp, return_addr);
                         try self.call_frames.append(frame);
                     } else {
                         debug.log("Using current function for call frame: {s}", .{self.current_func.?.name});
-                        const frame = CallFrame.init(self.current_func.?, self.bp, old_bp, return_addr);
+                        const frame = CallFrame.init(self.current_func.?, new_bp, old_bp, return_addr);
                         try self.call_frames.append(frame);
                     }
 
                     // Set up new stack frame
                     // The base pointer points to the first argument
-                    self.bp = self.stack.items.len - arg_count_usize;
+                    self.bp = new_bp;
 
                     // Switch to the new function
-                    // Clone the function to avoid issues with ownership
-                    const func_clone = try self.allocator.create(bytecode.Function);
-                    errdefer self.allocator.destroy(func_clone);
-
-                    // Clone the function name
-                    const name_copy = try self.allocator.dupe(u8, func.name);
-                    errdefer self.allocator.free(name_copy);
-
-                    // Create a new instruction list
-                    var instructions = std.ArrayList(bytecode.Instruction).init(self.allocator);
-                    errdefer instructions.deinit();
-
-                    // Clone each instruction
-                    try instructions.ensureTotalCapacity(func.instructions.items.len);
-                    for (func.instructions.items) |instr| {
-                        var new_instr = instr;
-                        if (instr.operand != null) {
-                            new_instr.operand = try instr.operand.?.clone(self.allocator);
-                        }
-                        try instructions.append(new_instr);
-                    }
-
-                    // Create the function
-                    func_clone.* = bytecode.Function{
-                        .name = name_copy,
-                        .instructions = instructions,
-                        .allocator = self.allocator,
-                        .param_count = func.param_count,
-                    };
-
-                    self.current_func = func_clone;
+                    // Functions are immutable, so we can use them directly without cloning
+                    self.current_func = func;
                     self.pc = 0; // Start at the beginning of the function
 
                     debug.log("Called function {s} with bp={}, old_bp={}, return_addr={}", .{ func.name, self.bp, old_bp, return_addr });
@@ -794,7 +896,7 @@ pub const VM = struct {
 
                 // Get the return value
                 const return_value = try self.stack.items[self.stack.items.len - 1].clone(self.allocator);
-                debug.log("Return value: {}", .{return_value});
+                debug.log("Return value: {any}", .{return_value});
 
                 // If we have no call frames, we're done with the program
                 if (self.call_frames.items.len == 0) {
@@ -804,10 +906,14 @@ pub const VM = struct {
 
                 // Store the return value temporarily
                 const old_stack_size = self.stack.items.len;
+                var call_bp: usize = 0; // The bp from the function call (where arguments start)
                 var param_count: usize = 0;
 
                 // Pop the call frame
                 if (self.call_frames.pop()) |frame| {
+                    // Store the call-time bp before restoring state
+                    call_bp = frame.bp; // This is where the arguments start
+
                     // Restore state
                     // We don't free the current function here because it might be referenced elsewhere
                     // The function will be freed when the Value that contains it is deinitialized
@@ -815,18 +921,20 @@ pub const VM = struct {
                     self.current_func = frame.func;
                     self.pc = frame.return_addr;
                     self.bp = frame.prev_bp;
-                    param_count = frame.func.param_count;
-                    debug.log("Restored call frame: func={s}, pc={}, bp={}, param_count={}", .{ frame.func.name, self.pc, self.bp, param_count });
+                    param_count = frame.func.param_count; // Parameter count of the function being called
+                    debug.log("Restored call frame: func={s}, pc={}, bp={}, call_bp={}, param_count={}", .{ frame.func.name, self.pc, self.bp, call_bp, param_count });
                 }
 
-                // Clean up the stack, keeping only items below the old frame
+                // Clean up the stack, keeping only items below the call frame
                 // and the return value
-                debug.log("Cleaning up stack: current size={}, bp={}, param_count={}", .{ self.stack.items.len, self.bp, param_count });
+                debug.log("Cleaning up stack: current size={}, bp={}, call_bp={}, param_count={}", .{ self.stack.items.len, self.bp, call_bp, param_count });
 
                 // Deinit all values on the stack that will be removed
                 if (self.current_func != null) {
-                    // Keep everything below bp - param_count - 1
-                    const keep_count = if (self.bp > param_count + 1) self.bp - param_count - 1 else 0;
+                    // Keep everything below call_bp - param_count - 1 (function and arguments)
+                    // call_bp points to the first argument, so call_bp-1 is the function
+                    // We want to keep everything before the function
+                    const keep_count = if (call_bp > param_count) call_bp - param_count - 1 else 0;
                     debug.log("Keeping {} items on stack", .{keep_count});
 
                     // Deinit values that will be removed
@@ -846,14 +954,56 @@ pub const VM = struct {
 
                 // Add the return value to the stack
                 try self.stack.append(return_value);
-                debug.log("Added return value to stack: {}", .{return_value});
+                debug.log("Added return value to stack: {any}", .{return_value});
 
                 debug.log("Returned to caller with pc={}, bp={}, stack_size={}->{}", .{ self.pc, self.bp, old_stack_size, self.stack.items.len });
 
                 // Skip to the next instruction in the caller
                 self.pc -= 1; // Will be incremented in the execute loop
             },
-            else => return error.UnsupportedInstruction,
+            .Jump => {
+                debug.log("Jump instruction", .{});
+                if (instruction.operand == null) return error.TypeMismatch;
+                if (instruction.operand.? != .Int) return error.TypeMismatch;
+
+                const target = @as(usize, @intCast(instruction.operand.?.Int));
+                debug.log("Jumping to instruction {}", .{target});
+
+                // Set pc to target - 1 because it will be incremented after this instruction
+                self.pc = if (target > 0) target - 1 else 0;
+            },
+            .JumpIfFalse => {
+                debug.log("JumpIfFalse instruction", .{});
+                if (self.stack.items.len < 1) {
+                    return error.StackUnderflow;
+                }
+                if (instruction.operand == null) return error.TypeMismatch;
+                if (instruction.operand.? != .Int) return error.TypeMismatch;
+
+                // Get the condition value from the stack
+                const condition_ref = self.stack.items[self.stack.items.len - 1];
+                var condition = try condition_ref.clone(self.allocator);
+                self.stack.items.len -= 1; // Remove the condition from stack
+
+                // Check if we should jump
+                const should_jump = switch (condition) {
+                    .Bool => |b| !b,
+                    .Nil => true, // nil is falsy
+                    .Int => |n| n == 0, // 0 is falsy
+                    else => false, // Everything else is truthy
+                };
+
+                condition.deinit(self.allocator);
+
+                if (should_jump) {
+                    const target = @as(usize, @intCast(instruction.operand.?.Int));
+                    debug.log("Condition is false, jumping to instruction {}", .{target});
+                    // Set pc to target - 1 because it will be incremented after this instruction
+                    self.pc = if (target > 0) target - 1 else 0;
+                } else {
+                    debug.log("Condition is true, continuing to next instruction", .{});
+                }
+            },
         }
     }
 };
