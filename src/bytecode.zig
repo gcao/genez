@@ -456,18 +456,25 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             }
             func_instructions.deinit();
 
-            // Store the function value in a variable with the function name
+            // First load the function value onto the stack
+            try instructions.append(.{
+                .op = .LoadConst,
+                .operand = func_value,
+            });
+            debug.log("lowerExpression: LoadConst instruction added for function", .{});
+
+            // Then store the function value in a variable with the function name
             try instructions.append(.{
                 .op = .StoreVar,
                 .operand = .{ .String = try allocator.dupe(u8, func_def.name) },
             });
             debug.log("lowerExpression: Stored function {s} as Int value", .{func_def.name});
 
+            // Load the function value again for global storage
             try instructions.append(.{
                 .op = .LoadConst,
-                .operand = func_value,
+                .operand = try func_value.clone(allocator),
             });
-            debug.log("lowerExpression: LoadConst instruction added for function", .{});
 
             // Store the function in a variable with its name
             try instructions.append(.{

@@ -58,7 +58,6 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
 }
 
 fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, created_functions: *std.ArrayList(*bytecode.Function)) !void {
-    _ = created_functions;
     std.debug.print("[MIR->BC] Converting instruction: {s} to function with {} instructions\n", .{ @tagName(instr.*), func.instructions.items.len });
     switch (instr.*) {
         .LoadInt => |val| try func.instructions.append(.{
@@ -176,15 +175,30 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, cre
             .operand = null,
         }),
         .LoadFunction => |func_ptr| {
-            // Instead of loading the function object directly, store it in a variable by name
-            // and load the variable when needed
-            // Store the function in a variable
+            // Create a proper function object and convert the MIR function body to bytecode
+            const new_func = try func.allocator.create(bytecode.Function);
+            new_func.* = bytecode.Function{
+                .instructions = std.ArrayList(bytecode.Instruction).init(func.allocator),
+                .allocator = func.allocator,
+                .name = try func.allocator.dupe(u8, func_ptr.name),
+                .param_count = func_ptr.param_count,
+            };
+
+            // Convert the MIR function body to bytecode instructions
+            for (func_ptr.blocks.items) |*block| {
+                for (block.instructions.items) |*mir_instr| {
+                    try convertInstruction(new_func, mir_instr, created_functions);
+                }
+            }
+
+            // Track the function for cleanup
+            try created_functions.append(new_func);
+
+            // Load the function object onto the stack
             try func.instructions.append(.{
-                .op = bytecode.OpCode.StoreVar,
-                .operand = types.Value{ .String = try func.allocator.dupe(u8, func_ptr.name) },
+                .op = bytecode.OpCode.LoadConst,
+                .operand = types.Value{ .Function = new_func },
             });
-            // When the function is referenced, it should be loaded by name (LoadVar)
-            // So we do not push the function object directly onto the stack here
         },
         .StoreVariable => |name| {
             // Duplicate the variable name (string) for the bytecode operand

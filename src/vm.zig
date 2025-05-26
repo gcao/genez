@@ -44,6 +44,7 @@ pub const VM = struct {
     pc: usize, // Program counter
     bp: usize, // Base pointer (stack frame base)
     allocated_functions: std.ArrayList(*bytecode.Function), // Track allocated function objects for cleanup
+    function_called: bool, // Flag to indicate if a function was just called
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
         debug.log("Initializing VM", .{});
@@ -62,6 +63,7 @@ pub const VM = struct {
             .pc = 0,
             .bp = 0,
             .allocated_functions = std.ArrayList(*bytecode.Function).init(allocator),
+            .function_called = false,
         };
 
         return VM{
@@ -74,6 +76,7 @@ pub const VM = struct {
             .pc = 0,
             .bp = 0,
             .allocated_functions = std.ArrayList(*bytecode.Function).init(allocator),
+            .function_called = false,
         };
     }
 
@@ -156,8 +159,13 @@ pub const VM = struct {
             // Execute the current instruction
             const instruction = executing_func.instructions.items[self.pc];
             debug.log("Executing instruction {}: {any}", .{ self.pc, instruction.op });
+            self.function_called = false; // Reset the flag
             try self.executeInstruction(instruction);
-            self.pc += 1;
+
+            // Only increment PC if a function wasn't called
+            if (!self.function_called) {
+                self.pc += 1;
+            }
         }
 
         debug.log("Finished execution", .{});
@@ -807,6 +815,7 @@ pub const VM = struct {
 
                                     debug.log("Called function {s} with bp={}, old_bp={}, return_addr={}", .{ func.name, self.bp, old_bp, return_addr });
 
+                                    self.function_called = true; // Set the flag to prevent PC increment
                                     return;
                                 } else {
                                     debug.log("Updated value is not a function: {any}", .{updated_func_val});
@@ -878,6 +887,8 @@ pub const VM = struct {
                     self.pc = 0; // Start at the beginning of the function
 
                     debug.log("Called function {s} with bp={}, old_bp={}, return_addr={}", .{ func.name, self.bp, old_bp, return_addr });
+
+                    self.function_called = true; // Set the flag to prevent PC increment
                 }
 
                 // Note: We don't need to remove the function and arguments from the stack
@@ -929,28 +940,18 @@ pub const VM = struct {
                 // and the return value
                 debug.log("Cleaning up stack: current size={}, bp={}, call_bp={}, param_count={}", .{ self.stack.items.len, self.bp, call_bp, param_count });
 
-                // Deinit all values on the stack that will be removed
-                if (self.current_func != null) {
-                    // Keep everything below call_bp - param_count - 1 (function and arguments)
-                    // call_bp points to the first argument, so call_bp-1 is the function
-                    // We want to keep everything before the function
-                    const keep_count = if (call_bp > param_count) call_bp - param_count - 1 else 0;
-                    debug.log("Keeping {} items on stack", .{keep_count});
+                // Simplified stack cleanup: restore to the base pointer of the caller
+                // but also remove the function object that was used for the call
+                // call_bp points to the first argument, so call_bp-1 is the function object
+                const keep_count = if (call_bp > 0) call_bp - 1 else 0;
+                debug.log("Keeping {} items on stack (removing function and args)", .{keep_count});
 
-                    // Deinit values that will be removed
-                    for (self.stack.items[keep_count..]) |*value| {
-                        value.deinit(self.allocator);
-                    }
-
-                    self.stack.shrinkRetainingCapacity(keep_count);
-                } else {
-                    // If no current function, just keep the return value
-                    // Deinit all values on the stack
-                    for (self.stack.items) |*value| {
-                        value.deinit(self.allocator);
-                    }
-                    self.stack.shrinkRetainingCapacity(0);
+                // Deinit values that will be removed
+                for (self.stack.items[keep_count..]) |*value| {
+                    value.deinit(self.allocator);
                 }
+
+                self.stack.shrinkRetainingCapacity(keep_count);
 
                 // Add the return value to the stack
                 try self.stack.append(return_value);
