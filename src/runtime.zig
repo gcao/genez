@@ -28,11 +28,11 @@ pub const Runtime = struct {
             .debug_mode = self.debug_mode,
             .optimize = false,
         };
-        
+
         // Use pipeline to compile source
         var result = try pipeline.compileSource(self.allocator, source, options);
-        defer result.deinit(self.allocator);
-        
+        defer result.deinit();
+
         // Execute bytecode
         if (self.debug_mode) {
             std.debug.print("[DEBUG] Starting execution...\n", .{});
@@ -64,22 +64,22 @@ pub const Runtime = struct {
             try self.runBytecodeFile(path);
             return;
         }
-        
+
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
         };
-        
+
         // Use pipeline to compile file
         var result = try pipeline.compileFile(self.allocator, path, options);
-        defer result.deinit(self.allocator);
-        
+        defer result.deinit();
+
         if (self.debug_mode) {
             std.debug.print("[DEBUG] Compilation completed, starting execution...\n", .{});
         }
-        
+
         try self.execute(@constCast(&result.main_func));
-        
+
         if (self.debug_mode) {
             std.debug.print("[DEBUG] File execution completed successfully!\n", .{});
         }
