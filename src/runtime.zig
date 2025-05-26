@@ -98,9 +98,56 @@ pub const Runtime = struct {
     }
 
     pub fn compileFile(self: *Runtime, file_path: []const u8) !void {
-        _ = self;
-        _ = file_path;
-        return error.NotImplemented;
+        const options = compiler.CompilerOptions{
+            .debug_mode = self.debug_mode,
+            .optimize = false,
+        };
+
+        // Use pipeline to compile file
+        var result = try pipeline.compileFile(self.allocator, file_path, options);
+        defer result.deinit();
+
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Compilation completed, writing bytecode...\n", .{});
+        }
+
+        // Generate output filename by replacing .gene with .gbc
+        const output_path = if (std.mem.endsWith(u8, file_path, ".gene"))
+            try std.fmt.allocPrint(self.allocator, "{s}c", .{file_path[0 .. file_path.len - 1]}) // Replace .gene with .gbc
+        else
+            try std.fmt.allocPrint(self.allocator, "{s}.gbc", .{file_path});
+        defer self.allocator.free(output_path);
+
+        // Create output file
+        const output_file = try std.fs.cwd().createFile(output_path, .{});
+        defer output_file.close();
+
+        // Create a module with the main function and any created functions
+        var functions = try self.allocator.alloc(bytecode.Function, 1 + result.created_functions.items.len);
+        defer self.allocator.free(functions);
+
+        // Copy main function
+        functions[0] = result.main_func;
+
+        // Copy created functions
+        for (result.created_functions.items, 0..) |func, i| {
+            functions[i + 1] = func.*;
+        }
+
+        // Create module
+        const module = bytecode.Module{
+            .functions = functions,
+            .allocator = self.allocator,
+        };
+
+        // Write module to file
+        try module.writeToFile(output_file.writer());
+
+        if (self.debug_mode) {
+            std.debug.print("[DEBUG] Bytecode written to: {s}\n", .{output_path});
+        } else {
+            try self.stdout.print("Compiled {s} -> {s}\n", .{ file_path, output_path });
+        }
     }
 
     pub fn runRepl(self: *Runtime) !void {

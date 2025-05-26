@@ -166,7 +166,47 @@ pub const Module = struct {
             },
             .Bool => |b| try writer.writeByte(if (b) 1 else 0),
             .Nil => {},
-            else => return error.UnsupportedValueType,
+            .Symbol => |s| {
+                var len_buf: [4]u8 = undefined;
+                std.mem.writeInt(u32, &len_buf, @intCast(s.len), .little);
+                try writer.writeAll(&len_buf);
+                try writer.writeAll(s);
+            },
+            .Variable => |v| {
+                var len_buf: [4]u8 = undefined;
+                std.mem.writeInt(u32, &len_buf, @intCast(v.name.len), .little);
+                try writer.writeAll(&len_buf);
+                try writer.writeAll(v.name);
+            },
+            .Function => |f| {
+                // Write function name length and name
+                var len_buf: [4]u8 = undefined;
+                std.mem.writeInt(u32, &len_buf, @intCast(f.name.len), .little);
+                try writer.writeAll(&len_buf);
+                try writer.writeAll(f.name);
+
+                // Write parameter count
+                std.mem.writeInt(u32, &len_buf, @intCast(f.param_count), .little);
+                try writer.writeAll(&len_buf);
+
+                // Note: We don't serialize the actual function instructions here
+                // as they should be handled at the module level
+            },
+            .BuiltinOperator => |op| {
+                try writer.writeByte(@intFromEnum(op));
+            },
+            .ReturnAddress => |addr| {
+                var usize_buf: [@sizeOf(usize)]u8 = undefined;
+                std.mem.writeInt(usize, &usize_buf, addr.stack_ptr, .little);
+                try writer.writeAll(&usize_buf);
+                std.mem.writeInt(usize, &usize_buf, addr.arg_count, .little);
+                try writer.writeAll(&usize_buf);
+            },
+            .Array, .Map => {
+                // For now, we don't support serializing complex types like arrays and maps
+                // This would require more sophisticated serialization
+                return error.UnsupportedComplexType;
+            },
         }
     }
 };
@@ -257,6 +297,65 @@ fn readValueFromFile(allocator: std.mem.Allocator, reader: anytype) !Value {
             return Value{ .Bool = b == 1 };
         },
         @intFromEnum(Value.Nil) => Value{ .Nil = {} },
+        @intFromEnum(Value.Symbol) => {
+            // Read symbol length
+            try reader.readNoEof(buf[0..4]);
+            const len = std.mem.readInt(u32, buf[0..4], .little);
+
+            // Read symbol data
+            const sym = try allocator.alloc(u8, len);
+            errdefer allocator.free(sym);
+            try reader.readNoEof(sym);
+
+            return Value{ .Symbol = sym };
+        },
+        @intFromEnum(Value.Variable) => {
+            // Read variable name length
+            try reader.readNoEof(buf[0..4]);
+            const len = std.mem.readInt(u32, buf[0..4], .little);
+
+            // Read variable name
+            const name = try allocator.alloc(u8, len);
+            errdefer allocator.free(name);
+            try reader.readNoEof(name);
+
+            return Value{ .Variable = .{ .name = name } };
+        },
+        @intFromEnum(Value.Function) => {
+            // Read function name length
+            try reader.readNoEof(buf[0..4]);
+            const name_len = std.mem.readInt(u32, buf[0..4], .little);
+
+            // Read function name
+            const name = try allocator.alloc(u8, name_len);
+            errdefer allocator.free(name);
+            try reader.readNoEof(name);
+
+            // Read parameter count
+            try reader.readNoEof(buf[0..4]);
+            const param_count = std.mem.readInt(u32, buf[0..4], .little);
+
+            // Create a placeholder function (actual function loading would be more complex)
+            var func = try allocator.create(Function);
+            func.* = Function.init(allocator);
+            func.name = name;
+            func.param_count = param_count;
+
+            return Value{ .Function = func };
+        },
+        @intFromEnum(Value.BuiltinOperator) => {
+            const op_tag = try reader.readByte();
+            const op = @as(types.BuiltinOperatorType, @enumFromInt(op_tag));
+            return Value{ .BuiltinOperator = op };
+        },
+        @intFromEnum(Value.ReturnAddress) => {
+            var usize_buf: [@sizeOf(usize)]u8 = undefined;
+            try reader.readNoEof(&usize_buf);
+            const stack_ptr = std.mem.readInt(usize, &usize_buf, .little);
+            try reader.readNoEof(&usize_buf);
+            const arg_count = std.mem.readInt(usize, &usize_buf, .little);
+            return Value{ .ReturnAddress = .{ .stack_ptr = stack_ptr, .arg_count = arg_count } };
+        },
         else => error.InvalidValueType,
     };
 }
