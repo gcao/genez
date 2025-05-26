@@ -1,13 +1,13 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const hir = @import("hir.zig");
-const mir = @import("mir.zig");
-const bytecode = @import("bytecode.zig");
-const ast_to_hir = @import("ast_to_hir.zig");
-const hir_to_mir = @import("hir_to_mir.zig");
-const mir_to_bytecode = @import("mir_to_bytecode.zig");
-const parser = @import("parser.zig");
-const debug = @import("debug.zig");
+const ast = @import("../frontend/ast.zig");
+const hir = @import("../ir/hir.zig");
+const mir = @import("../ir/mir.zig");
+const bytecode = @import("../backend/bytecode.zig");
+const ast_to_hir = @import("../transforms/ast_to_hir.zig");
+const hir_to_mir = @import("../transforms/hir_to_mir.zig");
+const mir_to_bytecode = @import("../transforms/mir_to_bytecode.zig");
+const parser = @import("../frontend/parser.zig");
+const debug = @import("../core/debug.zig");
 
 test "compile simple expression to bytecode" {
     const allocator = std.testing.allocator;

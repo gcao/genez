@@ -1,6 +1,6 @@
 const std = @import("std");
 const hir = @import("hir.zig");
-const types = @import("types.zig");
+const types = @import("../core/types.zig");
 
 pub const MIR = struct {
     allocator: std.mem.Allocator,

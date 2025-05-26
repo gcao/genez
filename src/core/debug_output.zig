@@ -1,14 +1,14 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const hir = @import("hir.zig");
-const mir = @import("mir.zig");
-const bytecode = @import("bytecode.zig");
+const ast = @import("../frontend/ast.zig");
+const hir = @import("../ir/hir.zig");
+const mir = @import("../ir/mir.zig");
+const bytecode = @import("../backend/bytecode.zig");
 
 // Re-use existing serialization implementations
-const ast_serialize = @import("ast_serialize.zig");
-const hir_serialize = @import("hir_serialize.zig");
-const mir_serialize = @import("mir_serialize.zig");
-const bytecode_serialize = @import("bytecode_serialize.zig");
+const ast_serialize = @import("../frontend/ast_serialize.zig");
+const hir_serialize = @import("../ir/hir_serialize.zig");
+const mir_serialize = @import("../ir/mir_serialize.zig");
+const bytecode_serialize = @import("../backend/bytecode_serialize.zig");
 
 /// Unified debug output interface for all compilation stages
 pub const DebugOutput = struct {

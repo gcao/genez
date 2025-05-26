@@ -51,40 +51,16 @@ pub fn build(b: *std.Build) void {
     });
     main_tests.root_module.addOptions("build_options", options);
 
-    const parser_tests = b.addTest(.{
-        .root_source_file = b.path("src/parser_tests.zig"),
+    const unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/all_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
-    parser_tests.root_module.addOptions("build_options", options);
-
-    const vm_tests = b.addTest(.{
-        .root_source_file = b.path("src/vm_tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    vm_tests.root_module.addOptions("build_options", options);
-
-    const bytecode_tests = b.addTest(.{
-        .root_source_file = b.path("src/bytecode_tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    bytecode_tests.root_module.addOptions("build_options", options);
-
-    const ast_to_hir_tests = b.addTest(.{
-        .root_source_file = b.path("src/ast_to_hir_tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ast_to_hir_tests.root_module.addOptions("build_options", options);
+    unit_tests.root_module.addOptions("build_options", options);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&main_tests.step);
-    test_step.dependOn(&parser_tests.step);
-    test_step.dependOn(&bytecode_tests.step);
-    test_step.dependOn(&ast_to_hir_tests.step);
-    test_step.dependOn(&vm_tests.step);
+    test_step.dependOn(&unit_tests.step);
 
     // Clean step - temporarily disabled
     // const clean_step = b.step("clean", "Remove build artifacts");

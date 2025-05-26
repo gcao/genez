@@ -1,6 +1,6 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
-const types = @import("types.zig");
+const types = @import("../core/types.zig");
 
 /// Serialize a bytecode function to Gene format
 ///

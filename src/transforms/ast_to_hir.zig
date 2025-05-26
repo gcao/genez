@@ -1,6 +1,6 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const hir = @import("hir.zig");
+const ast = @import("../frontend/ast.zig");
+const hir = @import("../ir/hir.zig");
 
 pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HIR {
     var hir_prog = hir.HIR.init(allocator);

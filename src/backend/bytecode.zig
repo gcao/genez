@@ -1,7 +1,7 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const types = @import("types.zig");
-const debug = @import("debug.zig");
+const ast = @import("../frontend/ast.zig");
+const types = @import("../core/types.zig");
+const debug = @import("../core/debug.zig");
 
 pub const Value = types.Value;
 

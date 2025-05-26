@@ -1,7 +1,7 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const parser = @import("parser.zig");
-const bytecode = @import("bytecode.zig");
+const ast = @import("frontend/ast.zig");
+const parser = @import("frontend/parser.zig");
+const bytecode = @import("backend/bytecode.zig");
 const compiler = @import("compiler.zig");
 
 /// Result of a compilation pipeline run

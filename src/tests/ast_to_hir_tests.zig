@@ -1,9 +1,9 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const hir = @import("hir.zig");
-const ast_to_hir = @import("ast_to_hir.zig");
-const parser = @import("parser.zig");
-const debug = @import("debug.zig");
+const ast = @import("../frontend/ast.zig");
+const hir = @import("../ir/hir.zig");
+const ast_to_hir = @import("../transforms/ast_to_hir.zig");
+const parser = @import("../frontend/parser.zig");
+const debug = @import("../core/debug.zig");
 
 test "lower simple expression to HIR" {
     const allocator = std.testing.allocator;

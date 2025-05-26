@@ -1,10 +1,10 @@
 const std = @import("std");
-const types = @import("types.zig");
-const bytecode = @import("bytecode.zig");
-const vm = @import("vm.zig");
+const types = @import("core/types.zig");
+const bytecode = @import("backend/bytecode.zig");
+const vm = @import("backend/vm.zig");
 const pipeline = @import("pipeline.zig");
 const compiler = @import("compiler.zig");
-const debug_output = @import("debug_output.zig");
+const debug_output = @import("core/debug_output.zig");
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,

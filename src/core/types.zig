@@ -1,5 +1,5 @@
 const std = @import("std");
-const bytecode = @import("bytecode.zig");
+const bytecode = @import("../backend/bytecode.zig");
 const debug = @import("debug.zig");
 
 pub const BuiltinOperatorType = enum {

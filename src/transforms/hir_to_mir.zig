@@ -1,7 +1,7 @@
 const std = @import("std");
-const hir = @import("hir.zig");
-const mir = @import("mir.zig");
-const types = @import("types.zig");
+const hir = @import("../ir/hir.zig");
+const mir = @import("../ir/mir.zig");
+const types = @import("../core/types.zig");
 
 pub fn convert(allocator: std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
     var mir_prog = mir.MIR.init(allocator);

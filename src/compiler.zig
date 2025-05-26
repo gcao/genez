@@ -1,12 +1,12 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const bytecode = @import("bytecode.zig");
-const debug_output = @import("debug_output.zig");
+const ast = @import("frontend/ast.zig");
+const bytecode = @import("backend/bytecode.zig");
+const debug_output = @import("core/debug_output.zig");
 
 // Stage transformation modules (direct imports, no interfaces)
-const ast_to_hir = @import("ast_to_hir.zig");
-const hir_to_mir = @import("hir_to_mir.zig");
-const mir_to_bytecode = @import("mir_to_bytecode.zig");
+const ast_to_hir = @import("transforms/ast_to_hir.zig");
+const hir_to_mir = @import("transforms/hir_to_mir.zig");
+const mir_to_bytecode = @import("transforms/mir_to_bytecode.zig");
 
 pub const CompilerOptions = struct {
     debug_mode: bool = false,

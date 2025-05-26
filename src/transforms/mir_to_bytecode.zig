@@ -1,7 +1,7 @@
 const std = @import("std");
-const mir = @import("mir.zig");
-const bytecode = @import("bytecode.zig");
-const types = @import("types.zig");
+const mir = @import("../ir/mir.zig");
+const bytecode = @import("../backend/bytecode.zig");
+const types = @import("../core/types.zig");
 
 pub const ConversionResult = struct {
     main_func: bytecode.Function,

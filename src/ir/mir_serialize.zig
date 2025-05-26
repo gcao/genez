@@ -1,6 +1,6 @@
 const std = @import("std");
 const mir = @import("mir.zig");
-const types = @import("types.zig");
+const types = @import("../core/types.zig");
 
 /// Serialize an MIR module to Gene format
 ///

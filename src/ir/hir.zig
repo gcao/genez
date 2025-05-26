@@ -1,6 +1,6 @@
 const std = @import("std");
-const parser = @import("parser.zig");
-const ast = @import("ast.zig");
+const parser = @import("../frontend/parser.zig");
+const ast = @import("../frontend/ast.zig");
 
 pub const Type = enum {
     void,

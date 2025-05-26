@@ -1,5 +1,5 @@
 const std = @import("std");
-const types = @import("types.zig");
+const types = @import("../core/types.zig");
 const parser = @import("parser.zig");
 const TokenKind = parser.TokenKind;
 

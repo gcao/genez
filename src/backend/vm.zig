@@ -1,6 +1,6 @@
 const std = @import("std");
-const types = @import("types.zig");
-const debug = @import("debug.zig");
+const types = @import("../core/types.zig");
+const debug = @import("../core/debug.zig");
 const bytecode = @import("bytecode.zig");
 
 pub const VMError = error{

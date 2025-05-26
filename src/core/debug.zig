@@ -22,7 +22,7 @@ pub fn logValue(value: @import("types.zig").Value) void {
 }
 
 // Format a token for debugging
-pub fn formatToken(token: @import("parser.zig").Token) []const u8 {
+pub fn formatToken(token: @import("../frontend/parser.zig").Token) []const u8 {
     return switch (token.kind) {
         .LParen => "(",
         .RParen => ")",

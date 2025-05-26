@@ -1,36 +1,58 @@
 const std = @import("std");
-const ast = @import("ast.zig");
-const types = @import("types.zig");
+const hir = @import("hir.zig");
+const types = @import("../core/types.zig");
 
-/// Serialize an AST node to Gene format
+/// Serialize an HIR module to Gene format
 ///
-/// This function takes an AST node and serializes it to a human-readable
+/// This function takes an HIR module and serializes it to a human-readable
 /// Gene format, writing the result to the provided writer.
 ///
 /// Parameters:
-///   - writer: The writer to output the serialized AST
-///   - node: The AST node to serialize
+///   - writer: The writer to output the serialized HIR
+///   - module: The HIR module to serialize
 ///   - indent: The current indentation level
-pub fn serializeNode(writer: anytype, node: ast.AstNode, indent: usize) !void {
+pub fn serializeModule(writer: anytype, module: hir.HIR, indent: usize) !void {
     try writeIndent(writer, indent);
+    try writer.writeAll("(hir-module\n");
 
-    switch (node) {
+    for (module.functions.items, 0..) |func, i| {
+        try writeIndent(writer, indent + 1);
+        try writer.print("(function {d}\n", .{i});
+
+        // Serialize function body
+        for (func.body.items) |stmt| {
+            try writeIndent(writer, indent + 2);
+            try serializeStatement(writer, stmt, indent + 2);
+            try writer.writeAll("\n");
+        }
+
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll(")\n");
+    }
+
+    try writeIndent(writer, indent);
+    try writer.writeAll(")");
+}
+
+/// Serialize an HIR statement to Gene format
+fn serializeStatement(writer: anytype, stmt: hir.HIR.Statement, indent: usize) !void {
+    switch (stmt) {
         .Expression => |expr| {
             try serializeExpression(writer, expr, indent);
         },
     }
 }
 
-/// Serialize an AST expression to Gene format
-fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !void {
+/// Serialize an HIR expression to Gene format
+fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize) !void {
     switch (expr) {
-        .Literal => |lit| {
-            try serializeValue(writer, lit.value);
+        .literal => |lit| {
+            try serializeHirLiteral(writer, lit);
         },
-        .Variable => |var_expr| {
+        .variable => |var_expr| {
             try writer.print("(var-ref \"{s}\")", .{var_expr.name});
         },
-        .FuncCall => |call| {
+        .func_call => |call| {
             try writer.writeAll("(call ");
             try serializeExpression(writer, call.func.*, indent);
             try writer.writeAll(" ");
@@ -42,14 +64,14 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
 
             try writer.writeAll(")");
         },
-        .BinaryOp => |bin_op| {
-            try writer.print("(binary-op \"{s}\" ", .{bin_op.op.Ident});
+        .binary_op => |bin_op| {
+            try writer.print("(binary-op \"{s}\" ", .{@tagName(bin_op.op)});
             try serializeExpression(writer, bin_op.left.*, indent + 1);
             try writer.writeAll(" ");
             try serializeExpression(writer, bin_op.right.*, indent + 1);
             try writer.writeAll(")");
         },
-        .If => |if_expr| {
+        .if_expr => |if_expr| {
             try writer.writeAll("(if ");
             try serializeExpression(writer, if_expr.condition.*, indent + 1);
             try writer.writeAll(" ");
@@ -62,7 +84,7 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
 
             try writer.writeAll(")");
         },
-        .FuncDef => |func_def| {
+        .func_def => |func_def| {
             try writer.print("(fn \"{s}\" [", .{func_def.name});
 
             for (func_def.params, 0..) |param, i| {
@@ -77,41 +99,25 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try serializeExpression(writer, func_def.body.*, indent + 1);
             try writer.writeAll(")");
         },
-        .VarDecl => |var_decl| {
+        .var_decl => |var_decl| {
             try writer.print("(var-decl \"{s}\" ", .{var_decl.name});
             try serializeExpression(writer, var_decl.value.*, indent + 1);
             try writer.writeAll(")");
         },
-        .SimpleFuncDef => |func_def| {
-            try writer.print("(simple-fn \"{s}\" {d})", .{ func_def.getName(), func_def.body_literal });
-        },
     }
 }
 
-/// Serialize a Gene value to Gene format
-fn serializeValue(writer: anytype, value: types.Value) !void {
-    switch (value) {
-        .Int => |int_val| {
-            try writer.print("{d}", .{int_val});
-        },
-        .Float => |float_val| {
-            try writer.print("{d}", .{float_val});
-        },
-        .Bool => |bool_val| {
-            try writer.print("{}", .{bool_val});
-        },
-        .String => |string_val| {
-            try writer.print("\"{s}\"", .{string_val});
-        },
-        .Nil => {
-            try writer.writeAll("nil");
-        },
-        .Variable => |var_val| {
-            try writer.print("(var \"{s}\")", .{var_val.name});
-        },
-        else => {
-            try writer.writeAll("(unknown-value)");
-        },
+/// Serialize an HIR literal to Gene format
+fn serializeHirLiteral(writer: anytype, lit: hir.HIR.Literal) !void {
+    switch (lit) {
+        .nil => try writer.writeAll("nil"),
+        .bool => |b| try writer.print("{}", .{b}),
+        .int => |i| try writer.print("{d}", .{i}),
+        .float => |f| try writer.print("{d}", .{f}),
+        .string => |s| try writer.print("\"{s}\"", .{s}),
+        .symbol => |s| try writer.print("'{s}", .{s}),
+        .array => |_| try writer.writeAll("(array ...)"),
+        .map => |_| try writer.writeAll("(map ...)"),
     }
 }
 

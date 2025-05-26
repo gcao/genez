@@ -1,6 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
-const debug = @import("debug.zig");
+const debug = @import("../core/debug.zig");
 
 pub const ParserError = error{
     UnexpectedEOF,
