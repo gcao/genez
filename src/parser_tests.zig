@@ -12,12 +12,12 @@ test "parse string literal" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
-    try testing.expectEqual(@as(usize, 1), parse_result.nodes.items.len);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
-    const node = parse_result.nodes.items[0];
+    const node = ast_nodes[0];
     try testing.expect(node == .Expression);
 
     // Verify the AST structure
@@ -43,12 +43,12 @@ test "parse integer literal" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
-    try testing.expectEqual(@as(usize, 1), parse_result.nodes.items.len);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
-    const node = parse_result.nodes.items[0];
+    const node = ast_nodes[0];
     try testing.expect(node == .Expression);
 
     // Verify the AST structure
@@ -74,12 +74,12 @@ test "parse binary operation" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
-    try testing.expectEqual(@as(usize, 1), parse_result.nodes.items.len);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
-    const node = parse_result.nodes.items[0];
+    const node = ast_nodes[0];
     try testing.expect(node == .Expression);
 
     // Verify the AST structure
@@ -115,12 +115,12 @@ test "parse infix notation" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
-    try testing.expectEqual(@as(usize, 1), parse_result.nodes.items.len);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
-    const node = parse_result.nodes.items[0];
+    const node = ast_nodes[0];
     try testing.expect(node == .Expression);
 
     // Verify the AST structure
@@ -154,12 +154,12 @@ test "parse function definition" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
-    try testing.expectEqual(@as(usize, 1), parse_result.nodes.items.len);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
-    const node = parse_result.nodes.items[0];
+    const node = ast_nodes[0];
     try testing.expect(node == .Expression); // TODO: expect Function node
 }
 
@@ -183,11 +183,11 @@ test "parse fibonacci example" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
     // Expecting 3 top-level nodes: fn definition, var declaration, print expression
-    try testing.expectEqual(@as(usize, 3), parse_result.nodes.items.len);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    try testing.expectEqual(@as(usize, 3), ast_nodes.len);
 
     // TODO: Add more specific assertions about the parsed nodes if needed
     // For now, just check the count and that parsing succeeded.

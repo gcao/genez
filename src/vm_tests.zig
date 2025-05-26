@@ -15,11 +15,11 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
     // Lower to bytecode
-    const func = try bytecode.lowerToBytecode(allocator, parse_result.nodes.items);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const func = try bytecode.lowerToBytecode(allocator, ast_nodes);
 
     // Print the bytecode for debugging
     std.debug.print("\nBytecode for source: {s}\n", .{source});

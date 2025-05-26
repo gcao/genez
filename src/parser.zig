@@ -209,10 +209,6 @@ const MAX_RECURSION_DEPTH = 50;
 /// ```
 /// var parse_result = try parser.parseGeneSource(allocator, source);
 /// defer {
-///     for (parse_result.nodes.items) |*node| {
-///         node.deinit(parse_result.arena.allocator());
-///     }
-///     parse_result.nodes.deinit();
 ///     parse_result.arena.deinit();
 /// }
 /// ```

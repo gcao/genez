@@ -14,11 +14,11 @@ test "lower simple expression to HIR" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
     // Verify the HIR structure
@@ -55,11 +55,11 @@ test "lower binary operation to HIR" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
     // Verify the HIR structure
@@ -98,11 +98,11 @@ test "lower infix notation to HIR" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
     // Verify the HIR structure

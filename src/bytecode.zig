@@ -314,6 +314,11 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
     debug.log("lowerExpression: processing expression type: {s}", .{@tagName(expr)});
     debug.log("lowerExpression: current instruction count: {}", .{instructions.items.len});
     switch (expr) {
+        .SimpleFuncDef => {
+            // TODO: Implement proper lowering for SimpleFuncDef
+            debug.log("lowerExpression: SimpleFuncDef not yet implemented", .{});
+            return error.NotImplemented;
+        },
         .Literal => |lit| {
             try instructions.append(.{
                 .op = .LoadConst,

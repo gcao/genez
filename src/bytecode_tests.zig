@@ -18,11 +18,11 @@ test "compile simple expression to bytecode" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
     // Lower to MIR
@@ -62,11 +62,11 @@ test "compile binary operation to bytecode" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
-        parse_result.nodes.deinit();
     }
 
     // Lower to HIR
-    var hir_module = try ast_to_hir.convert(allocator, parse_result.nodes.items);
+    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
     // Lower to MIR
