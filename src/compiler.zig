@@ -1,17 +1,12 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const bytecode = @import("bytecode.zig");
+const debug_output = @import("debug_output.zig");
 
-// Stage transformation interfaces
-const ast_to_hir = @import("ast_to_hir_interface.zig");
-const hir_to_mir = @import("hir_to_mir_interface.zig");
-const mir_to_bytecode = @import("mir_to_bytecode_interface.zig");
-
-// Stage-specific serialization modules
-const ast_serialize = @import("ast_serialize.zig");
-const hir_serialize = @import("hir_serialize.zig");
-const mir_serialize = @import("mir_serialize.zig");
-const bytecode_serialize = @import("bytecode_serialize.zig");
+// Stage transformation modules (direct imports, no interfaces)
+const ast_to_hir = @import("ast_to_hir.zig");
+const hir_to_mir = @import("hir_to_mir.zig");
+const mir_to_bytecode = @import("mir_to_bytecode.zig");
 
 pub const CompilerOptions = struct {
     debug_mode: bool = false,
@@ -31,56 +26,34 @@ pub const CompilationContext = struct {
 };
 
 pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.ConversionResult {
+    // Initialize debug output
+    const debug = debug_output.DebugOutput.init(std.io.getStdOut().writer(), ctx.options.debug_mode);
+    
     // Display AST
-    if (ctx.options.debug_mode) {
-        std.debug.print("\n=== AST ===\n", .{});
-        for (nodes) |node| {
-            try ast_serialize.serializeNode(std.io.getStdOut().writer(), node, 0);
-            std.debug.print("\n", .{});
-        }
-    }
+    try debug.writeAST(nodes, "AST");
 
     // AST -> HIR
-    if (ctx.options.debug_mode) {
-        std.debug.print("\n=== AST to HIR ===\n", .{});
-    }
+    debug.writeMessage("\n=== AST to HIR ===\n", .{});
     var hir_prog = try ast_to_hir.convert(ctx.allocator, nodes);
     defer hir_prog.deinit();
 
     // Display HIR
-    if (ctx.options.debug_mode) {
-        std.debug.print("\n=== HIR ===\n", .{});
-        try hir_serialize.serializeModule(std.io.getStdOut().writer(), hir_prog, 0);
-        std.debug.print("\n", .{});
-    }
+    try debug.writeHIR(hir_prog, "HIR");
 
     // HIR -> MIR
-    if (ctx.options.debug_mode) {
-        std.debug.print("\n=== HIR to MIR ===\n", .{});
-    }
+    debug.writeMessage("\n=== HIR to MIR ===\n", .{});
     var mir_prog = try hir_to_mir.convert(ctx.allocator, hir_prog);
     defer mir_prog.deinit();
 
     // Display MIR
-    if (ctx.options.debug_mode) {
-        std.debug.print("\n=== MIR ===\n", .{});
-        try mir_serialize.serializeModule(std.io.getStdOut().writer(), mir_prog, 0);
-        std.debug.print("\n", .{});
-    }
+    try debug.writeMIR(mir_prog, "MIR");
 
     // MIR -> Bytecode
-    if (ctx.options.debug_mode) {
-        std.debug.print("\n=== MIR to Bytecode ===\n", .{});
-    }
+    debug.writeMessage("\n=== MIR to Bytecode ===\n", .{});
     const conversion_result = try mir_to_bytecode.convert(ctx.allocator, &mir_prog);
 
     // Display Bytecode
-    if (ctx.options.debug_mode) {
-        std.debug.print("\n=== Bytecode ===\n", .{});
-        try bytecode_serialize.serializeFunction(std.io.getStdOut().writer(), conversion_result.main_func, 0);
-        std.debug.print("\n", .{});
-    }
+    try debug.writeBytecode(conversion_result.main_func, "Bytecode");
 
-    // std.debug.print("[DEBUG_TRACE] Exiting compiler.compile\n", .{}); // TRACE 5
     return conversion_result;
 }
