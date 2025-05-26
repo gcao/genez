@@ -102,4 +102,39 @@ pub const Runtime = struct {
         _ = file_path;
         return error.NotImplemented;
     }
+
+    pub fn runRepl(self: *Runtime) !void {
+        try self.stdout.print("Gene REPL v{s}\n", .{@import("main.zig").VERSION});
+        try self.stdout.print("Type 'exit' or 'quit' to exit.\n", .{});
+
+        var buf: [1024]u8 = undefined;
+        var reader = std.io.getStdIn().reader();
+
+        while (true) {
+            try self.stdout.print("gene> ", .{});
+            const line_or_null = try reader.readUntilDelimiterOrEof(&buf, '\n');
+
+            if (line_or_null == null) {
+                // EOF (Ctrl-D) received
+                break;
+            }
+            const line = line_or_null.?;
+
+            if (std.mem.eql(u8, line, "exit") or std.mem.eql(u8, line, "quit")) {
+                break;
+            }
+
+            if (line.len == 0) {
+                continue;
+            }
+
+            errdefer std.debug.print("Error in REPL: {any}\n", .{std.err.getLastError()});
+            if (self.eval(line)) |_| {
+                // Success
+            } else |err| {
+                std.debug.print("Error: {any}\n", .{err});
+            }
+        }
+        try self.stdout.print("Exiting REPL.\n", .{});
+    }
 };

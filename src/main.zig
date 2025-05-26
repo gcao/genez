@@ -9,6 +9,7 @@ fn printHelp(writer: anytype) !void {
     try writer.print("\nAvailable Commands:\n", .{});
     try writer.print("  run       Run a Gene source file\n", .{});
     try writer.print("  compile   Compile a Gene source file\n", .{});
+    try writer.print("  repl      Start the Gene REPL\n", .{});
     try writer.print("  help      Show this help message\n", .{});
     try writer.print("  version   Show the current version\n", .{});
     try writer.print("\nOptions:\n", .{});
@@ -61,6 +62,15 @@ pub fn main() !void {
         defer rt.deinit();
 
         try rt.compileFile(file);
+    } else if (std.mem.eql(u8, command, "repl")) {
+        var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
+        defer rt.deinit();
+
+        try rt.runRepl();
+    } else if (std.mem.eql(u8, command, "help")) {
+        try printHelp(std.io.getStdOut().writer());
+    } else if (std.mem.eql(u8, command, "version")) {
+        std.debug.print("Gene Programming Language v{s}\n", .{VERSION});
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
         return;
