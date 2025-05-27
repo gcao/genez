@@ -60,7 +60,7 @@ pub const Runtime = struct {
 
     pub fn runFile(self: *Runtime, path: []const u8) !void {
         // Check if file is a bytecode file
-        if (std.mem.endsWith(u8, path, ".gbc") or std.mem.endsWith(u8, path, ".genc")) {
+        if (std.mem.endsWith(u8, path, ".gbc")) {
             try self.runBytecodeFile(path);
             return;
         }
@@ -113,7 +113,7 @@ pub const Runtime = struct {
 
         // Generate output filename by replacing .gene with .gbc
         const output_path = if (std.mem.endsWith(u8, file_path, ".gene"))
-            try std.fmt.allocPrint(self.allocator, "{s}c", .{file_path[0 .. file_path.len - 1]}) // Replace .gene with .gbc
+            try std.fmt.allocPrint(self.allocator, "{s}.gbc", .{file_path[0 .. file_path.len - 5]}) // Replace .gene with .gbc
         else
             try std.fmt.allocPrint(self.allocator, "{s}.gbc", .{file_path});
         defer self.allocator.free(output_path);
