@@ -70,12 +70,26 @@ pub const Function = struct {
 pub const Module = struct {
     functions: []Function,
     allocator: std.mem.Allocator,
+    // Track all function objects created during deserialization for proper cleanup
+    deserialized_functions: std.ArrayList(*Function),
+    // Flag to indicate if this module owns the functions (for deserialized modules)
+    owns_functions: bool = true,
 
     pub fn deinit(self: *Module) void {
-        for (self.functions) |*func| {
-            func.deinit();
+        // Clean up main functions only if we own them
+        if (self.owns_functions) {
+            for (self.functions) |*func| {
+                func.deinit();
+            }
         }
         self.allocator.free(self.functions);
+
+        // Clean up all deserialized function objects
+        for (self.deserialized_functions.items) |func| {
+            func.deinit();
+            self.allocator.destroy(func);
+        }
+        self.deserialized_functions.deinit();
     }
 
     pub fn readFromFile(allocator: std.mem.Allocator, reader: anytype) !Module {
@@ -95,15 +109,26 @@ pub const Module = struct {
         var functions = try allocator.alloc(Function, num_functions);
         errdefer allocator.free(functions);
 
+        // Initialize deserialized functions tracker
+        var deserialized_functions = std.ArrayList(*Function).init(allocator);
+        errdefer {
+            for (deserialized_functions.items) |func| {
+                func.deinit();
+                allocator.destroy(func);
+            }
+            deserialized_functions.deinit();
+        }
+
         // Read each function
         var i: usize = 0;
         while (i < num_functions) : (i += 1) {
-            functions[i] = try readFunctionFromFile(allocator, reader);
+            functions[i] = try readFunctionFromFile(allocator, reader, &deserialized_functions);
         }
 
         return Module{
             .functions = functions,
             .allocator = allocator,
+            .deserialized_functions = deserialized_functions,
         };
     }
 
@@ -189,8 +214,23 @@ pub const Module = struct {
                 std.mem.writeInt(u32, &len_buf, @intCast(f.param_count), .little);
                 try writer.writeAll(&len_buf);
 
-                // Note: We don't serialize the actual function instructions here
-                // as they should be handled at the module level
+                // Write number of instructions
+                std.mem.writeInt(u32, &len_buf, @intCast(f.instructions.items.len), .little);
+                try writer.writeAll(&len_buf);
+
+                // Write each instruction
+                for (f.instructions.items) |instr| {
+                    // Write opcode
+                    try writer.writeByte(@intFromEnum(instr.op));
+
+                    // Write operand presence flag
+                    try writer.writeByte(if (instr.operand != null) 1 else 0);
+
+                    // Write operand if present
+                    if (instr.operand) |operand| {
+                        try writeValueToFile(operand, writer);
+                    }
+                }
             },
             .BuiltinOperator => |op| {
                 try writer.writeByte(@intFromEnum(op));
@@ -211,34 +251,7 @@ pub const Module = struct {
     }
 };
 
-pub fn readFromFile(allocator: std.mem.Allocator, reader: anytype) !Module {
-    // Read and verify magic number
-    var magic: [4]u8 = undefined;
-    try reader.readNoEof(&magic);
-    if (!std.mem.eql(u8, &magic, "GENE")) {
-        return error.InvalidMagicNumber;
-    }
-
-    // Read number of functions
-    var buf: [4]u8 = undefined;
-    try reader.readNoEof(&buf);
-    const num_funcs = std.mem.readInt(u32, &buf, .little);
-
-    var functions = try allocator.alloc(Function, num_funcs);
-
-    // Read each function
-    var i: usize = 0;
-    while (i < num_funcs) : (i += 1) {
-        functions[i] = try readFunctionFromFile(allocator, reader);
-    }
-
-    return Module{
-        .functions = functions,
-        .allocator = allocator,
-    };
-}
-
-fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype) !Function {
+fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype, deserialized_functions: *std.ArrayList(*Function)) !Function {
     var func = Function.init(allocator);
 
     // Read number of instructions
@@ -254,7 +267,7 @@ fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype) !Function
 
         // Read operand if present
         const has_operand = try reader.readByte() == 1;
-        const operand = if (has_operand) try readValueFromFile(allocator, reader) else null;
+        const operand = if (has_operand) try readValueFromFile(allocator, reader, deserialized_functions) else null;
 
         try func.instructions.append(.{
             .op = op,
@@ -265,7 +278,7 @@ fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype) !Function
     return func;
 }
 
-fn readValueFromFile(allocator: std.mem.Allocator, reader: anytype) !Value {
+fn readValueFromFile(allocator: std.mem.Allocator, reader: anytype, deserialized_functions: *std.ArrayList(*Function)) !Value {
     // Read value type tag
     const tag = try reader.readByte();
 
@@ -335,11 +348,37 @@ fn readValueFromFile(allocator: std.mem.Allocator, reader: anytype) !Value {
             try reader.readNoEof(buf[0..4]);
             const param_count = std.mem.readInt(u32, buf[0..4], .little);
 
-            // Create a placeholder function (actual function loading would be more complex)
+            // Read number of instructions
+            try reader.readNoEof(buf[0..4]);
+            const num_instrs = std.mem.readInt(u32, buf[0..4], .little);
+
+            // Create function and read instructions
             var func = try allocator.create(Function);
+            errdefer allocator.destroy(func);
             func.* = Function.init(allocator);
             func.name = name;
             func.param_count = param_count;
+
+            // Read each instruction
+            var i: usize = 0;
+            while (i < num_instrs) : (i += 1) {
+                // Read opcode
+                const op = @as(OpCode, @enumFromInt(try reader.readByte()));
+
+                // Read operand presence flag
+                const has_operand = try reader.readByte() == 1;
+
+                // Read operand if present
+                const operand = if (has_operand) try readValueFromFile(allocator, reader, deserialized_functions) else null;
+
+                try func.instructions.append(.{
+                    .op = op,
+                    .operand = operand,
+                });
+            }
+
+            // Register the function for cleanup
+            try deserialized_functions.append(func);
 
             return Value{ .Function = func };
         },

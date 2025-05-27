@@ -45,8 +45,10 @@ pub const Value = union(enum) {
             },
             .ReturnAddress => {},
             .Function => {
-                // Don't free function pointers here since they are now shared references
-                // Functions should be managed at a higher level (e.g., by the VM or arena)
+                // Don't free function pointers here since they are shared references
+                // Functions should be managed at a higher level (e.g., by the Module)
+                // This prevents double-free errors when the same function is referenced
+                // in multiple places (module functions, VM variables, instruction operands)
             },
             .Variable => {}, // No need to free the name as it's a string literal
             .BuiltinOperator => {},

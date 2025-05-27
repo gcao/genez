@@ -60,7 +60,7 @@ pub const Runtime = struct {
 
     pub fn runFile(self: *Runtime, path: []const u8) !void {
         // Check if file is a bytecode file
-        if (std.mem.endsWith(u8, path, ".gbc")) {
+        if (std.mem.endsWith(u8, path, ".gbc") or std.mem.endsWith(u8, path, ".genc")) {
             try self.runBytecodeFile(path);
             return;
         }
@@ -124,7 +124,8 @@ pub const Runtime = struct {
 
         // Create a module with the main function and any created functions
         var functions = try self.allocator.alloc(bytecode.Function, 1 + result.created_functions.items.len);
-        defer self.allocator.free(functions);
+        // Note: Don't defer free functions here since they contain shallow copies
+        // The actual function data is owned by CompiledResult and will be freed by result.deinit()
 
         // Copy main function
         functions[0] = result.main_func;
@@ -135,10 +136,13 @@ pub const Runtime = struct {
         }
 
         // Create module
-        const module = bytecode.Module{
+        var module = bytecode.Module{
             .functions = functions,
             .allocator = self.allocator,
+            .deserialized_functions = std.ArrayList(*bytecode.Function).init(self.allocator),
+            .owns_functions = false, // Don't own the functions - they're owned by CompiledResult
         };
+        defer module.deinit();
 
         // Write module to file
         try module.writeToFile(output_file.writer());
