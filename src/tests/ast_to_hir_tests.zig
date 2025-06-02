@@ -14,6 +14,7 @@ test "lower simple expression to HIR" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     // Lower to HIR
@@ -55,6 +56,7 @@ test "lower binary operation to HIR" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     // Lower to HIR
@@ -98,6 +100,7 @@ test "lower infix notation to HIR" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     // Lower to HIR

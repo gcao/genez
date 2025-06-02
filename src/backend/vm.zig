@@ -14,6 +14,7 @@ pub const VMError = error{
     NoReturnAddress,
     ArgumentCountMismatch,
     UnknownFunction,
+    DivisionByZero,
 } || std.mem.Allocator.Error || std.fs.File.WriteError;
 
 pub const CallFrame = struct {
@@ -173,6 +174,65 @@ pub const VM = struct {
 
     fn executeInstruction(self: *VM, instruction: bytecode.Instruction) VMError!void {
         switch (instruction.op) {
+            .Add => {
+                debug.log("Add instruction - stack before:", .{});
+                for (0..self.stack.items.len) |i| {
+                    debug.log("  Stack[{}] = {any}", .{ i, self.stack.items[i] });
+                }
+
+                if (self.stack.items.len < 2) {
+                    return error.StackUnderflow;
+                }
+
+                // Get values from the stack (without removing them yet)
+                const right_ref = self.stack.items[self.stack.items.len - 1];
+                const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                // Clone the values to avoid use-after-free issues
+                var right = try right_ref.clone(self.allocator);
+                var left = try left_ref.clone(self.allocator);
+
+                // Now remove the items from the stack
+                self.stack.items.len -= 2;
+
+                // Handle addition based on types
+                switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| try self.stack.append(.{ .Int = left_val + right_val }),
+                        .Float => |right_val| try self.stack.append(.{ .Float = @as(f64, @floatFromInt(left_val)) + right_val }),
+                        else => {
+                            debug.log("TypeMismatch in Add: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| try self.stack.append(.{ .Float = left_val + @as(f64, @floatFromInt(right_val)) }),
+                        .Float => |right_val| try self.stack.append(.{ .Float = left_val + right_val }),
+                        else => {
+                            debug.log("TypeMismatch in Add: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    .String => |left_val| switch (right) {
+                        .String => |right_val| {
+                            const result = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ left_val, right_val });
+                            try self.stack.append(.{ .String = result });
+                        },
+                        else => {
+                            debug.log("TypeMismatch in Add: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    else => {
+                        debug.log("TypeMismatch in Add: left={}, right={}", .{ left, right });
+                        return error.TypeMismatch;
+                    },
+                }
+
+                // Clean up operands
+                left.deinit(self.allocator);
+                right.deinit(self.allocator);
+            },
             .LoadConst => {
                 debug.log("LoadConst:", .{});
                 debug.logValue(instruction.operand.?);
@@ -225,6 +285,9 @@ pub const VM = struct {
                     // Handle == as a built-in operator by pushing a special function onto the stack
                     try self.stack.append(.{ .BuiltinOperator = .Eq });
                     // No need to free the name since we didn't allocate it
+                } else if (std.mem.eql(u8, name, "+")) {
+                    // Handle + as a built-in operator
+                    try self.stack.append(.{ .BuiltinOperator = .Add });
                 } else {
                     // If not a parameter, check global scope
                     debug.log("Checking global scope for variable: {s}", .{name});
@@ -355,48 +418,6 @@ pub const VM = struct {
 
                 debug.log("Stored global variable {s} = {any}", .{ name, value });
             },
-            .Add => {
-                if (self.stack.items.len < 2) {
-                    return error.StackUnderflow;
-                }
-
-                // Get values from the stack (without removing them yet)
-                const right_ref = self.stack.items[self.stack.items.len - 1];
-                const left_ref = self.stack.items[self.stack.items.len - 2];
-
-                // Clone the values to avoid use-after-free issues
-                var right = try right_ref.clone(self.allocator);
-                var left = try left_ref.clone(self.allocator);
-
-                // Now remove the items from the stack
-                self.stack.items.len -= 2;
-
-                // Handle addition based on types
-                switch (left) {
-                    .Int => |left_val| switch (right) {
-                        .Int => |right_val| try self.stack.append(.{ .Int = left_val + right_val }),
-                        .Float => |right_val| try self.stack.append(.{ .Float = @as(f64, @floatFromInt(left_val)) + right_val }),
-                        else => return error.TypeMismatch,
-                    },
-                    .Float => |left_val| switch (right) {
-                        .Int => |right_val| try self.stack.append(.{ .Float = left_val + @as(f64, @floatFromInt(right_val)) }),
-                        .Float => |right_val| try self.stack.append(.{ .Float = left_val + right_val }),
-                        else => return error.TypeMismatch,
-                    },
-                    .String => |left_val| switch (right) {
-                        .String => |right_val| {
-                            const result = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ left_val, right_val });
-                            try self.stack.append(.{ .String = result });
-                        },
-                        else => return error.TypeMismatch,
-                    },
-                    else => return error.TypeMismatch,
-                }
-
-                // Clean up operands
-                left.deinit(self.allocator);
-                right.deinit(self.allocator);
-            },
             .Sub => {
                 debug.log("Sub instruction - stack before:", .{});
                 for (0..self.stack.items.len) |i| {
@@ -443,6 +464,92 @@ pub const VM = struct {
                 }
 
                 // Clean up operands
+                left.deinit(self.allocator);
+                right.deinit(self.allocator);
+            },
+            .Mul => {
+                if (self.stack.items.len < 2) {
+                    return error.StackUnderflow;
+                }
+
+                const right_ref = self.stack.items[self.stack.items.len - 1];
+                const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                var right = try right_ref.clone(self.allocator);
+                var left = try left_ref.clone(self.allocator);
+
+                self.stack.items.len -= 2;
+
+                switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| try self.stack.append(.{ .Int = left_val * right_val }),
+                        else => {
+                            // Restore stack for proper deinit
+                            try self.stack.append(left);
+                            try self.stack.append(right);
+                            left.deinit(self.allocator); // left was already cloned
+                            right.deinit(self.allocator); // right was already cloned
+                            return error.TypeMismatch;
+                        },
+                    },
+                    else => {
+                        // Restore stack for proper deinit
+                        try self.stack.append(left);
+                        try self.stack.append(right);
+                        left.deinit(self.allocator);
+                        right.deinit(self.allocator);
+                        return error.TypeMismatch;
+                    },
+                }
+
+                left.deinit(self.allocator);
+                right.deinit(self.allocator);
+            },
+            .Div => {
+                if (self.stack.items.len < 2) {
+                    return error.StackUnderflow;
+                }
+
+                const right_ref = self.stack.items[self.stack.items.len - 1];
+                const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                var right = try right_ref.clone(self.allocator);
+                var left = try left_ref.clone(self.allocator);
+
+                self.stack.items.len -= 2;
+
+                switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| {
+                            if (right_val == 0) {
+                                // Restore stack for proper deinit
+                                try self.stack.append(left);
+                                try self.stack.append(right);
+                                left.deinit(self.allocator);
+                                right.deinit(self.allocator);
+                                return error.DivisionByZero;
+                            }
+                            try self.stack.append(.{ .Int = @divTrunc(left_val, right_val) });
+                        },
+                        else => {
+                            // Restore stack for proper deinit
+                            try self.stack.append(left);
+                            try self.stack.append(right);
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            return error.TypeMismatch;
+                        },
+                    },
+                    else => {
+                        // Restore stack for proper deinit
+                        try self.stack.append(left);
+                        try self.stack.append(right);
+                        left.deinit(self.allocator);
+                        right.deinit(self.allocator);
+                        return error.TypeMismatch;
+                    },
+                }
+
                 left.deinit(self.allocator);
                 right.deinit(self.allocator);
             },
@@ -502,7 +609,6 @@ pub const VM = struct {
                 var right = try right_ref.clone(self.allocator);
                 var left = try left_ref.clone(self.allocator);
 
-                // Now remove the items from the stack
                 self.stack.items.len -= 2;
 
                 // Handle comparison based on types
@@ -540,7 +646,6 @@ pub const VM = struct {
                 var right = try right_ref.clone(self.allocator);
                 var left = try left_ref.clone(self.allocator);
 
-                // Now remove the items from the stack
                 self.stack.items.len -= 2;
 
                 // Handle equality comparison based on types
@@ -588,7 +693,7 @@ pub const VM = struct {
                     .Int => |val| try self.stdout.print("{d}\n", .{val}),
                     .String => |str| try self.stdout.print("{s}\n", .{str}),
                     .Symbol => |sym| try self.stdout.print("{s}\n", .{sym}),
-                    .Bool => |b| try self.stdout.print("{}\n", .{b}),
+                    .Bool => |b| try self.stdout.print("{}", .{b}),
                     .Float => |f| try self.stdout.print("{d}\n", .{f}),
                     .Nil => try self.stdout.print("nil\n", .{}),
                     .Array => |arr| try self.stdout.print("{any}\n", .{arr}),
@@ -736,6 +841,55 @@ pub const VM = struct {
 
                             return;
                         },
+                        .Add => {
+                            // Check if we have two arguments
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the arguments
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                            // Clone the values to avoid use-after-free issues
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+
+                            // Handle addition based on types and store result temporarily
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Int = left_val + right_val },
+                                    .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) + right_val },
+                                    else => return error.TypeMismatch,
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Float = left_val + @as(f64, @floatFromInt(right_val)) },
+                                    .Float => |right_val| types.Value{ .Float = left_val + right_val },
+                                    else => return error.TypeMismatch,
+                                },
+                                .String => |left_val| switch (right) {
+                                    .String => |right_val| types.Value{ .String = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ left_val, right_val }) },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+
+                            // Clean up the stack - remove operator AND arguments
+                            // Deinit values before shrinking
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1); // Remove operator and arguments
+
+                            // Clean up operands
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+
+                            // Push result onto stack
+                            try self.stack.append(result_value);
+
+                            return;
+                        },
                     }
                 }
 
@@ -810,6 +964,7 @@ pub const VM = struct {
                                     self.bp = new_bp;
 
                                     // Switch to the new function
+                                    // Functions are immutable, so we can use them directly without cloning
                                     self.current_func = func;
                                     self.pc = 0; // Start at the beginning of the function
 
@@ -928,7 +1083,6 @@ pub const VM = struct {
                     // Restore state
                     // We don't free the current function here because it might be referenced elsewhere
                     // The function will be freed when the Value that contains it is deinitialized
-
                     self.current_func = frame.func;
                     self.pc = frame.return_addr;
                     self.bp = frame.prev_bp;
@@ -1004,6 +1158,76 @@ pub const VM = struct {
                 } else {
                     debug.log("Condition is true, continuing to next instruction", .{});
                 }
+            },
+            .Array => {
+                debug.log("Array operation", .{});
+                if (instruction.operand == null) return error.TypeMismatch;
+                if (instruction.operand.? != .Int) return error.TypeMismatch;
+
+                const num_elements = @as(usize, @intCast(instruction.operand.?.Int));
+                if (self.stack.items.len < num_elements) {
+                    return error.StackUnderflow;
+                }
+
+                var elements = try self.allocator.alloc(types.Value, num_elements);
+                errdefer self.allocator.free(elements);
+
+                // Pop elements from stack in reverse order and store them
+                var i: usize = 0;
+                while (i < num_elements) : (i += 1) {
+                    const val_index = self.stack.items.len - num_elements + i;
+                    elements[i] = self.stack.items[val_index];
+                }
+
+                // Remove elements from the stack
+                self.stack.items.len -= num_elements;
+
+                try self.stack.append(.{ .Array = elements });
+                debug.log("Created array with {} elements", .{num_elements});
+            },
+            .Map => {
+                debug.log("Map operation", .{});
+                if (instruction.operand == null) return error.TypeMismatch;
+                if (instruction.operand.? != .Int) return error.TypeMismatch;
+
+                const num_entries = @as(usize, @intCast(instruction.operand.?.Int));
+                if (self.stack.items.len < 2 * num_entries) {
+                    return error.StackUnderflow;
+                }
+
+                var new_map = std.StringHashMap(types.Value).init(self.allocator);
+                errdefer {
+                    var it = new_map.iterator();
+                    while (it.next()) |entry| {
+                        self.allocator.free(entry.key_ptr.*);
+                        var value = entry.value_ptr.*;
+                        value.deinit(self.allocator);
+                    }
+                    new_map.deinit();
+                }
+
+                // Pop key-value pairs from stack in reverse order
+                var i: usize = 0;
+                while (i < num_entries) : (i += 1) {
+                    const value_index = self.stack.items.len - (2 * num_entries) + (2 * i) + 1;
+                    const key_index = self.stack.items.len - (2 * num_entries) + (2 * i);
+
+                    const value = self.stack.items[value_index];
+                    const key = self.stack.items[key_index];
+
+                    if (key != .String) {
+                        // Keys must be strings for StringHashMap
+                        return error.TypeMismatch;
+                    }
+
+                    try new_map.put(key.String, value);
+                }
+
+                // Remove key-value pairs from the stack
+                self.stack.items.len -= (2 * num_entries);
+
+                try self.stack.append(.{ .Map = new_map });
+                debug.log("Created map with {} entries", .{num_entries});
             },
         }
     }

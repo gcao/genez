@@ -40,19 +40,13 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .Float => |val| .{ .literal = .{ .float = val } },
             .Nil => .{ .literal = .{ .nil = {} } },
             .Symbol => |val| .{ .literal = .{ .symbol = try allocator.dupe(u8, val) } },
-            .Array => |val| .{ .literal = .{ .array = try allocator.dupe(ast.Value, val) } },
-            .Map => |val| {
-                var new_map = std.StringHashMap(ast.Value).init(allocator);
-                var it = val.iterator();
-                while (it.next()) |entry| {
-                    try new_map.put(try allocator.dupe(u8, entry.key_ptr.*), entry.value_ptr.*);
-                }
-                return .{ .literal = .{ .map = new_map } };
-            },
+            // Removed .Array and .Map cases as they are now handled by top-level ArrayLiteral/MapLiteral
             .ReturnAddress => |_| .{ .literal = .{ .nil = {} } }, // Fallback for ReturnAddress
             .Function => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Function
             .Variable => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Variable
             .BuiltinOperator => |_| .{ .literal = .{ .nil = {} } }, // Fallback for BuiltinOperator
+            .Array => |_| unreachable, // Should be handled by ast.Expression.ArrayLiteral
+            .Map => |_| unreachable, // Should be handled by ast.Expression.MapLiteral
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -70,15 +64,13 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             errdefer allocator.destroy(then_branch_ptr);
             then_branch_ptr.* = then_branch;
 
-            var else_branch_ptr: ?*hir.HIR.Expression = null;
-            if (if_expr.else_branch) |else_branch| {
-                var else_expr = try lowerExpression(allocator, else_branch.*);
-                errdefer else_expr.deinit(allocator);
+            // else_branch is no longer optional
+            var else_expr = try lowerExpression(allocator, if_expr.else_branch.*);
+            errdefer else_expr.deinit(allocator);
 
-                else_branch_ptr = try allocator.create(hir.HIR.Expression);
-                errdefer allocator.destroy(else_branch_ptr.?);
-                else_branch_ptr.?.* = else_expr;
-            }
+            const else_branch_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(else_branch_ptr);
+            else_branch_ptr.* = else_expr;
 
             return hir.HIR.Expression{
                 .if_expr = .{
@@ -89,12 +81,17 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             };
         },
         .FuncCall => |func_call| {
-            // REMOVED: Logic to detect binary operators disguised as function calls.
-            // The parser should generate BinaryOp nodes directly for infix expressions.
+            std.debug.print("ast_to_hir: FuncCall.func_expr kind: {any}\n", .{func_call.func.*});
+            if (func_call.func.* == .Variable) {
+                std.debug.print("ast_to_hir: FuncCall.func_expr.Variable.name: '{s}', len: {}\n", .{
+                    func_call.func.*.Variable.name,
+                    func_call.func.*.Variable.name.len,
+                });
+            }
+            std.debug.print("ast_to_hir: FuncCall.args.len: {}\n", .{func_call.args.items.len});
 
-            // Regular function call logic
+            // Process as a regular function call.
             const func = try lowerExpression(allocator, func_call.func.*);
-            // errdefer func.deinit(allocator); // Let caller manage deinit
 
             const func_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(func_ptr); // If copy fails
@@ -127,100 +124,97 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 },
             };
         },
-        // Handle binary operations directly
+        // Handle binary operations as function calls
         .BinaryOp => |bin_op| {
-            const op_type: hir.HIR.BinaryOpType = op_switch: switch (bin_op.op) { // Added label op_switch:
-                .Ident => |ident| {
-                    if (std.mem.eql(u8, ident, "+")) {
-                        break :op_switch .add; // Break to the label
-                    } else if (std.mem.eql(u8, ident, "-")) {
-                        break :op_switch .sub;
-                    } else if (std.mem.eql(u8, ident, "<")) {
-                        break :op_switch .lt;
-                    } else if (std.mem.eql(u8, ident, ">")) {
-                        break :op_switch .gt;
-                    } else if (std.mem.eql(u8, ident, "==")) {
-                        break :op_switch .eq;
-                    } else {
-                        // TODO: Add support for other binary operators like *, /, = etc.
-                        std.debug.print("Unsupported binary operator '{s}' during HIR lowering.\n", .{ident});
-                        return error.UnsupportedOperator;
-                    }
-                },
-                // Add cases for other potential operator token kinds if needed
+            // In Gene, binary operations are function calls
+            // Convert the operator to a variable expression
+            const op_name = switch (bin_op.op) {
+                .Ident => |ident| ident,
                 else => {
                     std.debug.print("Unexpected operator type in BinaryOp during HIR lowering.\n", .{});
                     return error.UnexpectedAstNode;
                 },
             };
 
-            // Convert left and right operands
+            // Create a variable expression for the operator
+            const func_expr = hir.HIR.Expression{
+                .variable = .{ .name = try allocator.dupe(u8, op_name) },
+            };
+
+            const func_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(func_ptr);
+            func_ptr.* = func_expr;
+
+            // Create the arguments list
+            var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
+            errdefer {
+                for (args.items) |arg| {
+                    arg.deinit(allocator);
+                    allocator.destroy(arg);
+                }
+                args.deinit();
+            }
+
+            // Convert left operand
             var left = try lowerExpression(allocator, bin_op.left.*);
-            // Deinit left if right lowering or subsequent steps fail
             errdefer left.deinit(allocator);
 
+            const left_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(left_ptr);
+            left_ptr.* = left;
+
+            try args.append(left_ptr);
+
+            // Convert right operand
             var right = try lowerExpression(allocator, bin_op.right.*);
-            // Deinit right if subsequent steps fail (left errdefer still active)
             errdefer right.deinit(allocator);
 
-            const left_ptr = try allocator.create(hir.HIR.Expression);
-            // If left_ptr alloc fails, errdefers for left/right run
-            errdefer allocator.destroy(left_ptr); // Destroy ptr if right_ptr alloc fails
-
             const right_ptr = try allocator.create(hir.HIR.Expression);
-            // If right_ptr alloc fails, errdefers for left/right run, and left_ptr errdefer runs
-            errdefer allocator.destroy(right_ptr); // Destroy ptr if return fails
-
-            // Copy the lowered expressions into the pointers
-            // Ownership of the *content* is effectively transferred here.
-            left_ptr.* = left;
+            errdefer allocator.destroy(right_ptr);
             right_ptr.* = right;
 
-            // The original left/right vars are now just containers whose contents
-            // have been moved. Their errdefers are cancelled by reaching this point.
-            // The ownership of the actual HIR data is now with left_ptr/right_ptr.
+            try args.append(right_ptr);
 
-            // Ownership of left_ptr and right_ptr is transferred to the returned node
+            // Return as a function call
             return hir.HIR.Expression{
-                .binary_op = .{
-                    .op = op_type,
-                    .left = left_ptr,
-                    .right = right_ptr,
+                .func_call = .{
+                    .func = func_ptr,
+                    .args = args,
                 },
             };
         },
         .FuncDef => |func_def| {
-            // Convert function body
-            var body = try lowerExpression(allocator, func_def.body.*);
-            errdefer body.deinit(allocator);
+            var hir_func = hir.HIR.Function.init(allocator);
+            errdefer hir_func.deinit();
 
-            const body_ptr = try allocator.create(hir.HIR.Expression);
-            errdefer allocator.destroy(body_ptr);
-            body_ptr.* = body;
+            hir_func.name = try allocator.dupe(u8, func_def.name);
 
             // Convert parameters
-            var params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
-            errdefer {
-                for (params) |*param| {
-                    param.deinit(allocator);
-                }
-                allocator.free(params);
-            }
-
+            std.debug.print("[AST->HIR] FuncDef: name={s}, params.len={}\n", .{ func_def.name, func_def.params.len });
+            hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
             for (func_def.params, 0..) |param, i| {
-                params[i] = .{
+                hir_func.params[i] = .{
                     .name = try allocator.dupe(u8, param.name),
                     .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
                 };
             }
 
-            return hir.HIR.Expression{
-                .func_def = .{
-                    .name = try allocator.dupe(u8, func_def.name),
-                    .params = params,
-                    .body = body_ptr,
-                },
-            };
+            // Convert function body statements
+            // The body of a FuncDef is a single expression, which needs to be wrapped in a statement
+            var body_expr = try lowerExpression(allocator, func_def.body.*);
+            errdefer body_expr.deinit(allocator); // Clean up if subsequent steps fail
+
+            try hir_func.body.append(.{ .Expression = body_expr });
+            // After appending, body_expr's content has been moved.
+            // We need to cancel its errdefer by zeroing it out.
+            body_expr = undefined; // Cancel errdefer
+
+            // Transfer ownership of hir_func to the HIR.Expression.function
+            const hir_func_ptr = try allocator.create(hir.HIR.Function);
+            errdefer allocator.destroy(hir_func_ptr);
+            hir_func_ptr.* = hir_func;
+
+            return hir.HIR.Expression{ .function = hir_func_ptr };
         },
         .VarDecl => |var_decl| {
             var value = try lowerExpression(allocator, var_decl.value.*);
@@ -238,23 +232,147 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             };
         },
         .SimpleFuncDef => |func_def| {
-            // Convert SimpleFuncDef to HIR function
-            const body_ptr = try allocator.create(hir.HIR.Expression);
-            errdefer allocator.destroy(body_ptr);
-            body_ptr.* = hir.HIR.Expression{
+            var hir_func = hir.HIR.Function.init(allocator);
+            errdefer hir_func.deinit();
+
+            hir_func.name = try allocator.dupe(u8, func_def.getName());
+
+            // Create parameters based on param_count, but without names/types
+            hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.param_count);
+            for (0..func_def.param_count) |i| {
+                // For SimpleFuncDef, parameter names are not explicitly given in AST,
+                // so we can use a placeholder or generate one if needed later.
+                // For now, just allocate the struct.
+                hir_func.params[i] = .{
+                    .name = try allocator.dupe(u8, "arg"), // Placeholder name
+                    .param_type = null,
+                };
+            }
+
+            // Convert body_literal to a HIR literal expression
+            var body_expr = hir.HIR.Expression{
                 .literal = .{
                     .int = func_def.body_literal,
                 },
             };
+            errdefer body_expr.deinit(allocator); // Clean up if subsequent steps fail
 
-            // Create empty params slice for SimpleFuncDef
-            const params = try allocator.alloc(hir.HIR.FuncParam, 0);
+            try hir_func.body.append(.{ .Expression = body_expr });
+            // After appending, body_expr's content has been moved.
+            // We need to cancel its errdefer by zeroing it out.
+            body_expr = undefined; // Cancel errdefer
+
+            // Transfer ownership of hir_func to the HIR.Expression.function
+            const hir_func_ptr = try allocator.create(hir.HIR.Function);
+            errdefer allocator.destroy(hir_func_ptr);
+            hir_func_ptr.* = hir_func;
+
+            return hir.HIR.Expression{ .function = hir_func_ptr };
+        },
+        .ArrayLiteral => |arr_lit| {
+            var elements = std.ArrayList(*hir.HIR.Expression).init(allocator);
+            errdefer {
+                for (elements.items) |element| {
+                    element.deinit(allocator);
+                    allocator.destroy(element);
+                }
+                elements.deinit();
+            }
+
+            for (arr_lit.elements) |ast_element_ptr| {
+                var hir_element = try lowerExpression(allocator, ast_element_ptr.*);
+                errdefer hir_element.deinit(allocator);
+
+                const hir_element_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(hir_element_ptr);
+                hir_element_ptr.* = hir_element;
+
+                try elements.append(hir_element_ptr);
+            }
+
+            const elements_slice = try elements.toOwnedSlice();
 
             return hir.HIR.Expression{
-                .func_def = .{
-                    .name = try allocator.dupe(u8, func_def.getName()),
-                    .params = params,
-                    .body = body_ptr,
+                .array_literal = .{
+                    .elements = elements_slice,
+                },
+            };
+        },
+        .MapLiteral => |map_lit| {
+            var hir_entries_list = std.ArrayList(hir.HIR.MapEntry).init(allocator);
+            errdefer { // This errdefer handles cleanup if the function errors out after list initialization
+                for (hir_entries_list.items) |*map_entry_item| {
+                    // MapEntry.deinit handles deinit of its key and value Expressions and their pointers
+                    map_entry_item.deinit(allocator);
+                }
+                hir_entries_list.deinit(); // Deinitializes the ArrayList struct itself
+            }
+
+            for (map_lit.entries) |ast_entry| { // ast_entry is ast.MapEntry = { key: *ast.Expression, value: *ast.Expression }
+                // Lower Key
+                var lowered_key_expr = try lowerExpression(allocator, ast_entry.key.*);
+                errdefer lowered_key_expr.deinit(allocator); // Cleans up if subsequent allocations or append fail
+
+                const hir_key_expr_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(hir_key_expr_ptr); // Cleans up if subsequent allocations or append fail
+                hir_key_expr_ptr.* = lowered_key_expr; // Ownership of lowered_key_expr's content moves
+
+                // Lower Value
+                var lowered_value_expr = try lowerExpression(allocator, ast_entry.value.*);
+                errdefer lowered_value_expr.deinit(allocator); // Cleans up if subsequent allocations or append fail
+
+                const hir_value_expr_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(hir_value_expr_ptr); // Cleans up if append fails
+                hir_value_expr_ptr.* = lowered_value_expr; // Ownership of lowered_value_expr's content moves
+
+                // Append the new MapEntry. If this append fails, the errdefers for
+                // hir_key_expr_ptr, lowered_key_expr, hir_value_expr_ptr, and lowered_value_expr will trigger.
+                try hir_entries_list.append(.{
+                    .key = hir_key_expr_ptr,
+                    .value = hir_value_expr_ptr,
+                });
+                // If append succeeds, ownership of the pointers is now with the MapEntry in the list.
+                // The local errdefers for these specific pointers (destroy) and expressions (deinit)
+                // are "cancelled" for this iteration as we proceed. The outer list's errdefer
+                // will handle them if a later operation (like toOwnedSlice or a subsequent iteration) fails.
+            }
+
+            // Convert ArrayList to a slice. Ownership of the items is transferred.
+            // The hir_entries_list errdefer will correctly deinit an empty list if this succeeds.
+            const entries_slice = try hir_entries_list.toOwnedSlice();
+
+            return hir.HIR.Expression{
+                .map_literal = .{
+                    .entries = entries_slice,
+                },
+            };
+        },
+        .DoBlock => |do_block| {
+            var statements = std.ArrayList(*hir.HIR.Expression).init(allocator);
+            errdefer {
+                for (statements.items) |stmt| {
+                    stmt.deinit(allocator);
+                    allocator.destroy(stmt);
+                }
+                statements.deinit();
+            }
+
+            for (do_block.statements) |ast_stmt_ptr| {
+                var hir_stmt = try lowerExpression(allocator, ast_stmt_ptr.*);
+                errdefer hir_stmt.deinit(allocator);
+
+                const hir_stmt_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(hir_stmt_ptr);
+                hir_stmt_ptr.* = hir_stmt;
+
+                try statements.append(hir_stmt_ptr);
+            }
+
+            const statements_slice = try statements.toOwnedSlice();
+
+            return hir.HIR.Expression{
+                .do_block = .{
+                    .statements = statements_slice,
                 },
             };
         },

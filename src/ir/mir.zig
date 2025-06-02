@@ -112,6 +112,8 @@ pub const MIR = struct {
         StoreVariable: []const u8,
         Add,
         Sub,
+        Mul: void,
+        Div: void,
         LessThan,
         GreaterThan, // Added GreaterThan instruction
         Equal, // Added Equal instruction

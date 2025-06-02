@@ -44,12 +44,15 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(wasi);
 
     // Tests
+    const types_module = b.addModule("types", .{ .root_source_file = b.path("src/core/types.zig") });
+
     const main_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
     main_tests.root_module.addOptions("build_options", options);
+    main_tests.root_module.addImport("types", types_module);
 
     const unit_tests = b.addTest(.{
         .root_source_file = b.path("src/all_tests.zig"),
@@ -57,10 +60,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     unit_tests.root_module.addOptions("build_options", options);
+    unit_tests.root_module.addImport("types", types_module);
+
+    // Add include path for test imports
+    unit_tests.addIncludePath(b.path("src"));
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&main_tests.step);
-    test_step.dependOn(&unit_tests.step);
+
+    // Create run steps that will fail if tests fail
+    const run_main_tests = b.addRunArtifact(main_tests);
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+
+    test_step.dependOn(&run_main_tests.step);
+    test_step.dependOn(&run_unit_tests.step);
 
     // Clean step - temporarily disabled
     // const clean_step = b.step("clean", "Remove build artifacts");

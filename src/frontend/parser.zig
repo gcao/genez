@@ -9,6 +9,7 @@ pub const ParserError = error{
     ExpectedEquals,
     ExpectedRParen,
     UnexpectedRParen,
+    ExpectedElseKeyword, // Added for if expressions
     ExpectedFunctionName,
     ExpectedParameterName,
     InvalidTypeAnnotation,
@@ -35,11 +36,17 @@ pub const TokenKind = union(enum) {
     RParen,
     LBracket,
     RBracket,
+    LBrace, // New: for map literals
+    RBrace, // New: for map literals
     Equals, // Only for var assignment
     If, // Keyword
     Else, // Keyword
     Var, // Keyword
     Fn, // Keyword
+    Do, // New: for do blocks
+    Class, // New: for class definitions
+    New, // New: for object instantiation
+    Dot, // New: for field/method access
 };
 
 /// Tokenize a Gene source string.
@@ -116,6 +123,18 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                 i += 1;
                 continue;
             },
+            '{' => {
+                debug.log("Found {{", .{}); // Escaped literal brace
+                try tokens.append(.{ .kind = .LBrace, .loc = i });
+                i += 1;
+                continue;
+            },
+            '}' => {
+                debug.log("Found }}", .{}); // Escaped literal brace
+                try tokens.append(.{ .kind = .RBrace, .loc = i });
+                i += 1;
+                continue;
+            },
             '=' => {
                 // Check for == operator
                 if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '=') {
@@ -129,6 +148,12 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                     try tokens.append(.{ .kind = .Equals, .loc = i });
                     i += 1;
                 }
+                continue;
+            },
+            '.' => {
+                debug.log("Found .", .{});
+                try tokens.append(.{ .kind = .Dot, .loc = i });
+                i += 1;
                 continue;
             },
             else => {},
@@ -164,7 +189,7 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
         }
 
         // Handle identifiers and keywords (including operators)
-        const ident_chars = "_!$%&*+-./:<=>?@^~";
+        const ident_chars = "_!$%&*+-/:<=>?@^~"; // Removed '.' from here as it's now a separate token
         if (std.ascii.isAlphabetic(c) or std.mem.indexOfScalar(u8, ident_chars, c) != null) {
             const start = i;
             while (i + 1 < source_to_parse.len and (std.ascii.isAlphanumeric(source_to_parse[i + 1]) or std.mem.indexOfScalar(u8, ident_chars, source_to_parse[i + 1]) != null)) : (i += 1) {}
@@ -172,7 +197,10 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             var token_kind: TokenKind = undefined;
 
             // Don't allocate Ident tokens here, let the parser handle ownership if needed
-            if (std.mem.eql(u8, word, "if")) token_kind = .If else if (std.mem.eql(u8, word, "else")) token_kind = .Else else if (std.mem.eql(u8, word, "var")) token_kind = .Var else if (std.mem.eql(u8, word, "fn")) token_kind = .Fn else if (std.mem.eql(u8, word, "true")) token_kind = .{ .Bool = true } else if (std.mem.eql(u8, word, "false")) token_kind = .{ .Bool = false } else {
+            if (std.mem.eql(u8, word, "if")) token_kind = .If else if (std.mem.eql(u8, word, "else")) token_kind = .Else else if (std.mem.eql(u8, word, "var")) token_kind = .Var else if (std.mem.eql(u8, word, "fn")) token_kind = .Fn else if (std.mem.eql(u8, word, "do")) token_kind = .Do // New keyword
+            else if (std.mem.eql(u8, word, "class")) token_kind = .Class // New keyword
+            else if (std.mem.eql(u8, word, "new")) token_kind = .New // New keyword
+            else if (std.mem.eql(u8, word, "true")) token_kind = .{ .Bool = true } else if (std.mem.eql(u8, word, "false")) token_kind = .{ .Bool = false } else {
                 // Store the slice directly, parser will dupe if needed
                 token_kind = .{ .Ident = word };
             }
@@ -199,6 +227,19 @@ const ParseResult = struct {
 const MAX_RECURSION_DEPTH = 50;
 
 // Forward declarations removed
+
+fn isBinaryOperator(op_str: []const u8) bool {
+    return std.mem.eql(u8, op_str, "+") or
+        std.mem.eql(u8, op_str, "-") or
+        std.mem.eql(u8, op_str, "*") or
+        std.mem.eql(u8, op_str, "/") or
+        std.mem.eql(u8, op_str, "<") or
+        std.mem.eql(u8, op_str, ">") or
+        std.mem.eql(u8, op_str, "<=") or
+        std.mem.eql(u8, op_str, ">=") or
+        std.mem.eql(u8, op_str, "==") or
+        std.mem.eql(u8, op_str, "!=");
+}
 
 /// Parse a Gene source string into an AST.
 ///
@@ -322,14 +363,132 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
             return .{ .node = .{ .Expression = .{ .Literal = .{ .value = .{ .String = str } } } }, .consumed = 1 };
         },
         .Ident => |ident| {
+            // Debug print for specific identifiers
+            const ops_to_debug = [_][]const u8{ "+", "-", "*", "/", "<", ">", "==" };
+            for (ops_to_debug) |op_str| {
+                if (std.mem.eql(u8, ident, op_str)) {
+                    std.debug.print("Parser: Creating Variable from Ident: '{s}'\n", .{ident});
+                    break;
+                }
+            }
             // Duplicate the identifier string here for the Variable node
             const name_copy = try alloc.dupe(u8, ident);
             // Arena allocator handles cleanup
             return .{ .node = .{ .Expression = .{ .Variable = .{ .name = name_copy } } }, .consumed = 1 };
         },
-        .LParen => parseList(alloc, toks, depth),
+        .LParen => {
+            // Ensure there's a token after LParen to check its kind
+            if (toks.len < 2) {
+                // This handles `()` which parseList turns into Nil, or `(` which is UnexpectedEOF.
+                return parseList(alloc, toks, depth + 1);
+            }
+            // Dispatch based on the token *after* LParen
+            switch (toks[1].kind) {
+                .Fn => return parseFn(alloc, toks, depth + 1),
+                .If => return parseIf(alloc, toks, depth + 1),
+                .Var => return parseVar(alloc, toks, depth + 1),
+                .Do => return parseDoBlock(alloc, toks, depth + 1),
+                .Ident => {
+                    // Per instructions, assume (Ident ...) is a call for now.
+                    // parseList would handle (Ident op Expr) if it were to receive it.
+                    return parseCall(alloc, toks, depth + 1);
+                },
+                else => return parseList(alloc, toks, depth + 1), // Fallback for other S-expressions e.g. ((...)) or (Literal ...)
+            }
+        },
+        .LBracket => parseArray(alloc, toks, depth + 1),
+        .LBrace => parseMap(alloc, toks, depth + 1),
         .RParen => error.UnexpectedRParen,
         else => error.InvalidExpression,
+    };
+}
+
+/// Parse a Gene array literal.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
+fn parseArray(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    if (toks.len == 0 or toks[0].kind != .LBracket) return error.UnexpectedToken;
+
+    var current_pos: usize = 1; // Skip '['
+    var elements = std.ArrayList(*ast.Expression).init(alloc);
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+        const element_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += element_result.consumed;
+
+        const element_ptr = try alloc.create(ast.Expression);
+        element_ptr.* = element_result.node.Expression;
+        try elements.append(element_ptr);
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) {
+        return error.ExpectedRBracket;
+    }
+    current_pos += 1; // Skip ']'
+
+    const elements_slice = try alloc.alloc(*ast.Expression, elements.items.len);
+    for (elements.items, 0..) |element, i| {
+        elements_slice[i] = element;
+    }
+
+    return .{
+        .node = .{ .Expression = .{ .ArrayLiteral = .{ .elements = elements_slice } } },
+        .consumed = current_pos,
+    };
+}
+
+/// Parse a Gene map literal.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
+fn parseMap(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    if (toks.len == 0 or toks[0].kind != .LBrace) return error.UnexpectedToken;
+
+    var current_pos: usize = 1; // Skip '{'
+    var entries = std.ArrayList(ast.MapEntry).init(alloc);
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RBrace) {
+        // Parse key (expression)
+        const key_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += key_result.consumed;
+
+        // Parse value (expression)
+        const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += value_result.consumed;
+
+        const key_ptr = try alloc.create(ast.Expression);
+        key_ptr.* = key_result.node.Expression;
+
+        const value_ptr = try alloc.create(ast.Expression);
+        value_ptr.* = value_result.node.Expression;
+
+        try entries.append(.{ .key = key_ptr, .value = value_ptr });
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RBrace) {
+        return error.ExpectedRParen; // Re-using ExpectedRParen for RBrace for now
+    }
+    current_pos += 1; // Skip '}'
+
+    const entries_slice = try alloc.alloc(ast.MapEntry, entries.items.len);
+    for (entries.items, 0..) |entry, i| {
+        entries_slice[i] = entry;
+    }
+
+    return .{
+        .node = .{ .Expression = .{ .MapLiteral = .{ .entries = entries_slice } } },
+        .consumed = current_pos,
     };
 }
 
@@ -349,319 +508,173 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
     if (toks[0].kind != .LParen) return error.UnexpectedToken;
     if (toks.len < 2) return error.UnexpectedEOF;
 
-    var current_pos: usize = 1;
+    const current_pos: usize = 1;
 
     if (toks[current_pos].kind == .RParen) {
         return .{ .node = .{ .Expression = .{ .Literal = .{ .value = .Nil } } }, .consumed = 2 };
     }
 
-    const first = toks[current_pos];
-    current_pos += 1;
+    const first = toks[current_pos]; // This is toks[1]
+    const current_pos_after_first = current_pos + 1; // This is 2, points after `first`
 
     // Special case for nested expressions like ((fib (n - 1)) + (fib (n - 2)))
-    // If we have a pattern like ((...) op (...))
+    // or function calls like ((get-adder) 5)
     if (first.kind == .LParen) {
-        // Parse the first nested expression
-        const left_result = try parseExpression(alloc, toks[current_pos - 1 ..], depth + 1);
+        // `first` is LParen, so `toks` is `( (L) ... )`
+        // `current_pos` (which is 1) points to the inner LParen.
+        const first_sexpr_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        // `pos_after_first_sexpr` is index relative to `toks` pointing after the first S-expression `(L)`
+        const pos_after_first_sexpr = current_pos + first_sexpr_result.consumed;
 
-        current_pos += left_result.consumed - 1; // -1 because we already counted the LParen
+        // Check for infix binary operator: ((L) op R)
+        if (pos_after_first_sexpr < toks.len and toks[pos_after_first_sexpr].kind == .Ident) {
+            const op_token = toks[pos_after_first_sexpr];
+            if (op_token.kind == .Ident) { // Should always be true if kind is .Ident
+                const op_str = op_token.kind.Ident;
+                if (isBinaryOperator(op_str)) {
+                    var current_pos_for_binop_rhs = pos_after_first_sexpr + 1; // Skip operator
 
-        // Check if there's an operator after the nested expression
-        if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-            const op_token = toks[current_pos];
-            if (op_token.kind == .Ident) {
-                const op = op_token.kind.Ident; // This is a slice from the token
-                // Check if it's a binary operator
-                if (std.mem.eql(u8, op, "+") or
-                    std.mem.eql(u8, op, "-") or
-                    std.mem.eql(u8, op, "<") or
-                    std.mem.eql(u8, op, ">") or
-                    std.mem.eql(u8, op, "=="))
-                {
-                    current_pos += 1; // Skip the operator
+                    if (current_pos_for_binop_rhs >= toks.len) return error.UnexpectedEOF;
+                    const right_result = try parseExpression(alloc, toks[current_pos_for_binop_rhs..], depth + 1);
+                    current_pos_for_binop_rhs += right_result.consumed;
 
-                    // Parse the right operand
-                    if (current_pos >= toks.len) return error.UnexpectedEOF; // No errdefer needed with arena
-                    const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-                    // Don't use errdefer with arena allocators
+                    if (current_pos_for_binop_rhs >= toks.len or toks[current_pos_for_binop_rhs].kind != .RParen) return error.ExpectedRParen;
 
-                    current_pos += right_result.consumed;
-
-                    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen; // No errdefer needed
-
-                    // Clone results into the new BinaryOp node
                     const left_ptr = try alloc.create(ast.Expression);
-                    // Don't use errdefer for arena allocations
-                    left_ptr.* = try left_result.node.Expression.clone(alloc);
-                    // Don't use errdefer for arena allocations
-
+                    left_ptr.* = try first_sexpr_result.node.Expression.clone(alloc);
                     const right_ptr = try alloc.create(ast.Expression);
-                    // Don't use errdefer for arena allocations
                     right_ptr.* = try right_result.node.Expression.clone(alloc);
-                    // Don't use errdefer for arena allocations
-
-                    // Duplicate the operator identifier string for the AST node
-                    const op_ident_copy = try alloc.dupe(u8, op);
-                    // Arena allocator handles cleanup
-
-                    // Original results' errdefers are cancelled by successful return
-                    return .{
-                        .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op_ident_copy }, .left = left_ptr, .right = right_ptr } } }, // Ownership transferred
-                        .consumed = current_pos + 1,
-                    };
-                }
-            }
-        }
-
-        // If no operator, return the nested expression, transferring ownership
-        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) {
-            // No errdefer needed with arena allocators
-            return error.ExpectedRParen;
-        }
-
-        // Arena allocator handles all cleanup automatically
-        return .{
-            .node = left_result.node, // Transfer ownership
-            .consumed = current_pos + 1,
-        };
-    }
-
-    // Handle infix notation like (1 + 2)
-    if (first.kind == .Bool or first.kind == .String) {
-        // Parse the first operand
-        const left_result: ParseResult = blk: { // Use block to scope const assignment
-            switch (first.kind) {
-                .Bool => |val| {
-                    break :blk .{
-                        .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Bool = val } } } },
-                        .consumed = 0, // We'll add this later
-                    };
-                },
-                .String => |str| {
-                    // String tokens are already allocated by tokenizer
-                    break :blk .{
-                        .node = .{ .Expression = .{ .Literal = .{ .value = .{ .String = str } } } },
-                        .consumed = 0, // We'll add this later
-                    };
-                },
-                else => unreachable, // We already checked for these types
-            }
-        };
-        // Add errdefer for the created node
-        // Arena allocator handles all cleanup automatically
-
-        // Check if there's an operator after the literal
-        if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-            const op_token = toks[current_pos];
-            const op = op_token.kind.Ident; // Slice from token
-
-            // Check if it's a binary operator
-            if (std.mem.eql(u8, op, "+") or
-                std.mem.eql(u8, op, "-") or
-                std.mem.eql(u8, op, "<") or
-                std.mem.eql(u8, op, ">") or
-                std.mem.eql(u8, op, "=="))
-            {
-                current_pos += 1; // Skip the operator
-
-                // Parse the right operand
-                if (current_pos >= toks.len) return error.UnexpectedEOF; // Arena handles cleanup
-                const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-                // Arena allocator handles cleanup
-
-                current_pos += right_result.consumed;
-
-                if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen; // Arena handles cleanup
-
-                // Clone results into the new BinaryOp node
-                const left_ptr = try alloc.create(ast.Expression);
-                // Arena allocator handles cleanup
-                left_ptr.* = try left_result.node.Expression.clone(alloc);
-                // Arena allocator handles cleanup
-
-                const right_ptr = try alloc.create(ast.Expression);
-                // Arena allocator handles cleanup
-                right_ptr.* = try right_result.node.Expression.clone(alloc);
-                // Arena allocator handles cleanup
-
-                // Duplicate the operator identifier string for the AST node
-                const op_ident_copy = try alloc.dupe(u8, op);
-                // Arena allocator handles cleanup
-
-                // Original results' errdefers are cancelled by successful return
-                // Add 1 for the closing parenthesis and 1 for the operator
-                const total_consumed = 1 + 1 + right_result.consumed + 1; // literal + op + right + RParen
-
-                return .{
-                    .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op_ident_copy }, .left = left_ptr, .right = right_ptr } } },
-                    .consumed = total_consumed,
-                };
-            }
-        }
-        // If it wasn't a binary op, it's an error for bool/string literal alone in parens
-        // Arena handles cleanup automatically
-        return error.InvalidExpression;
-    }
-
-    // Restore the switch statement
-    return switch (first.kind) {
-        .If => {
-            const result = try parseIf(alloc, toks, current_pos, depth + 1);
-            const final_pos = current_pos - 1 + result.consumed; // -1 because current_pos was incremented
-            if (final_pos >= toks.len or toks[final_pos].kind != .RParen) return error.ExpectedRParen;
-            return .{ .node = result.node, .consumed = final_pos + 1 };
-        },
-        .Var => {
-            const result = try parseVar(alloc, toks, current_pos, depth + 1);
-            const final_pos = current_pos - 1 + result.consumed; // -1 because current_pos was incremented
-            if (final_pos >= toks.len or toks[final_pos].kind != .RParen) return error.ExpectedRParen;
-            return .{ .node = result.node, .consumed = final_pos + 1 };
-        },
-        .Fn => {
-            const result = try parseFn(alloc, toks, current_pos, depth + 1);
-            const final_pos = current_pos + result.consumed; // Fix: position at RParen
-            debug.log("parseList Fn: current_pos={} consumed={} final_pos={}", .{ current_pos, result.consumed, final_pos });
-            if (final_pos < toks.len) {
-                debug.log("parseList Fn: token at final_pos: {any}", .{toks[final_pos]});
-            }
-            if (final_pos >= toks.len or toks[final_pos].kind != .RParen) return error.ExpectedRParen;
-            return .{ .node = result.node, .consumed = final_pos + 1 };
-        },
-        .Ident => |ident_val| {
-            // Check if this is an infix binary operation like (n < 2)
-            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-                const op = toks[current_pos].kind.Ident;
-                if (std.mem.eql(u8, op, "+") or
-                    std.mem.eql(u8, op, "-") or
-                    std.mem.eql(u8, op, "<") or
-                    std.mem.eql(u8, op, ">") or
-                    std.mem.eql(u8, op, "=="))
-                {
-                    // This is an infix binary operation
-                    // Create left operand (variable)
-                    const name_copy = try alloc.dupe(u8, ident_val);
-                    // Arena allocator handles cleanup
-                    const left_node = ast.AstNode{ .Expression = .{ .Variable = .{ .name = name_copy } } };
-
-                    current_pos += 1; // Skip the operator
-
-                    // Parse the right operand
-                    if (current_pos >= toks.len) return error.UnexpectedEOF;
-                    const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-                    // Arena allocator handles cleanup
-                    current_pos += right_result.consumed;
-
-                    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
-
-                    // Create left operand pointer
-                    const left_ptr = try alloc.create(ast.Expression);
-                    // Arena allocator handles cleanup
-                    left_ptr.* = try left_node.Expression.clone(alloc);
-                    // Arena allocator handles cleanup
-
-                    // Create right operand pointer
-                    const right_ptr = try alloc.create(ast.Expression);
-                    // Arena allocator handles cleanup
-                    right_ptr.* = try right_result.node.Expression.clone(alloc);
-                    // Arena allocator handles cleanup
-
-                    // Duplicate the operator identifier string for the AST node
-                    const op_ident_copy = try alloc.dupe(u8, op);
-                    // Arena allocator handles cleanup
+                    const op_ident_copy = try alloc.dupe(u8, op_str);
 
                     return .{
                         .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op_ident_copy }, .left = left_ptr, .right = right_ptr } } },
-                        .consumed = current_pos + 1,
+                        .consumed = current_pos_for_binop_rhs + 1, // +1 for the closing RParen of the outer list
                     };
                 }
             }
+        }
 
-            // Regular function call
-            const result = try parseCall(alloc, toks, current_pos, depth + 1, ident_val);
-            // debug.log("parseCall returned consumed={}", .{result.consumed});
-            const final_pos = current_pos - 1 + result.consumed; // -1 because current_pos was incremented
-            // debug.log("current_pos={}, final_pos={}, toks.len={}", .{ current_pos, final_pos, toks.len });
-            // if (final_pos < toks.len) {
-            //     debug.log("Token at final_pos: {any}", .{toks[final_pos]});
-            // }
-            if (final_pos >= toks.len or toks[final_pos].kind != .RParen) return error.ExpectedRParen;
-            return .{ .node = result.node, .consumed = final_pos + 1 };
-        },
-        .Int => |val| {
-            // Handle case like (1 + 2)
-            debug.log("Handling integer literal: {}", .{val});
-            // Create a literal node for the integer (stack allocated)
-            const int_node = ast.AstNode{ .Expression = .{ .Literal = .{ .value = .{ .Int = val } } } };
+        // If not an infix binary op, then first_sexpr_result.node is either:
+        // 1. A standalone expression: ((L)) which should evaluate to L
+        // 2. A function part of a call: ((L) arg1 ...)
+        var args = std.ArrayList(*ast.Expression).init(alloc);
+        var arg_parsing_pos = pos_after_first_sexpr;
+        while (arg_parsing_pos < toks.len and toks[arg_parsing_pos].kind != .RParen) {
+            const arg_result = try parseExpression(alloc, toks[arg_parsing_pos..], depth + 1);
+            const arg_ptr = try alloc.create(ast.Expression);
+            arg_ptr.* = arg_result.node.Expression;
+            try args.append(arg_ptr);
+            arg_parsing_pos += arg_result.consumed;
+        }
 
-            // Check if the next token is an operator
-            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-                const op = toks[current_pos].kind.Ident; // Slice from token
-                debug.log("Found operator: {s}", .{op});
+        if (arg_parsing_pos >= toks.len or toks[arg_parsing_pos].kind != .RParen) return error.ExpectedRParen;
 
-                // Check if it's a binary operator
-                if (std.mem.eql(u8, op, "+") or
-                    std.mem.eql(u8, op, "-") or
-                    std.mem.eql(u8, op, "<") or
-                    std.mem.eql(u8, op, ">") or
-                    std.mem.eql(u8, op, "=="))
-                {
-                    debug.log("Recognized binary operator: {s}", .{op});
-                    current_pos += 1; // Skip the operator
+        if (args.items.len == 0) { // Case 1: ((L))
+            return .{
+                .node = first_sexpr_result.node,
+                .consumed = arg_parsing_pos + 1,
+            };
+        } else { // Case 2: ((L) arg1 ...)
+            const func_expr_ptr = try alloc.create(ast.Expression);
+            func_expr_ptr.* = first_sexpr_result.node.Expression;
+            return .{
+                .node = .{ .Expression = .{ .FuncCall = .{ .func = func_expr_ptr, .args = args } } },
+                .consumed = arg_parsing_pos + 1,
+            };
+        }
+    }
 
-                    // Parse the right operand
-                    if (current_pos >= toks.len) return error.UnexpectedEOF;
-                    debug.log("Parsing right operand at position {}", .{current_pos});
-                    debug.log("Right operand token: {}", .{toks[current_pos]});
-                    const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-                    // Arena allocator handles cleanup
-                    debug.log("Right operand parsed successfully", .{});
-                    current_pos += right_result.consumed;
-                    debug.log("Current position after parsing right operand: {}", .{current_pos});
+    // Handle (Literal op Expr)
+    // `first` is toks[1]. `current_pos_after_first` is 2 (points to token after `first`)
+    // Due to parseExpression dispatch, `first` here will not be Fn, If, Var, Do, Ident.
+    // So it's likely a literal Int, Bool, String.
+    var left_literal_node: ?ast.AstNode = null;
 
-                    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) {
-                        return error.ExpectedRParen; // right_result errdefer runs
-                    }
-                    debug.log("Found closing parenthesis", .{});
-
-                    // Create and clone left operand
-                    debug.log("Creating left operand pointer", .{});
-                    const left_ptr = try alloc.create(ast.Expression);
-                    // Arena allocator handles cleanup
-                    left_ptr.* = try int_node.Expression.clone(alloc); // Clone stack allocated literal
-                    // Arena allocator handles cleanup
-                    debug.log("Left operand pointer created successfully", .{});
-
-                    // Create and clone right operand
-                    debug.log("Creating right operand pointer", .{});
-                    const right_ptr = try alloc.create(ast.Expression);
-                    // Arena allocator handles cleanup
-                    right_ptr.* = try right_result.node.Expression.clone(alloc);
-                    // Arena allocator handles cleanup
-                    debug.log("Right operand pointer created successfully", .{});
-                    debug.log("Right result node type: {}", .{@TypeOf(right_result.node)});
-                    debug.log("Right result node: {}", .{right_result.node});
-                    debug.log("Right operand pointer assigned successfully", .{});
-
-                    debug.log("Creating binary operation result", .{});
-                    // Ownership of left_ptr and right_ptr transferred
-
-                    // Duplicate the operator identifier string for the AST node
-                    const op_ident_copy = try alloc.dupe(u8, op);
-                    // Arena allocator handles cleanup
-
-                    debug.log("Binary operation result created successfully", .{});
-                    // Original right_result errdefer is cancelled by successful return
-                    return ParseResult{
-                        .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op_ident_copy }, .left = left_ptr, .right = right_ptr } } },
-                        .consumed = current_pos + 1, // +1 for the closing parenthesis
-                    };
-                }
-            }
-
-            // If we get here, it's not a binary operation
+    switch (first.kind) {
+        .Int => |val| left_literal_node = .{ .Expression = .{ .Literal = .{ .value = .{ .Int = val } } } },
+        .Bool => |val| left_literal_node = .{ .Expression = .{ .Literal = .{ .value = .{ .Bool = val } } } },
+        .String => |str| left_literal_node = .{ .Expression = .{ .Literal = .{ .value = .{ .String = str } } } },
+        else => {
+            // This case implies something like `([ ...)` or `({ ...)` if not caught by parseExpression,
+            // or other unhandled token kinds as the first element of a list.
+            debug.log("parseList: Expected LParen or Literal after initial LParen, found {any}", .{first});
             return error.InvalidExpression;
-        }, // Ensure comma is present
-        else => error.InvalidExpression,
+        },
+    }
+
+    // Check for operator at toks[current_pos_after_first] (i.e., toks[2])
+    if (current_pos_after_first < toks.len and toks[current_pos_after_first].kind == .Ident) {
+        const op_token = toks[current_pos_after_first];
+        const op_str = op_token.kind.Ident;
+        if (isBinaryOperator(op_str)) {
+            var pos_for_right_expr = current_pos_after_first + 1; // after operator
+
+            if (pos_for_right_expr >= toks.len) return error.UnexpectedEOF;
+            const right_result = try parseExpression(alloc, toks[pos_for_right_expr..], depth + 1);
+            pos_for_right_expr += right_result.consumed;
+
+            if (pos_for_right_expr >= toks.len or toks[pos_for_right_expr].kind != .RParen) return error.ExpectedRParen;
+
+            const left_ptr = try alloc.create(ast.Expression);
+            left_ptr.* = try left_literal_node.?.Expression.clone(alloc); // left_literal_node is guaranteed non-null here
+            const right_ptr = try alloc.create(ast.Expression);
+            right_ptr.* = try right_result.node.Expression.clone(alloc);
+            const op_ident_copy = try alloc.dupe(u8, op_str);
+
+            return .{
+                .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op_ident_copy }, .left = left_ptr, .right = right_ptr } } },
+                .consumed = pos_for_right_expr + 1, // +1 for RParen
+            };
+        }
+    }
+
+    // If not ((L)...) and not (Literal op Expr), it might be a generic list of expressions
+    // e.g. (1 2 3) or ("a" "b").
+    // The current parser doesn't have a generic "List of Expressions" AST node.
+    // For now, if it's not a recognized binary op form, it's an error.
+    // This maintains consistency with the previous behavior where (Literal) or (Literal Literal) without an op would error.
+    debug.log("parseList: List is not a recognized binary op or nested call structure: {any}", .{toks});
+    return error.InvalidExpression;
+}
+
+/// Parse a Gene do block.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   start_pos: The position in the token stream to start parsing from.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
+fn parseDoBlock(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (do stmt1 stmt2 ...)
+    // toks[0] is LParen, toks[1] is Do
+    if (toks.len < 2 or toks[0].kind != .LParen or toks[1].kind != .Do) return error.UnexpectedToken; // Minimum is `(do)` which becomes `(do RParen)`
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Do
+    var statements = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer statements.deinit(); // Ensure cleanup if an error occurs before transfer
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const stmt_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += stmt_result.consumed;
+
+        const stmt_ptr = try alloc.create(ast.Expression);
+        stmt_ptr.* = stmt_result.node.Expression;
+        try statements.append(stmt_ptr); // Ownership of stmt_ptr transferred
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) {
+        return error.ExpectedRParen;
+    }
+    current_pos += 1; // Consume RParen
+
+    const statements_slice = try statements.toOwnedSlice(); // Transfers ownership
+
+    return .{
+        .node = .{ .Expression = .{ .DoBlock = .{ .statements = statements_slice } } },
+        .consumed = current_pos, // Total consumed tokens
     };
 }
 
@@ -677,64 +690,55 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
 ///   depth: The current recursion depth.
 ///
 /// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
-fn parseIf(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
-    var current_pos = start_pos;
+fn parseIf(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (if condition then_branch else_branch) or (if condition then_branch else else_branch)
+    // toks[0] is LParen, toks[1] is If
+    // Minimum valid: (if c t e) -> LParen, If, c, t, e, RParen (6 tokens)
+    if (toks.len < 6 or toks[0].kind != .LParen or toks[1].kind != .If) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
 
+    var current_pos: usize = 2; // Skip LParen and If
+
+    // Parse condition
     if (current_pos >= toks.len) return error.UnexpectedEOF;
     const cond_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
     current_pos += cond_result.consumed;
 
-    if (current_pos >= toks.len) return error.UnexpectedEOF; // cond_result errdefer runs
+    // Parse then_branch
+    if (current_pos >= toks.len) return error.UnexpectedEOF;
     const then_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
     current_pos += then_result.consumed;
 
-    var else_node_opt: ?ast.AstNode = null;
-    var else_result_consumed: usize = 0;
+    // Check if there's an explicit 'else' keyword
+    var else_result: ParseResult = undefined;
     if (current_pos < toks.len and toks[current_pos].kind == .Else) {
-        current_pos += 1;
-        if (current_pos >= toks.len) return error.UnexpectedEOF; // cond/then errdefers run
-        const else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        // Don't add errdefer here yet, handle it based on RParen check
-        else_result_consumed = else_result.consumed;
-        else_node_opt = else_result.node;
-        current_pos += else_result_consumed;
+        current_pos += 1; // Consume 'else'
+
+        // Parse else_branch after 'else' keyword
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += else_result.consumed;
+    } else {
+        // No 'else' keyword, the next expression is the else branch
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += else_result.consumed;
     }
 
-    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) {
-        // cond/then errdefers run. Deinit else_node if it exists.
-        if (else_node_opt) |*en| en.deinit(alloc);
-        return error.ExpectedRParen;
-    }
+    // Expect and consume RParen
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
 
-    // Clone condition
     const cond_ptr = try alloc.create(ast.Expression);
     cond_ptr.* = try cond_result.node.Expression.clone(alloc);
-
-    // Clone then branch
     const then_ptr = try alloc.create(ast.Expression);
     then_ptr.* = try then_result.node.Expression.clone(alloc);
+    const else_ptr = try alloc.create(ast.Expression);
+    else_ptr.* = try else_result.node.Expression.clone(alloc);
 
-    // Clone else branch if it exists
-    var else_ptr: ?*ast.Expression = null;
-    if (else_node_opt) |*original_else_node_ptr| { // Capture as mutable pointer
-        // Deinit the original node if cloning or subsequent steps fail
-        // Arena allocator handles cleanup
-
-        else_ptr = try alloc.create(ast.Expression);
-        // Arena allocator handles cleanup
-
-        // Clone the expression from the original node
-        else_ptr.?.* = try original_else_node_ptr.Expression.clone(alloc);
-        // Arena allocator handles cleanup
-
-        // Arena allocator handles cleanup
-        // Arena allocator handles cleanup
-    }
-
-    // Success, ownership transferred. Original results' errdefers are cancelled.
     return .{
         .node = .{ .Expression = .{ .If = .{ .condition = cond_ptr, .then_branch = then_ptr, .else_branch = else_ptr } } },
-        .consumed = current_pos + 1 - start_pos,
+        .consumed = current_pos, // Total consumed tokens
     };
 }
 
@@ -750,33 +754,37 @@ fn parseIf(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dept
 ///   depth: The current recursion depth.
 ///
 /// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
-fn parseVar(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
-    var current_pos = start_pos;
+fn parseVar(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (var name = value)
+    // toks[0] is LParen, toks[1] is Var
+    // Minimum valid: (var x = 1) -> LParen, Var, Ident, Equals, Int, RParen (6 tokens)
+    if (toks.len < 6 or toks[0].kind != .LParen or toks[1].kind != .Var) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Var
+
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedVariableName;
-    const name = toks[current_pos].kind.Ident; // Slice from token
+    const name_slice = toks[current_pos].kind.Ident;
     current_pos += 1;
 
     if (current_pos >= toks.len or toks[current_pos].kind != .Equals) return error.ExpectedEquals;
-    current_pos += 1;
+    current_pos += 1; // Skip Equals
 
     if (current_pos >= toks.len) return error.UnexpectedEOF;
     const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
     current_pos += value_result.consumed;
 
-    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen; // value_result errdefer runs
+    // Expect and consume RParen
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
 
-    // Duplicate the variable name for the AST node
-    const name_copy = try alloc.dupe(u8, name);
-    // Arena allocator handles cleanup
-
-    // Clone value
+    const name_copy = try alloc.dupe(u8, name_slice);
     const value_ptr = try alloc.create(ast.Expression);
     value_ptr.* = try value_result.node.Expression.clone(alloc);
 
-    // Success, ownership transferred
     return .{
         .node = .{ .Expression = .{ .VarDecl = .{ .name = name_copy, .value = value_ptr } } },
-        .consumed = current_pos + 1 - start_pos,
+        .consumed = current_pos, // Total consumed tokens
     };
 }
 
@@ -792,117 +800,92 @@ fn parseVar(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dep
 ///   depth: The current recursion depth.
 ///
 /// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
-fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize) !ParseResult {
-    var current_pos = start_pos;
+fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (fn name? [params]? body)
+    // toks[0] is LParen, toks[1] is Fn
+    // Minimum: (fn body) -> LParen, Fn, body, RParen (4 tokens)
+    // (fn name body) -> 5 tokens
+    // (fn [p] body) -> 6 tokens (LParen, Fn, LBracket, Ident, RBracket, body, RParen) - actually more if body is complex
+    if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .Fn) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
 
-    // Get the function name if present
+    var current_pos: usize = 2; // Skip LParen and Fn
+
     var name_copy: []const u8 = "";
     if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-        const name = toks[current_pos].kind.Ident;
-        name_copy = try alloc.dupe(u8, name);
+        const name_slice = toks[current_pos].kind.Ident;
+        name_copy = try alloc.dupe(u8, name_slice);
         current_pos += 1;
     } else {
-        // Anonymous function
         name_copy = try alloc.dupe(u8, "anonymous");
     }
-    // Arena allocator handles cleanup
 
-    // Parse parameters
-    var params = std.ArrayList(ast.FuncParam).init(alloc);
-    // Arena allocator handles cleanup
+    var params_list = std.ArrayList(ast.FuncParam).init(alloc);
+    errdefer params_list.deinit(); // Cleanup if error before transfer
 
     if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1; // Skip '['
+        std.debug.print("[PARSER] Starting parameter parsing loop\n", .{});
         while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
-            // Parse parameter name
-            if (current_pos >= toks.len or toks[current_pos].kind != .Ident) {
-                return error.ExpectedParameterName;
-            }
-            const param_name = toks[current_pos].kind.Ident;
-            const param_name_copy = try alloc.dupe(u8, param_name);
-            // Arena allocator handles cleanup
+            std.debug.print("[PARSER] Loop iteration: current_pos={}, token={any}\n", .{ current_pos, if (current_pos < toks.len) toks[current_pos] else null });
+            if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
+            const param_name_slice = toks[current_pos].kind.Ident;
+            std.debug.print("[PARSER] Found parameter: {s}\n", .{param_name_slice});
+            const param_name_copy = try alloc.dupe(u8, param_name_slice);
             current_pos += 1;
 
-            // Parse optional parameter type
-            var param_type: ?[]const u8 = null;
-            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-                const type_name = toks[current_pos].kind.Ident;
-                param_type = try alloc.dupe(u8, type_name);
-                current_pos += 1;
-            }
-
-            // Add parameter to list
-            try params.append(.{
-                .name = param_name_copy,
-                .param_type = param_type,
-            });
+            // Gene doesn't use explicit type annotations in parameter lists
+            // [a b] means two parameters 'a' and 'b', not parameter 'a' with type 'b'
+            try params_list.append(.{ .name = param_name_copy, .param_type = null });
+            std.debug.print("[PARSER] Added parameter to list, current count: {}\n", .{params_list.items.len});
         }
-
-        if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) {
-            return error.ExpectedRBracket;
-        }
+        std.debug.print("[PARSER] Finished parameter parsing loop\n", .{});
+        if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
         current_pos += 1; // Skip ']'
     }
 
-    // Parse function body - extract just a simple literal value for now
-    if (current_pos >= toks.len) return error.UnexpectedEOF;
+    if (current_pos >= toks.len) return error.UnexpectedEOF; // Expected body
     const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    const final_pos_after_body = current_pos + body_result.consumed;
+    current_pos += body_result.consumed;
 
-    // Extract a simple literal value from the body
-    var body_literal: i64 = 0;
-    switch (body_result.node.Expression) {
-        .Literal => |lit| switch (lit.value) {
-            .Int => |val| body_literal = val,
-            else => body_literal = 42, // Default fallback
-        },
-        else => body_literal = 42, // Default fallback for complex expressions
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
+
+    // Simplified body_literal extraction for SimpleFuncDef, review if complex bodies are needed for it
+    var body_literal_for_simple_fn: i64 = 0;
+    if (params_list.items.len == 0) { // Only relevant for SimpleFuncDef
+        switch (body_result.node.Expression) {
+            .Literal => |lit| switch (lit.value) {
+                .Int => |val| body_literal_for_simple_fn = val,
+                else => body_literal_for_simple_fn = 42, // Default
+            },
+            else => body_literal_for_simple_fn = 42, // Default
+        }
     }
 
-    debug.log("parseFn: start_pos={} final_pos_after_body={} consumed={}", .{ start_pos, final_pos_after_body, final_pos_after_body - start_pos });
-
-    // Choose between FuncDef and SimpleFuncDef based on whether there are parameters
-    const fn_node = if (params.items.len > 0) blk: {
-        // Use FuncDef for functions with parameters
-        const params_slice = try alloc.alloc(ast.FuncParam, params.items.len);
-        for (params.items, 0..) |param, i| {
-            params_slice[i] = param;
-        }
-
+    std.debug.print("[PARSER] Function {s} has {} parameters\n", .{ name_copy, params_list.items.len });
+    const fn_node: ast.AstNode = if (params_list.items.len > 0) blk: {
+        const params_slice = try params_list.toOwnedSlice(); // Transfers ownership
         const body_ptr = try alloc.create(ast.Expression);
         body_ptr.* = body_result.node.Expression;
-
-        break :blk ast.AstNode{
+        std.debug.print("[PARSER] Creating FuncDef with {} parameters\n", .{params_slice.len});
+        break :blk .{
             .Expression = .{
-                .FuncDef = .{
-                    .name = name_copy,
-                    .params = params_slice,
-                    .body = body_ptr,
-                },
+                .FuncDef = .{ .name = name_copy, .params = params_slice, .body = body_ptr },
             },
         };
     } else blk: {
-        // Use SimpleFuncDef for parameter-less functions
-        break :blk ast.AstNode{
+        params_list.deinit(); // Not used, deinit explicitly
+        break :blk .{
             .Expression = .{
-                .SimpleFuncDef = .{
-                    .name = name_copy,
-                    .param_count = 0,
-                    .body_literal = body_literal,
-                },
+                .SimpleFuncDef = .{ .name = name_copy, .param_count = 0, .body_literal = body_literal_for_simple_fn },
             },
         };
     };
 
-    if (params.items.len > 0) {
-        debug.log("parseFn: created FuncDef with name: {s} param_count: {}", .{ name_copy, params.items.len });
-    } else {
-        debug.log("parseFn: created SimpleFuncDef with name: {s} param_count: {} body: {}", .{ name_copy, params.items.len, body_literal });
-    }
-
     return .{
         .node = fn_node,
-        .consumed = final_pos_after_body - start_pos,
+        .consumed = current_pos, // Total consumed tokens
     };
 }
 
@@ -916,109 +899,42 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, dept
 ///   toks: The tokens to parse.
 ///   start_pos: The position in the token stream to start parsing from.
 ///   depth: The current recursion depth.
-///   func_ident: The identifier of the function being called.
+///   depth: The current recursion depth.
 ///
 /// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
-fn parseCall(alloc: std.mem.Allocator, toks: []const Token, start_pos: usize, depth: usize, func_ident: []const u8) !ParseResult {
-    debug.log("parseCall: function={s} depth={}", .{ func_ident, depth });
-    debug.log("parseCall: start_pos={} toks.len={}", .{ start_pos, toks.len });
-    var current_pos = start_pos;
-    var args = std.ArrayList(*ast.Expression).init(alloc);
-    // Arena allocator handles all cleanup
+fn parseCall(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (Ident arg1 arg2 ...)
+    // toks[0] is LParen, toks[1] is Ident (function)
+    // Minimum: (f) -> LParen, Ident, RParen (3 tokens)
+    if (toks.len < 3 or toks[0].kind != .LParen or toks[1].kind != .Ident) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
 
-    // Handle binary operators in infix notation
-    if (std.mem.eql(u8, func_ident, "+") or
-        std.mem.eql(u8, func_ident, "-") or
-        std.mem.eql(u8, func_ident, "<") or
-        std.mem.eql(u8, func_ident, ">") or
-        std.mem.eql(u8, func_ident, "=="))
-    {
-        debug.log("Handling infix binary operator: {s}", .{func_ident});
+    const func_ident_slice = toks[1].kind.Ident;
+    debug.log("parseCall: function={s} depth={}", .{ func_ident_slice, depth });
 
-        // We need exactly two arguments for binary operators
-        if (current_pos >= toks.len) return error.UnexpectedEOF;
+    var current_pos: usize = 2; // Start parsing arguments from index 2 (after LParen, Ident)
+    var args_list = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer args_list.deinit(); // Cleanup if error before transfer
 
-        // Parse left operand
-        debug.log("Parsing left operand", .{});
-        const left_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        // Arena allocator handles cleanup
-        current_pos += left_result.consumed;
-
-        // Parse right operand
-        if (current_pos >= toks.len) return error.UnexpectedEOF;
-        debug.log("Parsing right operand", .{});
-        const right_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        // Arena allocator handles cleanup
-        current_pos += right_result.consumed;
-
-        // Check for closing parenthesis
-        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
-
-        // Create left operand pointer
-        const left_ptr = try alloc.create(ast.Expression);
-        // Arena allocator handles cleanup
-        left_ptr.* = try left_result.node.Expression.clone(alloc);
-        // Arena allocator handles cleanup
-
-        // Create right operand pointer
-        const right_ptr = try alloc.create(ast.Expression);
-        // Arena allocator handles cleanup
-        right_ptr.* = try right_result.node.Expression.clone(alloc);
-        // Arena allocator handles cleanup
-
-        // Duplicate the operator identifier string for the AST node
-        const op_ident_copy = try alloc.dupe(u8, func_ident);
-        // Arena allocator handles cleanup
-
-        // Clean up original nodes
-        // @constCast(&left_result.node).deinit(alloc);  // Removed: arena handles cleanup
-        // @constCast(&right_result.node).deinit(alloc); // Removed: arena handles cleanup
-
-        debug.log("Binary operation parsed successfully", .{});
-        return .{
-            .node = .{ .Expression = .{ .BinaryOp = .{ .op = .{ .Ident = op_ident_copy }, .left = left_ptr, .right = right_ptr } } },
-            .consumed = current_pos + 1 - start_pos, // Relative consumed count from start_pos
-        };
-    }
-
-    // Regular function call
-    debug.log("Regular function call: {s}", .{func_ident});
     while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
-        debug.log("  Parsing argument at position {}", .{current_pos});
-        if (current_pos < toks.len) {
-            debug.log("  Argument token: {any}", .{toks[current_pos]});
-        }
         const arg_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
         current_pos += arg_result.consumed;
 
         const arg_ptr = try alloc.create(ast.Expression);
         arg_ptr.* = arg_result.node.Expression;
-        try args.append(arg_ptr);
+        try args_list.append(arg_ptr); // Ownership of arg_ptr transferred
     }
 
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
 
-    debug.log("parseCall: creating function expression", .{});
-    // Create a variable expression for the function name
-    // Duplicate the function identifier string for the AST node
-    const func_name_copy = try alloc.dupe(u8, func_ident);
-    debug.log("parseCall: duplicated function name: {s}", .{func_name_copy});
-    // Arena allocator handles cleanup
+    const func_name_copy = try alloc.dupe(u8, func_ident_slice);
     const func_expr_ptr = try alloc.create(ast.Expression);
-    debug.log("parseCall: created function expression pointer", .{});
-    // Arena allocator handles cleanup
+    func_expr_ptr.* = .{ .Variable = .{ .name = func_name_copy } };
 
-    // For built-in functions like 'print', we need to create a Variable expression
-    func_expr_ptr.* = .{ .Variable = .{ .name = func_name_copy } }; // Transfer ownership
-    debug.log("parseCall: assigned function variable expression", .{});
-
-    debug.log("parseCall: creating final result with {} args", .{args.items.len});
-
-    // Use the ArrayList directly instead of converting to slice
-    const result = ParseResult{
-        .node = .{ .Expression = .{ .FuncCall = .{ .func = func_expr_ptr, .args = args } } }, // Transfer ownership
-        .consumed = current_pos + 1 - start_pos, // Relative consumed count from start_pos
+    // ArrayList ownership transferred to FuncCall node
+    return ParseResult{
+        .node = .{ .Expression = .{ .FuncCall = .{ .func = func_expr_ptr, .args = args_list } } },
+        .consumed = current_pos, // Total consumed tokens
     };
-    debug.log("parseCall: function call parsed successfully", .{});
-    return result;
 }

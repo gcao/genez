@@ -4,6 +4,7 @@ const debug = @import("debug.zig");
 
 pub const BuiltinOperatorType = enum {
     Eq,
+    Add,
 };
 
 pub const Value = union(enum) {
@@ -202,7 +203,7 @@ pub const Type = union(enum) {
                 for (func.params) |param| {
                     const i = std.mem.indexOfScalar(func.params, param) orelse continue;
                     if (i > 0) try writer.writeAll(", ");
-                    try writer.print("{}: {}", .{ param.name, param.type });
+                    try writer.print("{s}: {}", .{ param.name, param.type });
                 }
                 try writer.print(") -> {}", .{func.return_type});
             },

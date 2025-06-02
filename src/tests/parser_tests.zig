@@ -8,10 +8,11 @@ test "parse string literal" {
     const allocator = std.testing.allocator;
 
     const source = "(print \"hello\")";
-    var parse_result = try parser.parseGeneSource(allocator, source);
+    const parse_result = try parser.parseGeneSource(allocator, source);
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
@@ -39,10 +40,11 @@ test "parse integer literal" {
     const allocator = std.testing.allocator;
 
     const source = "(print 42)";
-    var parse_result = try parser.parseGeneSource(allocator, source);
+    const parse_result = try parser.parseGeneSource(allocator, source);
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
@@ -70,10 +72,11 @@ test "parse binary operation" {
     const allocator = std.testing.allocator;
 
     const source = "(print (+ 1 2))";
-    var parse_result = try parser.parseGeneSource(allocator, source);
+    const parse_result = try parser.parseGeneSource(allocator, source);
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
@@ -111,10 +114,11 @@ test "parse infix notation" {
     const allocator = std.testing.allocator;
 
     const source = "(print (1 + 2))";
-    var parse_result = try parser.parseGeneSource(allocator, source);
+    const parse_result = try parser.parseGeneSource(allocator, source);
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
@@ -150,10 +154,11 @@ test "parse function definition" {
     const allocator = std.testing.allocator;
 
     const source = "(fn fib [n int]\n  (if (n < 2)\n    n\n  else\n    ((fib (n - 1)) + (fib (n - 2)))\n  )\n)";
-    var parse_result = try parser.parseGeneSource(allocator, source);
+    const parse_result = try parser.parseGeneSource(allocator, source);
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
@@ -179,10 +184,11 @@ test "parse fibonacci example" {
         \\(var i = 10)
         \\(print "(fib " i ") = " (fib i))
     ;
-    var parse_result = try parser.parseGeneSource(allocator, source);
+    const parse_result = try parser.parseGeneSource(allocator, source);
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     // Expecting 3 top-level nodes: fn definition, var declaration, print expression

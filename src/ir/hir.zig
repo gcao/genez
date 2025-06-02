@@ -31,12 +31,14 @@ pub const HIR = struct {
 
     pub const Function = struct {
         name: []const u8,
+        params: []FuncParam, // Added params field
         body: std.ArrayList(Statement),
         allocator: std.mem.Allocator,
 
         pub fn init(allocator: std.mem.Allocator) Function {
             return Function{
                 .name = "main",
+                .params = &[_]FuncParam{}, // Initialize as an empty slice
                 .body = std.ArrayList(Statement).init(allocator),
                 .allocator = allocator,
             };
@@ -44,6 +46,10 @@ pub const HIR = struct {
 
         pub fn deinit(self: *Function) void {
             self.allocator.free(self.name);
+            for (self.params) |*param| {
+                param.deinit(self.allocator);
+            }
+            self.allocator.free(self.params); // Free the slice itself
             for (self.body.items) |*stmt| {
                 stmt.deinit(self.allocator);
             }
@@ -68,7 +74,11 @@ pub const HIR = struct {
         if_expr: If,
         func_call: FuncCall,
         func_def: FuncDef,
+        function: *Function, // Changed to mutable pointer
         var_decl: VarDecl,
+        array_literal: ArrayLiteral, // New
+        map_literal: MapLiteral, // New
+        do_block: DoBlock, // New
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -79,7 +89,61 @@ pub const HIR = struct {
                 .func_call => |*func_call| func_call.deinit(allocator),
                 .func_def => |*func_def| func_def.deinit(allocator),
                 .var_decl => |*var_decl| var_decl.deinit(allocator),
+                .array_literal => |*arr_lit| arr_lit.deinit(allocator), // New
+                .map_literal => |*map_lit| map_lit.deinit(allocator), // New
+                .do_block => |*do_block| do_block.deinit(allocator), // New
+                .function => |*func_ptr| { // Changed to func_ptr
+                    func_ptr.*.deinit(); // Dereference before calling deinit
+                    allocator.destroy(func_ptr);
+                },
             }
+        }
+    };
+
+    pub const ArrayLiteral = struct {
+        elements: []*Expression,
+
+        pub fn deinit(self: *ArrayLiteral, allocator: std.mem.Allocator) void {
+            for (self.elements) |element_ptr| {
+                element_ptr.deinit(allocator);
+                allocator.destroy(element_ptr);
+            }
+            allocator.free(self.elements);
+        }
+    };
+
+    pub const MapEntry = struct {
+        key: *Expression,
+        value: *Expression,
+
+        pub fn deinit(self: *MapEntry, allocator: std.mem.Allocator) void {
+            self.key.deinit(allocator);
+            allocator.destroy(self.key);
+            self.value.deinit(allocator);
+            allocator.destroy(self.value);
+        }
+    };
+
+    pub const MapLiteral = struct {
+        entries: []MapEntry,
+
+        pub fn deinit(self: *MapLiteral, allocator: std.mem.Allocator) void {
+            for (self.entries) |*entry| {
+                entry.deinit(allocator);
+            }
+            allocator.free(self.entries);
+        }
+    };
+
+    pub const DoBlock = struct {
+        statements: []*Expression,
+
+        pub fn deinit(self: *DoBlock, allocator: std.mem.Allocator) void {
+            for (self.statements) |stmt_ptr| {
+                stmt_ptr.deinit(allocator);
+                allocator.destroy(stmt_ptr);
+            }
+            allocator.free(self.statements);
         }
     };
 
@@ -90,18 +154,26 @@ pub const HIR = struct {
         float: f64,
         string: []const u8,
         symbol: []const u8,
-        array: []ast.Value,
-        map: std.StringHashMap(ast.Value),
+        array: []*Expression, // Changed to []*Expression
+        map: std.StringHashMap(*Expression), // Changed to StringHashMap(*Expression)
 
         pub fn deinit(self: *Literal, allocator: std.mem.Allocator) void {
             switch (self.*) {
                 .string => |str| allocator.free(str),
                 .symbol => |sym| allocator.free(sym),
-                .array => |arr| allocator.free(arr),
+                .array => |arr| {
+                    for (arr) |element_ptr| {
+                        element_ptr.deinit(allocator);
+                        allocator.destroy(element_ptr);
+                    }
+                    allocator.free(arr);
+                },
                 .map => |*map| {
                     var it = map.iterator();
                     while (it.next()) |entry| {
-                        allocator.free(entry.key_ptr.*);
+                        allocator.free(entry.key_ptr.*); // Free key string
+                        entry.value_ptr.*.deinit(allocator); // Deinit value expression
+                        allocator.destroy(entry.value_ptr); // Destroy value expression pointer
                     }
                     map.deinit();
                 },
@@ -137,7 +209,9 @@ pub const HIR = struct {
         lt,
         gt, // Added greater than
         eq, // Added equals
-        // TODO: Add neq, lte, gte, mul, div etc.
+        mul,
+        div,
+        // TODO: Add neq, lte, gte etc.
     };
 
     pub const If = struct {

@@ -50,6 +50,19 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
         }
     }
 
+    // Add a return instruction at the end of the main function if not present
+    const needs_return = if (main_func.instructions.items.len == 0) true else switch (main_func.instructions.items[main_func.instructions.items.len - 1].op) {
+        .Return => false,
+        else => true,
+    };
+
+    if (needs_return) {
+        try main_func.instructions.append(.{
+            .op = bytecode.OpCode.Return,
+            .operand = null,
+        });
+    }
+
     return ConversionResult{
         .main_func = main_func,
         .created_functions = created_functions,
@@ -58,7 +71,7 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
 }
 
 fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, created_functions: *std.ArrayList(*bytecode.Function)) !void {
-    std.debug.print("[MIR->BC] Converting instruction: {s} to function with {} instructions\n", .{ @tagName(instr.*), func.instructions.items.len });
+    std.debug.print("[MIR->BC] Converting instruction: {s} to function with {d} instructions\n", .{ @tagName(instr.*), func.instructions.items.len });
     switch (instr.*) {
         .LoadInt => |val| try func.instructions.append(.{
             .op = bytecode.OpCode.LoadConst,
@@ -122,7 +135,7 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, cre
             errdefer func.allocator.free(name_copy); // Free if append fails
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadVar,
-                .operand = types.Value{ .Symbol = name_copy },
+                .operand = types.Value{ .String = name_copy },
             });
             // No need to clear MIR instr if we're duplicating
             // instr.* = .LoadNil; // REMOVED
@@ -134,12 +147,48 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, cre
                 .operand = types.Value{ .Int = @as(i64, @intCast(param_index)) },
             });
         },
-        .Add => try func.instructions.append(.{
-            .op = bytecode.OpCode.Add,
+        .Add => {
+            // Binary operations in Gene are function calls, so we need to:
+            // 1. Load the operator as a variable
+            // 2. Load the operands
+            // 3. Call the function with the operands
+
+            const op_copy = try func.allocator.dupe(u8, "+");
+            errdefer func.allocator.free(op_copy);
+
+            // Load the operator
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.LoadVar,
+                .operand = types.Value{ .String = op_copy },
+            });
+
+            // Operands should already be on stack from previous instructions
+            // Just need to add the Call instruction
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Call,
+                .operand = types.Value{ .Int = 2 }, // 2 args
+            });
+        },
+        .Sub => {
+            const op_copy = try func.allocator.dupe(u8, "-");
+            errdefer func.allocator.free(op_copy);
+
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.LoadVar,
+                .operand = types.Value{ .String = op_copy },
+            });
+
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Call,
+                .operand = types.Value{ .Int = 2 }, // 2 args
+            });
+        },
+        .Mul => try func.instructions.append(.{
+            .op = bytecode.OpCode.Mul,
             .operand = null,
         }),
-        .Sub => try func.instructions.append(.{
-            .op = bytecode.OpCode.Sub,
+        .Div => try func.instructions.append(.{
+            .op = bytecode.OpCode.Div,
             .operand = null,
         }),
         .LessThan => try func.instructions.append(.{
@@ -176,6 +225,7 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, cre
         }),
         .LoadFunction => |func_ptr| {
             // Create a proper function object and convert the MIR function body to bytecode
+            std.debug.print("[MIR->BC] LoadFunction: name={s}, param_count={}\n", .{ func_ptr.name, func_ptr.param_count });
             const new_func = try func.allocator.create(bytecode.Function);
             new_func.* = bytecode.Function{
                 .instructions = std.ArrayList(bytecode.Instruction).init(func.allocator),

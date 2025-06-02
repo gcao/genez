@@ -4,6 +4,9 @@ const bytecode = @import("../backend/bytecode.zig");
 const vm = @import("../backend/vm.zig");
 const types = @import("../core/types.zig");
 const testing = std.testing;
+const ast_to_hir = @import("../transforms/ast_to_hir.zig");
+const hir_to_mir = @import("../transforms/hir_to_mir.zig");
+const mir_to_bytecode = @import("../transforms/mir_to_bytecode.zig");
 
 fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -11,15 +14,29 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     const allocator = arena.allocator();
 
     // Parse the source code
-    var parse_result = try parser.parseGeneSource(allocator, source);
+    const parse_result = try parser.parseGeneSource(allocator, source);
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
-    // Lower to bytecode
+    // Use the proper compilation pipeline
     const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
-    const func = try bytecode.lowerToBytecode(allocator, ast_nodes);
+
+    // Convert AST to HIR
+    var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
+    defer hir_module.deinit();
+
+    // Convert HIR to MIR
+    var mir_module = try hir_to_mir.convert(allocator, hir_module);
+    defer mir_module.deinit();
+
+    // Convert MIR to bytecode
+    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module);
+    defer conversion_result.deinit();
+
+    const func = conversion_result.main_func;
 
     // Print the bytecode for debugging
     std.debug.print("\nBytecode for source: {s}\n", .{source});
@@ -40,7 +57,8 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     defer gene_vm.deinit();
 
     // Execute the function
-    try gene_vm.execute(&func);
+    var func_copy = func;
+    try gene_vm.execute(&func_copy);
 
     // Verify the result
     try testing.expect(gene_vm.stack.items.len == 1);
@@ -77,6 +95,12 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
         .Float => |exp_float| {
             try testing.expectEqual(exp_float, result.Float);
         },
+        .Array => |exp_array| {
+            // For now, just expect that it's an array.
+            // Deep comparison of arrays is not yet implemented.
+            _ = exp_array; // Suppress unused variable warning
+            try testing.expect(result == .Array);
+        },
         else => unreachable,
     }
 }
@@ -95,4 +119,35 @@ test "execute binary operation" {
 
 test "execute infix notation" {
     try testGeneExecution("(1 + 2)", .{ .Int = 3 });
+}
+
+test "execute array literal" {
+    // Only check type for now, as deep array comparison may not be implemented
+    try testGeneExecution("[1 2 3]", .{ .Array = undefined });
+}
+
+test "execute map literal" {
+    // Only check type for now, as deep map comparison may not be implemented
+    try testGeneExecution("{^a 1 ^b 2}", .{ .Map = undefined });
+}
+
+test "execute variable assignment and access" {
+    try testGeneExecution("(do (var x = 5) x)", .{ .Int = 5 });
+}
+
+test "execute function definition and call" {
+    try testGeneExecution("(do (fn add [a b] (+ a b)) (add 2 3))", .{ .Int = 5 });
+}
+
+test "execute if control flow true branch" {
+    try testGeneExecution("(if true 1 2)", .{ .Int = 1 });
+}
+
+test "execute if control flow false branch" {
+    try testGeneExecution("(if false 1 2)", .{ .Int = 2 });
+}
+
+test "execute class/object creation and method call" {
+    // Only check type for now, as object comparison may not be implemented
+    try testGeneExecution("(do (class Point (.ctor [x y] (/x = x) (/y = y)) (.fn get_x _ /x)) (var p (new Point 10 20)) (p .get_x))", .{ .Int = 10 });
 }

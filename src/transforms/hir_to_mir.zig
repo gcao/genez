@@ -22,6 +22,14 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
     allocator.free(mir_func.name);
     mir_func.name = try allocator.dupe(u8, func.name);
 
+    // Set parameter count and names
+    std.debug.print("[HIR->MIR] convertFunction: name={s}, params.len={}\n", .{ func.name, func.params.len });
+    mir_func.param_count = func.params.len;
+    for (func.params) |param| {
+        const param_name = try allocator.dupe(u8, param.name);
+        try mir_func.param_names.append(param_name);
+    }
+
     // Create entry block
     var entry_block = mir.MIR.Block.init(allocator);
 
@@ -71,7 +79,39 @@ fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
     try convertExpressionWithContext(block, expr, empty_context);
 }
 
-fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression, context: ConversionContext) !void {
+fn hirLiteralToValue(allocator: std.mem.Allocator, hir_expr: hir.HIR.Expression) !types.Value {
+    return switch (hir_expr) {
+        .literal => |lit| switch (lit) {
+            .int => |val| types.Value{ .Int = val },
+            .string => |val| types.Value{ .String = try allocator.dupe(u8, val) },
+            .bool => |val| types.Value{ .Bool = val },
+            .float => |val| types.Value{ .Float = val },
+            .nil => types.Value{ .Nil = {} },
+            .symbol => |val| types.Value{ .Symbol = try allocator.dupe(u8, val) },
+            .array => |_| {
+                // Nested arrays within a LoadArray instruction are not directly supported.
+                // This would require a more complex representation or separate instructions.
+                std.debug.print("Nested arrays in hirLiteralToValue are not supported for direct MIR LoadArray conversion.\n", .{});
+                return error.UnsupportedExpression;
+            },
+            .map => |_| {
+                // Maps within a LoadArray instruction are not directly supported.
+                std.debug.print("Maps in hirLiteralToValue are not supported for direct MIR LoadArray conversion.\n", .{});
+                return error.UnsupportedExpression;
+            },
+        },
+        else => {
+            // If it's not a literal, it cannot be part of a MIR LoadArray/LoadMap directly.
+            // This indicates an issue, as LoadArray/LoadMap expect constant values.
+            // A prior compilation stage should have handled complex expressions or
+            // a different MIR instruction sequence should be generated.
+            std.debug.print("Unexpected non-literal expression type ('{s}') encountered in hirLiteralToValue. LoadArray/LoadMap expect constant values.\n", .{@tagName(hir_expr)});
+            @panic("Cannot convert non-literal HIR expression to constant MIR Value for LoadArray/LoadMap.");
+        },
+    };
+}
+
+fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression, context: ConversionContext) anyerror!void {
     switch (expr) {
         .literal => |lit| switch (lit) {
             .int => |val| {
@@ -83,20 +123,43 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             .float => |val| try block.instructions.append(.{ .LoadFloat = val }),
             .nil => try block.instructions.append(.LoadNil),
             .symbol => |val| try block.instructions.append(.{ .LoadSymbol = try block.allocator.dupe(u8, val) }),
-            .array => |val| {
-                var new_array = try block.allocator.alloc(types.Value, val.len);
-                for (val, 0..) |item, i| {
-                    new_array[i] = item;
+            .array => |hir_array_elements| { // hir_array_elements is []*hir.HIR.Expression
+                var mir_value_array = try block.allocator.alloc(types.Value, hir_array_elements.len);
+                errdefer block.allocator.free(mir_value_array);
+
+                for (hir_array_elements, 0..) |hir_expr_ptr, i| {
+                    // Each element must be convertible to a constant types.Value
+                    // hirLiteralToValue will panic if hir_expr_ptr.* is not a literal
+                    mir_value_array[i] = try hirLiteralToValue(block.allocator, hir_expr_ptr.*);
+                    // Ensure deinit for values created by hirLiteralToValue if subsequent conversion fails
+                    errdefer mir_value_array[i].deinit(block.allocator);
                 }
-                try block.instructions.append(.{ .LoadArray = new_array });
+                try block.instructions.append(.{ .LoadArray = mir_value_array });
             },
-            .map => |val| {
-                var new_map = std.StringHashMap(types.Value).init(block.allocator);
-                var it = val.iterator();
-                while (it.next()) |entry| {
-                    try new_map.put(try block.allocator.dupe(u8, entry.key_ptr.*), entry.value_ptr.*);
+            .map => |hir_map| { // hir_map is std.StringHashMap(*hir.HIR.Expression)
+                var mir_value_map = std.StringHashMap(types.Value).init(block.allocator);
+                errdefer { // Deinit map and its contents if an error occurs
+                    var it = mir_value_map.iterator();
+                    while (it.next()) |entry| {
+                        block.allocator.free(entry.key_ptr.*); // key is []const u8, dupe'd
+                        entry.value_ptr.deinit(block.allocator); // value is types.Value
+                    }
+                    mir_value_map.deinit();
                 }
-                try block.instructions.append(.{ .LoadMap = new_map });
+
+                var hir_map_iter = hir_map.iterator();
+                while (hir_map_iter.next()) |hir_entry| {
+                    const key_str = try block.allocator.dupe(u8, hir_entry.key_ptr.*);
+                    errdefer block.allocator.free(key_str);
+
+                    // Each value must be convertible to a constant types.Value
+                    // hirLiteralToValue will panic if hir_entry.value_ptr.*.* is not a literal
+                    var mir_value = try hirLiteralToValue(block.allocator, hir_entry.value_ptr.*.*); // Dereference the pointer
+                    errdefer (&mir_value).deinit(block.allocator); // Pass pointer to local mir_value
+
+                    try mir_value_map.put(key_str, mir_value);
+                }
+                try block.instructions.append(.{ .LoadMap = mir_value_map });
             },
         },
         .binary_op => |bin_op| {
@@ -117,6 +180,8 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 },
                 .gt => try block.instructions.append(.GreaterThan), // Added GreaterThan
                 .eq => try block.instructions.append(.Equal), // Added Equal
+                .mul => try block.instructions.append(.Mul),
+                .div => try block.instructions.append(.Div),
                 // TODO: Add other MIR binary instructions
             }
         },
@@ -230,6 +295,28 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             const name_copy = try block.allocator.dupe(u8, func_def.name);
             try block.instructions.append(.{ .StoreVariable = name_copy });
         },
+        .function => |hir_func_ptr| {
+            // When a function is encountered as an expression, it needs to be converted to MIR
+            // and then loaded as a function object.
+            std.debug.print("[HIR->MIR] Converting HIR Function to MIR Function (as expression): {s}\n", .{hir_func_ptr.*.name});
+            var mir_func = convertFunction(block.allocator, hir_func_ptr.*) catch |err| {
+                std.debug.print("Error converting function: {}\n", .{err});
+                return err;
+            };
+            errdefer mir_func.deinit();
+
+            // Create a function object with the converted MIR code
+            const mir_func_obj = try block.allocator.create(mir.MIR.Function);
+            errdefer block.allocator.destroy(mir_func_obj);
+            mir_func_obj.* = mir_func;
+
+            // Load the MIR function object as a constant
+            try block.instructions.append(.{ .LoadFunction = mir_func_obj });
+
+            // Store the function with its name so it can be called later
+            const name_copy = try block.allocator.dupe(u8, hir_func_ptr.*.name);
+            try block.instructions.append(.{ .StoreVariable = name_copy });
+        },
         .var_decl => |var_decl| {
             // Evaluate the variable's value
             try convertExpressionWithContext(block, var_decl.value.*, context);
@@ -237,6 +324,20 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Store it in a variable
             const name_copy = try block.allocator.dupe(u8, var_decl.name);
             try block.instructions.append(.{ .StoreVariable = name_copy });
+        },
+        .array_literal => |_| {
+            // TODO: Implement MIR lowering for array literals
+            return error.NotImplemented;
+        },
+        .map_literal => |_| {
+            // TODO: Implement MIR lowering for map literals
+            return error.NotImplemented;
+        },
+        .do_block => |do_block| {
+            // Process each statement in the do block
+            for (do_block.statements) |stmt| {
+                try convertExpressionWithContext(block, stmt.*, context);
+            }
         },
     }
 }

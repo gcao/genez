@@ -13,6 +13,8 @@ pub const OpCode = enum {
     StoreGlobal, // Added for global variable storage
     Add,
     Sub,
+    Mul,
+    Div,
     Lt,
     Gt, // Added GreaterThan opcode
     Eq, // Added Equal opcode
@@ -21,6 +23,8 @@ pub const OpCode = enum {
     Call,
     Jump, // Unconditional jump
     JumpIfFalse, // Conditional jump if top of stack is false
+    Array, // New: for array literals
+    Map, // New: for map literals
 };
 
 pub const Instruction = struct {
@@ -509,11 +513,8 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             // For now, just evaluate the then branch
             try lowerExpression(allocator, instructions, if_expr.then_branch.*);
 
-            // If there's an else branch, we would handle it here
-            if (if_expr.else_branch) |else_branch| {
-                _ = else_branch; // Avoid unused variable warning
-                // In a real implementation, this would generate code for the else branch
-            }
+            // Lower the else branch (no longer optional)
+            try lowerExpression(allocator, instructions, if_expr.else_branch.*);
         },
         .FuncCall => |func_call| {
             debug.log("lowerExpression: Processing function call", .{});
@@ -576,7 +577,12 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
 
             // Create a new bytecode function object
             var func_instructions = std.ArrayList(Instruction).init(allocator);
-            // Don't defer deinit here, as we'll transfer ownership to the function object
+            errdefer {
+                for (func_instructions.items) |*instr| {
+                    instr.deinit(allocator);
+                }
+                func_instructions.deinit();
+            }
 
             // Generate bytecode for the function body
             debug.log("lowerExpression: Generating bytecode for function body", .{});
@@ -587,17 +593,19 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             try func_instructions.append(.{ .op = .Return });
             debug.log("lowerExpression: Added return instruction to function", .{});
 
-            // Skip function definition for now to avoid the bus error
-            const func_value = types.Value{ .Int = 42 };
-            debug.log("lowerExpression: Skipping function definition, using Int value instead", .{});
+            // Create the function object
+            const func_obj = try allocator.create(Function);
+            errdefer allocator.destroy(func_obj);
+            func_obj.* = Function{
+                .instructions = func_instructions,
+                .allocator = allocator,
+                .name = try allocator.dupe(u8, func_def.name),
+                .param_count = func_def.params.len,
+            };
 
-            // Clean up the function instructions since we're not using them
-            for (func_instructions.items) |*instr| {
-                if (instr.operand != null) {
-                    instr.operand.?.deinit(allocator);
-                }
-            }
-            func_instructions.deinit();
+            // Create the function value
+            const func_value = types.Value{ .Function = func_obj };
+            debug.log("lowerExpression: Created function object for {s}", .{func_def.name});
 
             // First load the function value onto the stack
             try instructions.append(.{
@@ -611,12 +619,12 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
                 .op = .StoreVar,
                 .operand = .{ .String = try allocator.dupe(u8, func_def.name) },
             });
-            debug.log("lowerExpression: Stored function {s} as Int value", .{func_def.name});
+            debug.log("lowerExpression: Stored function {s} as Function value", .{func_def.name});
 
             // Load the function value again for global storage
             try instructions.append(.{
                 .op = .LoadConst,
-                .operand = try func_value.clone(allocator),
+                .operand = types.Value{ .Function = func_obj },
             });
 
             // Store the function in a variable with its name
@@ -639,6 +647,36 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
                     .String = try allocator.dupe(u8, var_decl.name),
                 },
             });
+        },
+        .ArrayLiteral => |arr_lit| {
+            debug.log("lowerExpression: Processing ArrayLiteral", .{});
+            for (arr_lit.elements) |element_ptr| {
+                try lowerExpression(allocator, instructions, element_ptr.*);
+            }
+            try instructions.append(.{
+                .op = .Array,
+                .operand = .{ .Int = @intCast(arr_lit.elements.len) },
+            });
+            debug.log("lowerExpression: Array instruction added with {} elements", .{arr_lit.elements.len});
+        },
+        .MapLiteral => |map_lit| {
+            debug.log("lowerExpression: Processing MapLiteral", .{});
+            for (map_lit.entries) |entry| {
+                try lowerExpression(allocator, instructions, entry.key.*);
+                try lowerExpression(allocator, instructions, entry.value.*);
+            }
+            try instructions.append(.{
+                .op = .Map,
+                .operand = .{ .Int = @intCast(map_lit.entries.len) },
+            });
+            debug.log("lowerExpression: Map instruction added with {} entries", .{map_lit.entries.len});
+        },
+        .DoBlock => |do_block| {
+            debug.log("lowerExpression: Processing DoBlock", .{});
+            for (do_block.statements) |stmt_ptr| {
+                try lowerExpression(allocator, instructions, stmt_ptr.*);
+            }
+            debug.log("lowerExpression: DoBlock statements processed", .{});
         },
     }
 }

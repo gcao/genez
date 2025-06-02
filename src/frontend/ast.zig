@@ -170,7 +170,7 @@ pub const FuncCall = struct {
 pub const If = struct {
     condition: *Expression,
     then_branch: *Expression,
-    else_branch: ?*Expression,
+    else_branch: *Expression, // Made mandatory
 
     pub fn deinit(self: *If, allocator: std.mem.Allocator) void {
         // Restore recursive deinit
@@ -178,10 +178,8 @@ pub const If = struct {
         allocator.destroy(self.condition);
         self.then_branch.deinit(allocator);
         allocator.destroy(self.then_branch);
-        if (self.else_branch) |else_branch| {
-            else_branch.deinit(allocator);
-            allocator.destroy(else_branch);
-        }
+        self.else_branch.deinit(allocator); // No longer optional
+        allocator.destroy(self.else_branch);
     }
 
     pub fn clone(self: If, allocator: std.mem.Allocator) error{OutOfMemory}!If {
@@ -193,12 +191,9 @@ pub const If = struct {
         errdefer allocator.destroy(then_branch);
         then_branch.* = try self.then_branch.clone(allocator);
 
-        var else_branch: ?*Expression = null;
-        if (self.else_branch) |old_else_branch| {
-            else_branch = try allocator.create(Expression);
-            errdefer allocator.destroy(else_branch.?);
-            else_branch.?.* = try old_else_branch.clone(allocator);
-        }
+        const else_branch = try allocator.create(Expression); // No longer optional
+        errdefer allocator.destroy(else_branch);
+        else_branch.* = try self.else_branch.clone(allocator);
 
         return If{
             .condition = condition,
@@ -289,6 +284,104 @@ pub const VarDecl = struct {
     }
 };
 
+pub const ArrayLiteral = struct {
+    elements: []*Expression,
+
+    pub fn deinit(self: *ArrayLiteral, allocator: std.mem.Allocator) void {
+        for (self.elements) |element_ptr| {
+            element_ptr.deinit(allocator);
+            allocator.destroy(element_ptr);
+        }
+        allocator.free(self.elements);
+    }
+
+    pub fn clone(self: ArrayLiteral, allocator: std.mem.Allocator) error{OutOfMemory}!ArrayLiteral {
+        var new_elements = try allocator.alloc(*Expression, self.elements.len);
+        errdefer allocator.free(new_elements);
+
+        for (self.elements, 0..) |element_ptr, i| {
+            const new_element_ptr = try allocator.create(Expression);
+            errdefer allocator.destroy(new_element_ptr);
+            new_element_ptr.* = try element_ptr.clone(allocator);
+            new_elements[i] = new_element_ptr;
+        }
+
+        return ArrayLiteral{ .elements = new_elements };
+    }
+};
+
+pub const MapEntry = struct {
+    key: *Expression,
+    value: *Expression,
+
+    pub fn deinit(self: *MapEntry, allocator: std.mem.Allocator) void {
+        self.key.deinit(allocator);
+        allocator.destroy(self.key);
+        self.value.deinit(allocator);
+        allocator.destroy(self.value);
+    }
+
+    pub fn clone(self: MapEntry, allocator: std.mem.Allocator) error{OutOfMemory}!MapEntry {
+        const new_key = try allocator.create(Expression);
+        errdefer allocator.destroy(new_key);
+        new_key.* = try self.key.clone(allocator);
+
+        const new_value = try allocator.create(Expression);
+        errdefer allocator.destroy(new_value);
+        new_value.* = try self.value.clone(allocator);
+
+        return MapEntry{ .key = new_key, .value = new_value };
+    }
+};
+
+pub const MapLiteral = struct {
+    entries: []MapEntry,
+
+    pub fn deinit(self: *MapLiteral, allocator: std.mem.Allocator) void {
+        for (self.entries) |*entry| {
+            entry.deinit(allocator);
+        }
+        allocator.free(self.entries);
+    }
+
+    pub fn clone(self: MapLiteral, allocator: std.mem.Allocator) error{OutOfMemory}!MapLiteral {
+        var new_entries = try allocator.alloc(MapEntry, self.entries.len);
+        errdefer allocator.free(new_entries);
+
+        for (self.entries, 0..) |entry, i| {
+            new_entries[i] = try entry.clone(allocator);
+        }
+
+        return MapLiteral{ .entries = new_entries };
+    }
+};
+
+pub const DoBlock = struct {
+    statements: []*Expression,
+
+    pub fn deinit(self: *DoBlock, allocator: std.mem.Allocator) void {
+        for (self.statements) |stmt_ptr| {
+            stmt_ptr.deinit(allocator);
+            allocator.destroy(stmt_ptr);
+        }
+        allocator.free(self.statements);
+    }
+
+    pub fn clone(self: DoBlock, allocator: std.mem.Allocator) error{OutOfMemory}!DoBlock {
+        var new_statements = try allocator.alloc(*Expression, self.statements.len);
+        errdefer allocator.free(new_statements);
+
+        for (self.statements, 0..) |stmt_ptr, i| {
+            const new_stmt_ptr = try allocator.create(Expression);
+            errdefer allocator.destroy(new_stmt_ptr);
+            new_stmt_ptr.* = try stmt_ptr.clone(allocator);
+            new_statements[i] = new_stmt_ptr;
+        }
+
+        return DoBlock{ .statements = new_statements };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
@@ -298,6 +391,9 @@ pub const Expression = union(enum) {
     FuncDef: FuncDef,
     VarDecl: VarDecl,
     SimpleFuncDef: SimpleFuncDef,
+    ArrayLiteral: ArrayLiteral, // New
+    MapLiteral: MapLiteral, // New
+    DoBlock: DoBlock, // New
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -309,6 +405,9 @@ pub const Expression = union(enum) {
             .FuncDef => |*func_def| func_def.deinit(allocator),
             .VarDecl => |*var_decl| var_decl.deinit(allocator),
             .SimpleFuncDef => |*func_def| func_def.deinit(allocator),
+            .ArrayLiteral => |*arr_lit| arr_lit.deinit(allocator), // New
+            .MapLiteral => |*map_lit| map_lit.deinit(allocator), // New
+            .DoBlock => |*do_block| do_block.deinit(allocator), // New
         }
     }
 
@@ -322,6 +421,9 @@ pub const Expression = union(enum) {
             .FuncDef => |func_def| Expression{ .FuncDef = try func_def.clone(allocator) },
             .VarDecl => |var_decl| Expression{ .VarDecl = try var_decl.clone(allocator) },
             .SimpleFuncDef => |func_def| Expression{ .SimpleFuncDef = try func_def.clone(allocator) },
+            .ArrayLiteral => |arr_lit| Expression{ .ArrayLiteral = try arr_lit.clone(allocator) }, // New
+            .MapLiteral => |map_lit| Expression{ .MapLiteral = try map_lit.clone(allocator) }, // New
+            .DoBlock => |do_block| Expression{ .DoBlock = try do_block.clone(allocator) }, // New
         };
     }
 };

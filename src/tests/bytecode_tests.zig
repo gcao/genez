@@ -18,6 +18,7 @@ test "compile simple expression to bytecode" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     // Lower to HIR
@@ -37,8 +38,8 @@ test "compile simple expression to bytecode" {
     // conversion_result.main_func is a Function
     const main_func = conversion_result.main_func;
 
-    // Check that we have the expected instructions
-    try std.testing.expectEqual(@as(usize, 3), main_func.instructions.items.len);
+    // Check that we have the expected instructions (including Return)
+    try std.testing.expectEqual(@as(usize, 4), main_func.instructions.items.len);
 
     // First instruction should be LoadVar for "print"
     try std.testing.expectEqual(bytecode.OpCode.LoadVar, main_func.instructions.items[0].op);
@@ -51,6 +52,9 @@ test "compile simple expression to bytecode" {
     // Third instruction should be Call with 1 argument
     try std.testing.expectEqual(bytecode.OpCode.Call, main_func.instructions.items[2].op);
     try std.testing.expectEqual(@as(i64, 1), main_func.instructions.items[2].operand.?.Int);
+
+    // Fourth instruction should be Return
+    try std.testing.expectEqual(bytecode.OpCode.Return, main_func.instructions.items[3].op);
 }
 
 test "compile binary operation to bytecode" {
@@ -62,6 +66,7 @@ test "compile binary operation to bytecode" {
     defer {
         // Clean up the arena after we're done with the AST
         parse_result.arena.deinit();
+        allocator.destroy(parse_result.arena);
     }
 
     // Lower to HIR
@@ -81,8 +86,8 @@ test "compile binary operation to bytecode" {
     // conversion_result.main_func is a Function
     const main_func = conversion_result.main_func;
 
-    // Check that we have the expected instructions
-    try std.testing.expectEqual(@as(usize, 4), main_func.instructions.items.len);
+    // Check that we have the expected instructions (including Return)
+    try std.testing.expectEqual(@as(usize, 5), main_func.instructions.items.len);
 
     // First instruction should be LoadVar for "+"
     try std.testing.expectEqual(bytecode.OpCode.LoadVar, main_func.instructions.items[0].op);
@@ -99,4 +104,7 @@ test "compile binary operation to bytecode" {
     // Fourth instruction should be Call with 2 arguments
     try std.testing.expectEqual(bytecode.OpCode.Call, main_func.instructions.items[3].op);
     try std.testing.expectEqual(@as(i64, 2), main_func.instructions.items[3].operand.?.Int);
+
+    // Fifth instruction should be Return
+    try std.testing.expectEqual(bytecode.OpCode.Return, main_func.instructions.items[4].op);
 }
