@@ -54,12 +54,8 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try serializeExpression(writer, if_expr.condition.*, indent + 1);
             try writer.writeAll(" ");
             try serializeExpression(writer, if_expr.then_branch.*, indent + 1);
-
-            if (if_expr.else_branch) |else_branch| {
-                try writer.writeAll(" ");
-                try serializeExpression(writer, else_branch.*, indent + 1);
-            }
-
+            try writer.writeAll(" ");
+            try serializeExpression(writer, if_expr.else_branch.*, indent + 1);
             try writer.writeAll(")");
         },
         .FuncDef => |func_def| {
@@ -84,6 +80,34 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
         },
         .SimpleFuncDef => |func_def| {
             try writer.print("(simple-fn \"{s}\" {d})", .{ func_def.getName(), func_def.body_literal });
+        },
+        .ArrayLiteral => |arr_lit| {
+            try writer.writeAll("(array ");
+            for (arr_lit.elements, 0..) |element, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try serializeExpression(writer, element.*, indent + 1);
+            }
+            try writer.writeAll(")");
+        },
+        .MapLiteral => |map_lit| {
+            try writer.writeAll("(map ");
+            for (map_lit.entries, 0..) |entry, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.writeAll("[");
+                try serializeExpression(writer, entry.key.*, indent + 1);
+                try writer.writeAll(" ");
+                try serializeExpression(writer, entry.value.*, indent + 1);
+                try writer.writeAll("]");
+            }
+            try writer.writeAll(")");
+        },
+        .DoBlock => |do_block| {
+            try writer.writeAll("(do ");
+            for (do_block.statements, 0..) |stmt, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try serializeExpression(writer, stmt.*, indent + 1);
+            }
+            try writer.writeAll(")");
         },
     }
 }

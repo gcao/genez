@@ -90,6 +90,12 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .Sub => {
             try writer.writeAll("sub");
         },
+        .Mul => {
+            try writer.writeAll("mul");
+        },
+        .Div => {
+            try writer.writeAll("div");
+        },
         .LessThan => {
             try writer.writeAll("less-than");
         },

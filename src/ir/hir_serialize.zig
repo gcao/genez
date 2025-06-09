@@ -35,7 +35,7 @@ pub fn serializeModule(writer: anytype, module: hir.HIR, indent: usize) !void {
 }
 
 /// Serialize an HIR statement to Gene format
-fn serializeStatement(writer: anytype, stmt: hir.HIR.Statement, indent: usize) !void {
+fn serializeStatement(writer: anytype, stmt: hir.HIR.Statement, indent: usize) anyerror!void {
     switch (stmt) {
         .Expression => |expr| {
             try serializeExpression(writer, expr, indent);
@@ -44,7 +44,7 @@ fn serializeStatement(writer: anytype, stmt: hir.HIR.Statement, indent: usize) !
 }
 
 /// Serialize an HIR expression to Gene format
-fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize) !void {
+fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize) anyerror!void {
     switch (expr) {
         .literal => |lit| {
             try serializeHirLiteral(writer, lit);
@@ -102,6 +102,50 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
         .var_decl => |var_decl| {
             try writer.print("(var-decl \"{s}\" ", .{var_decl.name});
             try serializeExpression(writer, var_decl.value.*, indent + 1);
+            try writer.writeAll(")");
+        },
+        .function => |func| {
+            try writer.print("(fn \"{s}\" [", .{func.name});
+            for (func.params, 0..) |param, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.print("\"{s}\"", .{param.name});
+                if (param.param_type) |param_type| {
+                    try writer.print(" : \"{s}\"", .{param_type});
+                }
+            }
+            try writer.writeAll("] (do ");
+            for (func.body.items, 0..) |stmt, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try serializeStatement(writer, stmt, indent + 1);
+            }
+            try writer.writeAll("))");
+        },
+        .array_literal => |arr_lit| {
+            try writer.writeAll("(array ");
+            for (arr_lit.elements, 0..) |element, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try serializeExpression(writer, element.*, indent + 1);
+            }
+            try writer.writeAll(")");
+        },
+        .map_literal => |map_lit| {
+            try writer.writeAll("(map ");
+            for (map_lit.entries, 0..) |entry, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.writeAll("[");
+                try serializeExpression(writer, entry.key.*, indent + 1);
+                try writer.writeAll(" ");
+                try serializeExpression(writer, entry.value.*, indent + 1);
+                try writer.writeAll("]");
+            }
+            try writer.writeAll(")");
+        },
+        .do_block => |do_block| {
+            try writer.writeAll("(do ");
+            for (do_block.statements, 0..) |stmt, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try serializeExpression(writer, stmt.*, indent + 1);
+            }
             try writer.writeAll(")");
         },
     }
