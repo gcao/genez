@@ -15,7 +15,7 @@ test "parse string literal" {
         allocator.destroy(parse_result.arena);
     }
 
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
     const node = ast_nodes[0];
@@ -47,7 +47,7 @@ test "parse integer literal" {
         allocator.destroy(parse_result.arena);
     }
 
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
     const node = ast_nodes[0];
@@ -79,7 +79,7 @@ test "parse binary operation" {
         allocator.destroy(parse_result.arena);
     }
 
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
     const node = ast_nodes[0];
@@ -121,7 +121,7 @@ test "parse infix notation" {
         allocator.destroy(parse_result.arena);
     }
 
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
     const node = ast_nodes[0];
@@ -161,7 +161,7 @@ test "parse function definition" {
         allocator.destroy(parse_result.arena);
     }
 
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     try testing.expectEqual(@as(usize, 1), ast_nodes.len);
 
     const node = ast_nodes[0];
@@ -192,7 +192,7 @@ test "parse fibonacci example" {
     }
 
     // Expecting 3 top-level nodes: fn definition, var declaration, print expression
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     try testing.expectEqual(@as(usize, 3), ast_nodes.len);
 
     // TODO: Add more specific assertions about the parsed nodes if needed

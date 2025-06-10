@@ -22,7 +22,7 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     }
 
     // Use the proper compilation pipeline
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
 
     // Convert AST to HIR
     var hir_module = try ast_to_hir.convert(allocator, ast_nodes);

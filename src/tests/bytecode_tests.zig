@@ -22,7 +22,7 @@ test "compile simple expression to bytecode" {
     }
 
     // Lower to HIR
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
@@ -70,7 +70,7 @@ test "compile binary operation to bytecode" {
     }
 
     // Lower to HIR
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
