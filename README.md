@@ -16,6 +16,7 @@ Requires Zig 0.13.0 or later.
 zig build && zig-out/bin/gene run examples/default.gene
 zig build -Ddebug=true && zig-out/bin/gene run examples/default.gene
 zig build run -- run examples/default.gene
+zig build run -- eval "(print (1 + 2))"
 
 # Run tests
 zig build test
