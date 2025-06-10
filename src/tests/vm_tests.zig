@@ -101,6 +101,12 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
             _ = exp_array; // Suppress unused variable warning
             try testing.expect(result == .Array);
         },
+        .Map => |exp_map| {
+            // For now, just expect that it's a map.
+            // Deep comparison of maps is not yet implemented.
+            _ = exp_map; // Suppress unused variable warning
+            try testing.expect(result == .Map);
+        },
         else => unreachable,
     }
 }

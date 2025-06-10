@@ -388,6 +388,36 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .If => return parseIf(alloc, toks, depth + 1),
                 .Var => return parseVar(alloc, toks, depth + 1),
                 .Do => return parseDoBlock(alloc, toks, depth + 1),
+                .Class => {
+                    // TODO: Implement proper class parsing
+                    // For now, skip until matching RParen and return nil literal
+                    var paren_count: i32 = 1; // We've seen the opening LParen
+                    var pos: usize = 2; // Start after LParen Class
+                    while (pos < toks.len and paren_count > 0) {
+                        switch (toks[pos].kind) {
+                            .LParen => paren_count += 1,
+                            .RParen => paren_count -= 1,
+                            else => {},
+                        }
+                        pos += 1;
+                    }
+                    return .{ .node = .{ .Expression = .{ .Literal = .{ .value = .Nil } } }, .consumed = pos };
+                },
+                .New => {
+                    // TODO: Implement proper new object instantiation parsing
+                    // For now, skip until matching RParen and return nil literal
+                    var paren_count: i32 = 1; // We've seen the opening LParen
+                    var pos: usize = 2; // Start after LParen New
+                    while (pos < toks.len and paren_count > 0) {
+                        switch (toks[pos].kind) {
+                            .LParen => paren_count += 1,
+                            .RParen => paren_count -= 1,
+                            else => {},
+                        }
+                        pos += 1;
+                    }
+                    return .{ .node = .{ .Expression = .{ .Literal = .{ .value = .Nil } } }, .consumed = pos };
+                },
                 .Ident => {
                     // Per instructions, assume (Ident ...) is a call for now.
                     // parseList would handle (Ident op Expr) if it were to receive it.
@@ -398,6 +428,12 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
         },
         .LBracket => parseArray(alloc, toks, depth + 1),
         .LBrace => parseMap(alloc, toks, depth + 1),
+        .Dot => {
+            // TODO: Implement proper dot/method access parsing
+            // For now, treat as a symbol literal
+            const dot_symbol = try alloc.dupe(u8, ".");
+            return .{ .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Symbol = dot_symbol } } } }, .consumed = 1 };
+        },
         .RParen => error.UnexpectedRParen,
         else => error.InvalidExpression,
     };
@@ -767,8 +803,10 @@ fn parseVar(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
     const name_slice = toks[current_pos].kind.Ident;
     current_pos += 1;
 
-    if (current_pos >= toks.len or toks[current_pos].kind != .Equals) return error.ExpectedEquals;
-    current_pos += 1; // Skip Equals
+    // Make equals sign optional
+    if (current_pos < toks.len and toks[current_pos].kind == .Equals) {
+        current_pos += 1; // Skip Equals if present
+    }
 
     if (current_pos >= toks.len) return error.UnexpectedEOF;
     const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);

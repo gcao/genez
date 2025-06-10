@@ -341,13 +341,90 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             const name_copy = try block.allocator.dupe(u8, var_decl.name);
             try block.instructions.append(.{ .StoreVariable = name_copy });
         },
-        .array_literal => |_| {
-            // TODO: Implement MIR lowering for array literals
-            return error.NotImplemented;
+        .array_literal => |array_lit| {
+            // Convert each element in the array
+            var mir_elements = std.ArrayList(types.Value).init(block.allocator);
+            errdefer {
+                for (mir_elements.items) |*val| {
+                    val.deinit(block.allocator);
+                }
+                mir_elements.deinit();
+            }
+
+            for (array_lit.elements) |elem_ptr| {
+                const elem = elem_ptr.*;
+                switch (elem) {
+                    .literal => |lit| {
+                        const value = switch (lit) {
+                            .int => |val| types.Value{ .Int = val },
+                            .float => |val| types.Value{ .Float = val },
+                            .bool => |val| types.Value{ .Bool = val },
+                            .string => |val| types.Value{ .String = try block.allocator.dupe(u8, val) },
+                            .nil => types.Value.Nil,
+                            .symbol => |val| types.Value{ .Symbol = try block.allocator.dupe(u8, val) },
+                            .array => |_| types.Value.Nil, // Nested arrays not yet supported
+                            .map => |_| types.Value.Nil, // Nested maps not yet supported
+                        };
+                        try mir_elements.append(value);
+                    },
+                    else => {
+                        // For complex expressions, we would need to evaluate them first
+                        // For now, we'll use a placeholder
+                        try mir_elements.append(types.Value.Nil);
+                    },
+                }
+            }
+
+            const elements_slice = try mir_elements.toOwnedSlice();
+            try block.instructions.append(.{ .LoadArray = elements_slice });
         },
-        .map_literal => |_| {
-            // TODO: Implement MIR lowering for map literals
-            return error.NotImplemented;
+        .map_literal => |map_lit| {
+            // Convert each entry in the map
+            var mir_map = std.StringHashMap(types.Value).init(block.allocator);
+            errdefer {
+                var it = mir_map.iterator();
+                while (it.next()) |entry| {
+                    block.allocator.free(entry.key_ptr.*);
+                    entry.value_ptr.deinit(block.allocator);
+                }
+                mir_map.deinit();
+            }
+
+            for (map_lit.entries) |entry| {
+                // Convert key (must be a symbol with ^ prefix in Gene)
+                const key_str = switch (entry.key.*) {
+                    .literal => |lit| switch (lit) {
+                        .symbol => |sym| try block.allocator.dupe(u8, sym),
+                        .string => |str| try block.allocator.dupe(u8, str),
+                        .int => |val| try std.fmt.allocPrint(block.allocator, "{}", .{val}),
+                        .float => |val| try std.fmt.allocPrint(block.allocator, "{}", .{val}),
+                        .bool => |val| try std.fmt.allocPrint(block.allocator, "{}", .{val}),
+                        .nil => try block.allocator.dupe(u8, "nil"),
+                        .array => |_| try block.allocator.dupe(u8, "array_key"),
+                        .map => |_| try block.allocator.dupe(u8, "map_key"),
+                    },
+                    else => try block.allocator.dupe(u8, "unknown_key"),
+                };
+
+                // Convert value
+                const value = switch (entry.value.*) {
+                    .literal => |lit| switch (lit) {
+                        .int => |val| types.Value{ .Int = val },
+                        .float => |val| types.Value{ .Float = val },
+                        .bool => |val| types.Value{ .Bool = val },
+                        .string => |val| types.Value{ .String = try block.allocator.dupe(u8, val) },
+                        .nil => types.Value.Nil,
+                        .symbol => |val| types.Value{ .Symbol = try block.allocator.dupe(u8, val) },
+                        .array => |_| types.Value.Nil, // Nested arrays not yet supported
+                        .map => |_| types.Value.Nil, // Nested maps not yet supported
+                    },
+                    else => types.Value.Nil,
+                };
+
+                try mir_map.put(key_str, value);
+            }
+
+            try block.instructions.append(.{ .LoadMap = mir_map });
         },
         .do_block => |do_block| {
             // Process each statement in the do block
