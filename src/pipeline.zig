@@ -37,13 +37,7 @@ pub const CompiledResult = struct {
 pub fn compileSource(allocator: std.mem.Allocator, source: []const u8, options: compiler.CompilerOptions) !CompiledResult {
     // Parse source into AST
     const parse_result = try parser.parseGeneSource(allocator, source);
-
-    // Get the parsed nodes
-    const nodes = parser.getLastParseNodes() orelse {
-        parse_result.arena.deinit();
-        allocator.destroy(parse_result.arena);
-        return error.NoNodesReturned;
-    };
+    const nodes = parse_result.nodes;
 
     // Compile nodes to bytecode
     const ctx = compiler.CompilationContext.init(allocator, options);

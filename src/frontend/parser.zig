@@ -240,22 +240,14 @@ fn isBinaryOperator(op_str: []const u8) bool {
 ///     parse_result.arena.deinit();
 /// }
 /// ```
-// Simple tuple return - avoiding complex structs
-pub const ArenaAndCount = struct {
+pub const ParseSourceResult = struct {
     arena: *std.heap.ArenaAllocator,
-    node_count: usize,
+    nodes: []ast.AstNode,
 };
 
-// Global to store most recent parse result - simple approach to avoid complex returns
-var g_last_nodes: ?[]ast.AstNode = null;
-
-// Get the nodes from the last parse - call immediately after parseGeneSource
-pub fn getLastParseNodes() ?[]ast.AstNode {
-    return g_last_nodes;
-}
-
-// Return arena pointer and count - this should avoid the bus error
-pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) !ArenaAndCount {
+/// Parse Gene source code using an arena allocator and return the arena
+/// along with the parsed nodes.
+pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) !ParseSourceResult {
     // Create an arena allocator for all AST allocations
     const arena = try parent_allocator.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(parent_allocator);
@@ -311,13 +303,10 @@ pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) 
         nodes_slice[i] = node;
     }
 
-    // Store in global for retrieval
-    g_last_nodes = nodes_slice;
-
-    debug.log("parseGeneSource: returning arena and count", .{});
-    return ArenaAndCount{
+    debug.log("parseGeneSource: returning arena and nodes", .{});
+    return ParseSourceResult{
         .arena = arena,
-        .node_count = result_nodes.items.len,
+        .nodes = nodes_slice,
     };
 }
 

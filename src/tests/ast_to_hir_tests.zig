@@ -18,7 +18,7 @@ test "lower simple expression to HIR" {
     }
 
     // Lower to HIR
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
@@ -60,7 +60,7 @@ test "lower binary operation to HIR" {
     }
 
     // Lower to HIR
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
@@ -104,7 +104,7 @@ test "lower infix notation to HIR" {
     }
 
     // Lower to HIR
-    const ast_nodes = parser.getLastParseNodes() orelse return error.NoAstNodesFound;
+    const ast_nodes = parse_result.nodes;
     var hir_module = try ast_to_hir.convert(allocator, ast_nodes);
     defer hir_module.deinit();
 
