@@ -241,6 +241,19 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, cre
                 }
             }
 
+            // Add a return instruction at the end of the function if not present
+            const needs_return = if (new_func.instructions.items.len == 0) true else switch (new_func.instructions.items[new_func.instructions.items.len - 1].op) {
+                .Return => false,
+                else => true,
+            };
+
+            if (needs_return) {
+                try new_func.instructions.append(.{
+                    .op = bytecode.OpCode.Return,
+                    .operand = null,
+                });
+            }
+
             // Track the function for cleanup
             try created_functions.append(new_func);
 

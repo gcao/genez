@@ -54,19 +54,13 @@ pub const VM = struct {
         var variables = std.StringArrayHashMap(types.Value).init(allocator);
 
         // Store the print function as a variable
-        variables.put("print", .{ .Variable = .{ .name = "print" } }) catch return VM{
-            .allocator = allocator,
-            .stdout = stdout,
-            .stack = std.ArrayList(types.Value).init(allocator),
-            .variables = variables,
-            .call_frames = std.ArrayList(CallFrame).init(allocator),
-            .current_func = null,
-            .pc = 0,
-            .bp = 0,
-            .allocated_functions = std.ArrayList(*bytecode.Function).init(allocator),
-            .function_called = false,
-        };
-
+        variables.put("print", .{ .Variable = .{ .name = "print" } }) catch unreachable;
+        
+        // Store built-in operators
+        variables.put("<", .{ .BuiltinOperator = .LessThan }) catch unreachable;
+        variables.put("+", .{ .BuiltinOperator = .Add }) catch unreachable;
+        variables.put("-", .{ .BuiltinOperator = .Sub }) catch unreachable;
+        
         return VM{
             .allocator = allocator,
             .stdout = stdout,
@@ -259,21 +253,17 @@ pub const VM = struct {
                 debug.log("Current call frames: {}", .{self.call_frames.items.len});
 
                 // First check if it's a function parameter
-                if (self.call_frames.items.len > 0) {
-                    const frame = self.call_frames.items[self.call_frames.items.len - 1];
-                    debug.log("Current frame: bp={}, prev_bp={}, return_addr={}", .{ frame.bp, frame.prev_bp, frame.return_addr });
+                if (self.current_func) |current_func| {
+                    debug.log("Checking parameters in current function: {s}", .{current_func.name});
+                    debug.log("Current function has {} parameters", .{current_func.param_count});
 
-                    // Check if the name matches any parameter
-                    const func = frame.func;
-                    debug.log("Function has {} parameters", .{func.param_count});
-
-                    // For simplicity, we'll handle the first parameter as 'x' for now
-                    // In a real implementation, we'd have a mapping of parameter names
-                    if (std.mem.eql(u8, name, "x") and func.param_count > 0) {
+                    // For simplicity, we'll handle the first parameter as 'n' for now
+                    // In a real implementation, we'd have a mapping of parameter names  
+                    if ((std.mem.eql(u8, name, "n") or std.mem.eql(u8, name, "x")) and current_func.param_count > 0) {
                         if (self.bp < self.stack.items.len) {
-                            debug.log("Checking for parameter x at bp={}", .{self.bp});
+                            debug.log("Checking for parameter {s} at bp={}", .{ name, self.bp });
                             const param_value = self.stack.items[self.bp];
-                            debug.log("Found parameter 'x' at bp={}: {any}", .{ self.bp, param_value });
+                            debug.log("Found parameter '{s}' at bp={}: {any}", .{ name, self.bp, param_value });
                             try self.stack.append(try param_value.clone(self.allocator));
                             return;
                         }
@@ -890,6 +880,94 @@ pub const VM = struct {
 
                             return;
                         },
+                        .Sub => {
+                            // Check if we have two arguments
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the arguments
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                            // Clone the values to avoid use-after-free issues
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+
+                            // Handle subtraction based on types
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Int = left_val - right_val },
+                                    .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) - right_val },
+                                    else => types.Value{ .Nil = {} }, // Type error, return nil
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Float = left_val - @as(f64, @floatFromInt(right_val)) },
+                                    .Float => |right_val| types.Value{ .Float = left_val - right_val },
+                                    else => types.Value{ .Nil = {} }, // Type error, return nil
+                                },
+                                else => types.Value{ .Nil = {} }, // Type error, return nil
+                            };
+
+                            // Clean up the stack - remove operator AND arguments
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+
+                            // Clean up operands
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+
+                            // Push result onto stack
+                            try self.stack.append(result_value);
+
+                            return;
+                        },
+                        .LessThan => {
+                            // Check if we have two arguments
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the arguments
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                            // Clone the values to avoid use-after-free issues
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+
+                            // Handle less than comparison based on types
+                            const result = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| left_val < right_val,
+                                    .Float => |right_val| @as(f64, @floatFromInt(left_val)) < right_val,
+                                    else => false, // Type error, return false
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| left_val < @as(f64, @floatFromInt(right_val)),
+                                    .Float => |right_val| left_val < right_val,
+                                    else => false, // Type error, return false
+                                },
+                                else => false, // Type error, return false
+                            };
+
+                            // Clean up the stack - remove operator AND arguments
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+
+                            // Clean up operands
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+
+                            // Push result onto stack
+                            try self.stack.append(.{ .Bool = result });
+
+                            return;
+                        },
                     }
                 }
 
@@ -909,7 +987,35 @@ pub const VM = struct {
                         if (self.variables.get(func_name)) |global_val| {
                             debug.log("Found function in global variables: {any}", .{global_val});
 
-                            if (global_val == .Function) {
+                            if (global_val == .BuiltinOperator) {
+                                // Handle built-in operator
+                                const op = global_val.BuiltinOperator;
+                                debug.log("VM: Built-in operator call: {any}", .{op});
+                                
+                                // Built-in operators expect 2 arguments
+                                if (arg_count_usize != 2) {
+                                    debug.log("Error: Built-in operator expects 2 arguments, got {}", .{arg_count_usize});
+                                    return error.ArgumentCountMismatch;
+                                }
+                                
+                                // Get the two arguments from the stack
+                                const arg2 = self.stack.items[self.stack.items.len - 1]; // Top of stack
+                                const arg1 = self.stack.items[self.stack.items.len - 2]; // Second from top
+                                
+                                // Pop the arguments and operator from stack
+                                _ = self.stack.pop(); // arg2
+                                _ = self.stack.pop(); // arg1  
+                                _ = self.stack.pop(); // operator
+                                
+                                // Perform the operation
+                                const result = try self.executeBuiltinOperator(op, arg1, arg2);
+                                
+                                // Push result onto stack
+                                try self.stack.append(result);
+                                
+                                return; // Don't increment PC, continue with next instruction
+                                
+                            } else if (global_val == .Function) {
                                 // Replace the variable with the actual function
                                 self.stack.items[self.stack.items.len - arg_count_usize - 1] = try global_val.clone(self.allocator);
                                 debug.log("Replaced variable with function: {any}", .{self.stack.items[self.stack.items.len - arg_count_usize - 1]});
@@ -937,25 +1043,15 @@ pub const VM = struct {
                                     const new_bp = self.stack.items.len - arg_count_usize;
 
                                     // Create new call frame
-                                    // Check if current_func is null
-                                    if (self.current_func == null) {
-                                        debug.log("Warning: current_func is null, using function being called instead", .{});
-                                        debug.log("Function being called: {s} with {} parameters", .{ func.name, func.param_count });
-
-                                        // Dump function instructions
-                                        debug.log("Function instructions:", .{});
-                                        for (func.instructions.items, 0..) |instr, i| {
-                                            debug.log("  [{}] {any}", .{ i, instr.op });
-                                            if (instr.operand) |op| {
-                                                debug.log("    Operand: {any}", .{op});
-                                            }
-                                        }
-
-                                        const frame = CallFrame.init(func, new_bp, old_bp, return_addr);
+                                    // Create call frame to store return information
+                                    if (self.current_func) |calling_func| {
+                                        debug.log("Creating call frame to return to: {s}", .{calling_func.name});
+                                        const frame = CallFrame.init(calling_func, new_bp, old_bp, return_addr);
                                         try self.call_frames.append(frame);
                                     } else {
-                                        debug.log("Using current function for call frame: {s}", .{self.current_func.?.name});
-                                        const frame = CallFrame.init(self.current_func.?, new_bp, old_bp, return_addr);
+                                        debug.log("Warning: no current function to return to", .{});
+                                        // For main function calls, create a minimal frame
+                                        const frame = CallFrame.init(func, new_bp, old_bp, return_addr);
                                         try self.call_frames.append(frame);
                                     }
 
@@ -1230,5 +1326,44 @@ pub const VM = struct {
                 debug.log("Created map with {} entries", .{num_entries});
             },
         }
+    }
+    
+    fn executeBuiltinOperator(self: *VM, op: types.BuiltinOperatorType, arg1: types.Value, arg2: types.Value) !types.Value {
+        _ = self; // Suppress unused parameter warning
+        
+        return switch (op) {
+            .LessThan => {
+                // Handle < operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Bool = arg1.Int < arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Add => {
+                // Handle + operator  
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Int = arg1.Int + arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Sub => {
+                // Handle - operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Int = arg1.Int - arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Eq => {
+                // Handle == operator (not currently used but included for completeness)
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Bool = arg1.Int == arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+        };
     }
 };

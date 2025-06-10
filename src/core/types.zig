@@ -5,6 +5,8 @@ const debug = @import("debug.zig");
 pub const BuiltinOperatorType = enum {
     Eq,
     Add,
+    Sub,
+    LessThan,
 };
 
 pub const Value = union(enum) {

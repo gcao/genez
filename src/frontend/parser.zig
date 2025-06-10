@@ -834,9 +834,22 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
             const param_name_copy = try alloc.dupe(u8, param_name_slice);
             current_pos += 1;
 
-            // Gene doesn't use explicit type annotations in parameter lists
-            // [a b] means two parameters 'a' and 'b', not parameter 'a' with type 'b'
-            try params_list.append(.{ .name = param_name_copy, .param_type = null });
+            // Check if next token is a type annotation (skip it)
+            var param_type: ?[]const u8 = null;
+            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+                const potential_type = toks[current_pos].kind.Ident;
+                // Common type names to recognize as type annotations
+                if (std.mem.eql(u8, potential_type, "int") or 
+                    std.mem.eql(u8, potential_type, "float") or 
+                    std.mem.eql(u8, potential_type, "string") or 
+                    std.mem.eql(u8, potential_type, "bool")) {
+                    param_type = try alloc.dupe(u8, potential_type);
+                    current_pos += 1; // Skip the type annotation
+                    std.debug.print("[PARSER] Found type annotation: {s}\n", .{potential_type});
+                }
+            }
+
+            try params_list.append(.{ .name = param_name_copy, .param_type = param_type });
             std.debug.print("[PARSER] Added parameter to list, current count: {}\n", .{params_list.items.len});
         }
         std.debug.print("[PARSER] Finished parameter parsing loop\n", .{});

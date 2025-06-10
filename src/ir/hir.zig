@@ -92,8 +92,9 @@ pub const HIR = struct {
                 .array_literal => |*arr_lit| arr_lit.deinit(allocator), // New
                 .map_literal => |*map_lit| map_lit.deinit(allocator), // New
                 .do_block => |*do_block| do_block.deinit(allocator), // New
-                .function => |*func_ptr| { // Changed to func_ptr
-                    func_ptr.*.deinit(); // Dereference before calling deinit
+                .function => |func_ptr| {
+                    // Free the function pointer and its contents
+                    func_ptr.deinit();
                     allocator.destroy(func_ptr);
                 },
             }

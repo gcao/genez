@@ -33,9 +33,17 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
     // Create entry block
     var entry_block = mir.MIR.Block.init(allocator);
 
+    // Create context for the function body with parameter names
+    const func_context = ConversionContext{ .param_names = mir_func.param_names.items };
+    std.debug.print("[HIR->MIR] Created context with {} parameters: ", .{mir_func.param_names.items.len});
+    for (mir_func.param_names.items, 0..) |param_name, i| {
+        std.debug.print("{}:{s} ", .{ i, param_name });
+    }
+    std.debug.print("\n", .{});
+
     // Convert HIR statements to MIR instructions
     for (func.body.items) |stmt| {
-        try convertStatement(&entry_block, stmt);
+        try convertStatementWithContext(&entry_block, stmt, func_context);
     }
 
     mir_func.blocks.append(entry_block) catch unreachable;
@@ -47,6 +55,14 @@ fn convertStatement(block: *mir.MIR.Block, stmt: hir.HIR.Statement) !void {
         .Expression => |expr| {
             // REMOVED: Special handling for print statement. Treat it like a regular expression.
             _ = try convertExpression(block, expr); // Evaluate the expression for its side effects or result
+        },
+    }
+}
+
+fn convertStatementWithContext(block: *mir.MIR.Block, stmt: hir.HIR.Statement, context: ConversionContext) !void {
+    switch (stmt) {
+        .Expression => |expr| {
+            try convertExpressionWithContext(block, expr, context);
         },
     }
 }
@@ -189,7 +205,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Check if this is a parameter reference
             if (context.isParameter(var_expr.name)) |param_index| {
                 // Load parameter by index
-                std.debug.print("[HIR->MIR] LoadParameter: {} (name: {s})\n", .{ param_index, var_expr.name });
+                std.debug.print("[HIR->MIR] LoadParameter: {s} (index {})\n", .{ var_expr.name, param_index });
                 try block.instructions.append(.{ .LoadParameter = param_index });
             } else {
                 // Load regular variable
