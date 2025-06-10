@@ -421,5 +421,194 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 try convertExpressionWithContext(block, stmt.*, context);
             }
         },
+        .class_def => |class_def| {
+            // For now, class definitions will be stored as a special value
+            // TODO: Implement full class runtime support
+            const class_name_copy = try block.allocator.dupe(u8, class_def.name);
+            
+            // Store a placeholder class object for now
+            try block.instructions.append(.{ .LoadString = class_name_copy });
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, class_def.name) });
+        },
+        .instance_creation => |inst_creation| {
+            // TODO: Implement instance creation
+            // For now, load the class name and push nil
+            const class_name_copy = try block.allocator.dupe(u8, inst_creation.class_name);
+            try block.instructions.append(.{ .LoadString = class_name_copy });
+            
+            // Evaluate constructor arguments
+            for (inst_creation.args.items) |arg| {
+                try convertExpressionWithContext(block, arg.*, context);
+            }
+            
+            // For now, just push nil as the instance placeholder
+            try block.instructions.append(.LoadNil);
+        },
+        .method_call => |method_call| {
+            // TODO: Implement method calls
+            // For now, treat as regular function calls
+            try convertExpressionWithContext(block, method_call.instance.*, context);
+            
+            for (method_call.args.items) |arg| {
+                try convertExpressionWithContext(block, arg.*, context);
+            }
+            
+            // Push method name as a function to call
+            const method_name_copy = try block.allocator.dupe(u8, method_call.method_name);
+            try block.instructions.append(.{ .LoadVariable = method_name_copy });
+            try block.instructions.append(.{ .Call = method_call.args.items.len + 1 }); // +1 for instance
+        },
+        .field_access => |field_access| {
+            // TODO: Implement field access
+            // For now, just evaluate the instance and push nil
+            try convertExpressionWithContext(block, field_access.instance.*, context);
+            try block.instructions.append(.LoadNil);
+        },
+        .match_expr => |match_expr| {
+            // Pattern matching compilation to MIR
+            // This is a simplified implementation - full pattern matching would require
+            // more sophisticated compilation with decision trees and backtracking
+            
+            // Evaluate the scrutinee (value being matched)
+            try convertExpressionWithContext(block, match_expr.scrutinee.*, context);
+            
+            // For now, implement a simple linear matching approach
+            // In a full implementation, this would be optimized with decision trees
+            
+            var branch_ends = std.ArrayList(usize).init(block.allocator);
+            defer branch_ends.deinit();
+            
+            for (match_expr.arms) |arm| {
+                // Duplicate the scrutinee for this arm's pattern matching
+                // (In a real implementation, we'd be more sophisticated about this)
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__scrutinee_temp") });
+                
+                // Generate pattern matching logic for this arm
+                const match_success_target = try compilePattern(block, arm.pattern, context);
+                
+                // If pattern matches, evaluate guard (if present)
+                if (arm.guard) |guard| {
+                    try convertExpressionWithContext(block, guard.*, context);
+                    // Jump to next arm if guard fails
+                    const guard_fail_jump = block.instructions.items.len;
+                    try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will be patched
+                    
+                    // Guard succeeded, evaluate body
+                    try convertExpressionWithContext(block, arm.body.*, context);
+                    
+                    // Jump to end of match expression
+                    const branch_end_jump = block.instructions.items.len;
+                    try block.instructions.append(.{ .Jump = 0 }); // Will be patched
+                    try branch_ends.append(branch_end_jump);
+                    
+                    // Patch guard failure jump to next arm
+                    const next_arm_target = block.instructions.items.len;
+                    block.instructions.items[guard_fail_jump].JumpIfFalse = next_arm_target;
+                } else {
+                    // No guard, just evaluate body
+                    try convertExpressionWithContext(block, arm.body.*, context);
+                    
+                    // Jump to end of match expression
+                    const branch_end_jump = block.instructions.items.len;
+                    try block.instructions.append(.{ .Jump = 0 }); // Will be patched
+                    try branch_ends.append(branch_end_jump);
+                }
+                
+                // Patch the pattern match success jump
+                // (This is simplified - real pattern matching would be more complex)
+                if (match_success_target != 0) {
+                    // In a real implementation, we'd patch the pattern matching jumps here
+                }
+            }
+            
+            // If no pattern matched, this would be a runtime error
+            // For now, just push nil
+            try block.instructions.append(.LoadNil);
+            
+            // Patch all branch end jumps to point here
+            const match_end = block.instructions.items.len;
+            for (branch_ends.items) |jump_index| {
+                block.instructions.items[jump_index].Jump = match_end;
+            }
+        },
+    }
+}
+
+// Helper function to compile HIR patterns to MIR instructions
+// Returns the instruction index where pattern matching succeeds
+fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: ConversionContext) !usize {
+    _ = context; // Suppress unused parameter warning for now
+    
+    switch (pattern) {
+        .literal => |lit| {
+            // Generate code to compare scrutinee with literal value
+            try convertExpression(block, lit.value.*);
+            try block.instructions.append(.Equal);
+            
+            // Jump to next pattern if not equal
+            const jump_to_next = block.instructions.items.len;
+            try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will be patched by caller
+            
+            return jump_to_next;
+        },
+        .variable => |var_pat| {
+            // Variable patterns always match and bind the value
+            // Store the scrutinee in the variable
+            const var_name_copy = try block.allocator.dupe(u8, var_pat.name);
+            try block.instructions.append(.{ .StoreVariable = var_name_copy });
+            
+            // Variables always match, so no conditional jump needed
+            return 0;
+        },
+        .wildcard => {
+            // Wildcard patterns always match and don't bind anything
+            // Pop the scrutinee since we don't need it
+            // (In a real implementation, we'd be more careful about stack management)
+            return 0;
+        },
+        .constructor => |ctor| {
+            // Constructor pattern matching would involve:
+            // 1. Check if scrutinee is of the right type/constructor
+            // 2. Extract fields and match sub-patterns
+            // For now, just push a placeholder
+            _ = ctor;
+            try block.instructions.append(.LoadNil);
+            return 0;
+        },
+        .array => |arr| {
+            // Array pattern matching would involve:
+            // 1. Check if scrutinee is an array
+            // 2. Check length constraints
+            // 3. Match each element pattern
+            // 4. Handle rest patterns
+            _ = arr;
+            try block.instructions.append(.LoadNil);
+            return 0;
+        },
+        .map => |map| {
+            // Map pattern matching would involve:
+            // 1. Check if scrutinee is a map
+            // 2. Match each field pattern
+            // 3. Handle rest patterns
+            _ = map;
+            try block.instructions.append(.LoadNil);
+            return 0;
+        },
+        .or_pattern => |or_pat| {
+            // Or pattern matching would involve:
+            // 1. Try each alternative pattern
+            // 2. Succeed if any pattern matches
+            _ = or_pat;
+            try block.instructions.append(.LoadNil);
+            return 0;
+        },
+        .range => |range| {
+            // Range pattern matching would involve:
+            // 1. Evaluate range bounds
+            // 2. Check if scrutinee is within range
+            _ = range;
+            try block.instructions.append(.LoadNil);
+            return 0;
+        },
     }
 }

@@ -1,0 +1,14 @@
+;; Pattern matching example
+(var x 42)
+
+(match x
+  (0 "zero")
+  (_ "something else")
+)
+
+(match [1 2 3]
+  ([a b c] (+ a (+ b c)))
+  (_ "not a triple")
+)
+
+(print "Pattern matching compiled successfully")

@@ -1705,23 +1705,69 @@ Gene uses a hybrid garbage collection approach:
 
 # Chapter 11: Metaprogramming
 
-## 11.1 Quotation
+## 11.1 Pseudo Macros
+
+Pseudo macros are a unique metaprogramming feature that provides lazy evaluation semantics without the complexity of compile-time macros. Unlike traditional Lisp macros that operate at compile-time, pseudo macros work at runtime with delayed evaluation.
+
+### 11.1.1 Core Concept
+
+**Key Properties:**
+1. **Lazy Evaluation**: Arguments are not evaluated at call time
+2. **Lexical Scoping**: Arguments are evaluated in the caller's context when needed
+3. **On-Demand Resolution**: Inside the macro body, argument references trigger evaluation in the original context
 
 ```gene
-# Quote prevents evaluation
-:x                    # Symbol x
-:(+ 1 2)             # Gene (+ 1 2) not evaluated
+# Define a pseudo macro using 'pmacro' keyword
+(pmacro when [condition body]
+  (if condition body nil))
 
-# Unquote in quasiquote context
-(var x = 5)
-:(list 1 %x 3)       # Evaluates to (list 1 5 3)
+# Usage - arguments not evaluated until needed
+(var x 0)
+(when (> x 5)           ;; This comparison not evaluated immediately
+  (print "x is large")) ;; This print not evaluated immediately
 
-# Unquote-splice
-(var items = [2 3 4])
-:(list 1 %items... 5) # Evaluates to (list 1 2 3 4 5)
+# The macro body evaluates 'condition' and 'body' on demand
+# in the caller's context where x is visible
 ```
 
-## 11.2 Macros
+### 11.1.2 Advanced Examples
+
+```gene
+# Conditional execution with multiple statements
+(pmacro unless [condition body]
+  (if condition nil body))
+
+# Resource management with cleanup
+(pmacro with-resource [resource-expr body]
+  (do
+    (var resource resource-expr)
+    (try
+      body
+      (finally (cleanup resource)))))
+
+# Usage examples
+(var file-path "data.txt")
+(with-resource (open-file file-path)  ;; File opening delayed
+  (do
+    (print "Processing file")
+    (process-data resource)))         ;; 'resource' comes from macro
+```
+
+### 11.1.3 Implementation Architecture
+
+Pseudo macros integrate into Gene's compilation pipeline through:
+
+1. **AST Level**: `PseudoMacroDef` and `PseudoMacroCall` nodes
+2. **HIR Level**: Lazy argument wrapping with context capture
+3. **MIR Level**: Thunk-based lazy evaluation mechanism
+4. **Bytecode Level**: Runtime context switching and thunk evaluation
+5. **VM Level**: Execution with preserved lexical environments
+
+See `docs/design_of_macros.md` for complete implementation details.
+
+## 11.2 Traditional Macros
+
+Gene also supports traditional compile-time macros for cases where compile-time code generation is needed:
 
 ```gene
 # Define macro
@@ -1750,7 +1796,23 @@ Gene uses a hybrid garbage collection approach:
        (%b = %tmp))))
 ```
 
-## 11.3 Code Generation
+## 11.3 Quotation
+
+```gene
+# Quote prevents evaluation
+:x                    # Symbol x
+:(+ 1 2)             # Gene (+ 1 2) not evaluated
+
+# Unquote in quasiquote context
+(var x = 5)
+:(list 1 %x 3)       # Evaluates to (list 1 5 3)
+
+# Unquote-splice
+(var items = [2 3 4])
+:(list 1 %items... 5) # Evaluates to (list 1 2 3 4 5)
+```
+
+## 11.4 Code Generation
 
 ```gene
 # Generate code at compile time
@@ -1769,7 +1831,7 @@ Gene uses a hybrid garbage collection approach:
   (fn log [msg]))  # No-op in release
 ```
 
-## 11.4 Reflection
+## 11.5 Reflection
 
 ```gene
 # Type introspection
@@ -1793,7 +1855,7 @@ Gene uses a hybrid garbage collection approach:
 (module .defined-names)
 ```
 
-## 11.5 AST Manipulation
+## 11.6 AST Manipulation
 
 ```gene
 # Parse code

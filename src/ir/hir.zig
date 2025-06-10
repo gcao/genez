@@ -79,6 +79,11 @@ pub const HIR = struct {
         array_literal: ArrayLiteral, // New
         map_literal: MapLiteral, // New
         do_block: DoBlock, // New
+        class_def: *ClassDef, // Class definition
+        instance_creation: InstanceCreation, // Creating class instances
+        method_call: MethodCall, // Calling methods on instances
+        field_access: FieldAccess, // Accessing fields on instances
+        match_expr: *MatchExpr, // Pattern matching expression
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -96,6 +101,17 @@ pub const HIR = struct {
                     // Free the function pointer and its contents
                     func_ptr.deinit();
                     allocator.destroy(func_ptr);
+                },
+                .class_def => |class_ptr| {
+                    class_ptr.deinit(allocator);
+                    allocator.destroy(class_ptr);
+                },
+                .instance_creation => |*inst_creation| inst_creation.deinit(allocator),
+                .method_call => |*method_call| method_call.deinit(allocator),
+                .field_access => |*field_access| field_access.deinit(allocator),
+                .match_expr => |match_ptr| {
+                    match_ptr.deinit(allocator);
+                    allocator.destroy(match_ptr);
                 },
             }
         }
@@ -293,6 +309,293 @@ pub const HIR = struct {
         float: f64,
         string: []const u8,
         function: *const Function,
+    };
+
+    // Class-related HIR structures
+    pub const ClassDef = struct {
+        name: []const u8,
+        parent_class: ?[]const u8, // Name of parent class for inheritance
+        traits: [][]const u8, // Names of implemented traits
+        fields: []ClassField,
+        methods: []ClassMethod,
+        allocator: std.mem.Allocator,
+
+        pub fn deinit(self: *ClassDef, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            
+            if (self.parent_class) |parent| {
+                allocator.free(parent);
+            }
+            
+            for (self.traits) |trait_name| {
+                allocator.free(trait_name);
+            }
+            allocator.free(self.traits);
+            
+            for (self.fields) |*field| {
+                field.deinit(allocator);
+            }
+            allocator.free(self.fields);
+            
+            for (self.methods) |*method| {
+                method.deinit(allocator);
+            }
+            allocator.free(self.methods);
+        }
+    };
+    
+    pub const ClassField = struct {
+        name: []const u8,
+        type_annotation: ?[]const u8,
+        is_public: bool,
+        default_value: ?*Expression,
+        
+        pub fn deinit(self: *ClassField, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            if (self.type_annotation) |type_ann| {
+                allocator.free(type_ann);
+            }
+            if (self.default_value) |default_val| {
+                default_val.deinit(allocator);
+                allocator.destroy(default_val);
+            }
+        }
+    };
+    
+    pub const ClassMethod = struct {
+        name: []const u8,
+        params: []FuncParam,
+        body: *Expression,
+        is_public: bool,
+        is_virtual: bool,
+        is_abstract: bool,
+        is_static: bool,
+        
+        pub fn deinit(self: *ClassMethod, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            
+            for (self.params) |*param| {
+                param.deinit(allocator);
+            }
+            allocator.free(self.params);
+            
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+    };
+    
+    pub const InstanceCreation = struct {
+        class_name: []const u8,
+        args: std.ArrayList(*Expression),
+        
+        pub fn deinit(self: *InstanceCreation, allocator: std.mem.Allocator) void {
+            allocator.free(self.class_name);
+            for (self.args.items) |arg| {
+                arg.deinit(allocator);
+                allocator.destroy(arg);
+            }
+            self.args.deinit();
+        }
+    };
+    
+    pub const MethodCall = struct {
+        instance: *Expression, // The object instance
+        method_name: []const u8,
+        args: std.ArrayList(*Expression),
+        
+        pub fn deinit(self: *MethodCall, allocator: std.mem.Allocator) void {
+            self.instance.deinit(allocator);
+            allocator.destroy(self.instance);
+            allocator.free(self.method_name);
+            for (self.args.items) |arg| {
+                arg.deinit(allocator);
+                allocator.destroy(arg);
+            }
+            self.args.deinit();
+        }
+    };
+    
+    pub const FieldAccess = struct {
+        instance: *Expression, // The object instance
+        field_name: []const u8,
+        
+        pub fn deinit(self: *FieldAccess, allocator: std.mem.Allocator) void {
+            self.instance.deinit(allocator);
+            allocator.destroy(self.instance);
+            allocator.free(self.field_name);
+        }
+    };
+    
+    // Pattern matching HIR structures
+    pub const MatchExpr = struct {
+        scrutinee: *Expression, // The value being matched
+        arms: []MatchArm, // Pattern matching arms
+        
+        pub fn deinit(self: *MatchExpr, allocator: std.mem.Allocator) void {
+            self.scrutinee.deinit(allocator);
+            allocator.destroy(self.scrutinee);
+            
+            for (self.arms) |*arm| {
+                arm.deinit(allocator);
+            }
+            allocator.free(self.arms);
+        }
+    };
+    
+    pub const MatchArm = struct {
+        pattern: Pattern,
+        guard: ?*Expression, // Optional guard clause
+        body: *Expression, // Expression to execute if pattern matches
+        
+        pub fn deinit(self: *MatchArm, allocator: std.mem.Allocator) void {
+            self.pattern.deinit(allocator);
+            
+            if (self.guard) |guard| {
+                guard.deinit(allocator);
+                allocator.destroy(guard);
+            }
+            
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+    };
+    
+    pub const Pattern = union(enum) {
+        // Literal patterns - match exact values
+        literal: LiteralPattern,
+        
+        // Variable patterns - bind to variables
+        variable: VariablePattern,
+        
+        // Wildcard pattern - matches anything
+        wildcard,
+        
+        // Constructor patterns - match specific types/classes
+        constructor: ConstructorPattern,
+        
+        // Array patterns - destructure arrays
+        array: ArrayPattern,
+        
+        // Map patterns - destructure maps/objects
+        map: MapPattern,
+        
+        // Or patterns - match any of several patterns
+        or_pattern: OrPattern,
+        
+        // Range patterns - match within ranges
+        range: RangePattern,
+        
+        pub const LiteralPattern = struct {
+            value: *Expression, // The literal value to match
+            
+            pub fn deinit(self: *LiteralPattern, allocator: std.mem.Allocator) void {
+                self.value.deinit(allocator);
+                allocator.destroy(self.value);
+            }
+        };
+        
+        pub const VariablePattern = struct {
+            name: []const u8, // Variable name to bind to
+            type_annotation: ?[]const u8, // Optional type constraint
+            
+            pub fn deinit(self: *VariablePattern, allocator: std.mem.Allocator) void {
+                allocator.free(self.name);
+                if (self.type_annotation) |type_ann| {
+                    allocator.free(type_ann);
+                }
+            }
+        };
+        
+        pub const ConstructorPattern = struct {
+            constructor: []const u8, // Constructor/type name
+            fields: []Pattern, // Nested patterns for fields
+            
+            pub fn deinit(self: *ConstructorPattern, allocator: std.mem.Allocator) void {
+                allocator.free(self.constructor);
+                for (self.fields) |*field| {
+                    field.deinit(allocator);
+                }
+                allocator.free(self.fields);
+            }
+        };
+        
+        pub const ArrayPattern = struct {
+            elements: []Pattern, // Patterns for array elements
+            rest: ?[]const u8, // Optional rest pattern (..rest)
+            
+            pub fn deinit(self: *ArrayPattern, allocator: std.mem.Allocator) void {
+                for (self.elements) |*elem| {
+                    elem.deinit(allocator);
+                }
+                allocator.free(self.elements);
+                if (self.rest) |rest| {
+                    allocator.free(rest);
+                }
+            }
+        };
+        
+        pub const MapPattern = struct {
+            fields: []MapFieldPattern, // Key-value patterns
+            rest: ?[]const u8, // Optional rest pattern
+            
+            pub const MapFieldPattern = struct {
+                key: []const u8, // Map key
+                pattern: Pattern, // Pattern for the value
+                
+                pub fn deinit(self: *MapFieldPattern, allocator: std.mem.Allocator) void {
+                    allocator.free(self.key);
+                    // Note: pattern.deinit() will be called by the parent MapPattern.deinit()
+                }
+            };
+            
+            pub fn deinit(self: *MapPattern, allocator: std.mem.Allocator) void {
+                for (self.fields) |*field| {
+                    field.deinit(allocator);
+                    field.pattern.deinit(allocator); // Deinit the pattern explicitly
+                }
+                allocator.free(self.fields);
+                if (self.rest) |rest| {
+                    allocator.free(rest);
+                }
+            }
+        };
+        
+        pub const OrPattern = struct {
+            patterns: []Pattern, // Alternative patterns
+            
+            pub fn deinit(self: *OrPattern, allocator: std.mem.Allocator) void {
+                for (self.patterns) |*pattern| {
+                    pattern.deinit(allocator);
+                }
+                allocator.free(self.patterns);
+            }
+        };
+        
+        pub const RangePattern = struct {
+            start: *Expression, // Range start
+            end: *Expression, // Range end
+            inclusive: bool, // Whether end is inclusive
+            
+            pub fn deinit(self: *RangePattern, allocator: std.mem.Allocator) void {
+                self.start.deinit(allocator);
+                allocator.destroy(self.start);
+                self.end.deinit(allocator);
+                allocator.destroy(self.end);
+            }
+        };
+        
+        pub fn deinit(self: *Pattern, allocator: std.mem.Allocator) void {
+            switch (self.*) {
+                .literal => |*lit| lit.deinit(allocator),
+                .variable => |*var_pat| var_pat.deinit(allocator),
+                .wildcard => {},
+                .constructor => |*ctor| ctor.deinit(allocator),
+                .array => |*arr| arr.deinit(allocator),
+                .map => |*map| map.deinit(allocator),
+                .or_pattern => |*or_pat| or_pat.deinit(allocator),
+                .range => |*range| range.deinit(allocator),
+            }
+        }
     };
 
     pub fn astToHir(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !HIR {

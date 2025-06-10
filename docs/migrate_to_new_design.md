@@ -293,14 +293,20 @@ Any                    # Root type - all values are Any
 
 #### Metaprogramming
 **Current:** None  
-**Target:** Macros, reflection, code generation
+**Target:** Pseudo macros, traditional macros, reflection, code generation
 
 **Migration Tasks:**
-- [ ] Add macro system with hygiene
-- [ ] Implement reflection APIs
-- [ ] Add compile-time code generation
-- [ ] Support quasi-quotation
-- [ ] Create AST manipulation tools
+- [ ] **Pseudo Macros** - Implement lazy evaluation macros (see `docs/design_of_macros.md`)
+  - [ ] Add `PseudoMacroDef` and `PseudoMacroCall` AST nodes
+  - [ ] Implement HIR lazy argument wrapping with context capture
+  - [ ] Add MIR thunk-based lazy evaluation mechanism
+  - [ ] Create bytecode instructions for runtime context switching
+  - [ ] Implement VM support for thunk evaluation and lexical environment preservation
+- [ ] **Traditional Macros** - Add compile-time macro system with hygiene
+- [ ] **Reflection** - Implement reflection APIs
+- [ ] **Code Generation** - Add compile-time code generation
+- [ ] **Quotation** - Support quasi-quotation
+- [ ] **AST Tools** - Create AST manipulation tools
 
 ### 4. VM Architecture Migration
 
@@ -381,16 +387,19 @@ Any                    # Root type - all values are Any
 
 ## Migration Priority
 
-### Phase 1: Core Language Features
-1. Expand type system
-2. Add object-oriented programming
-3. Implement pattern matching
-4. Create module system
+### Phase 1: Core Language Features ✅ **COMPLETED**
+1. ✅ Expand type system
+2. ✅ Add object-oriented programming (AST structure)
+3. ✅ Implement pattern matching (AST structure)
+4. ✅ Create module system (AST structure)
 
 ### Phase 2: Advanced Features
 1. Add concurrency primitives
 2. Implement error handling
-3. Create metaprogramming system
+3. **Create metaprogramming system**
+   - [ ] **Priority: Pseudo Macros** - Implement lazy evaluation macros (see `docs/design_of_macros.md`)
+   - [ ] Traditional compile-time macros
+   - [ ] Reflection system
 4. Add comprehensive standard library
 
 ### Phase 3: Performance Optimization

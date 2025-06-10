@@ -3,14 +3,42 @@ const bytecode = @import("../backend/bytecode.zig");
 const debug = @import("debug.zig");
 
 pub const BuiltinOperatorType = enum {
-    Eq,
+    // Arithmetic operators
     Add,
     Sub,
     Mul,
     Div,
-    LessThan,
-    GreaterThan,
+    Mod,     // Modulo operator %
+    Pow,     // Power operator **
+    
+    // Comparison operators
+    Eq,      // Equal ==
+    Ne,      // Not equal !=
+    LessThan,        // Less than <
+    GreaterThan,     // Greater than >
+    LessEqual,       // Less or equal <=
+    GreaterEqual,    // Greater or equal >=
+    
+    // Logical operators
+    And,     // Logical and &&
+    Or,      // Logical or ||
+    Not,     // Logical not !
+    
+    // Bitwise operators
+    BitAnd,  // Bitwise and &
+    BitOr,   // Bitwise or |
+    BitXor,  // Bitwise xor ^
+    BitNot,  // Bitwise not ~
+    Shl,     // Shift left <<
+    Shr,     // Shift right >>
+    
+    // String operators
+    Concat,  // String concatenation ++
+    
+    // Built-in functions
     Print,
+    Len,     // Length function
+    Type,    // Type introspection
 };
 
 pub const Value = union(enum) {

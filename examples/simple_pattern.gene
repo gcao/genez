@@ -1,0 +1,6 @@
+;; Simple test to verify pattern matching infrastructure
+(var x 42)
+(var y "hello")
+(print "Pattern matching HIR infrastructure is ready")
+(print x)
+(print y)

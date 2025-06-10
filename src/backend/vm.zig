@@ -56,13 +56,41 @@ pub const VM = struct {
         variables.put("print", .{ .BuiltinOperator = .Print }) catch unreachable;
         
         // Store built-in operators
-        variables.put("<", .{ .BuiltinOperator = .LessThan }) catch unreachable;
-        variables.put(">", .{ .BuiltinOperator = .GreaterThan }) catch unreachable;
-        variables.put("==", .{ .BuiltinOperator = .Eq }) catch unreachable;
+        // Arithmetic operators
         variables.put("+", .{ .BuiltinOperator = .Add }) catch unreachable;
         variables.put("-", .{ .BuiltinOperator = .Sub }) catch unreachable;
         variables.put("*", .{ .BuiltinOperator = .Mul }) catch unreachable;
         variables.put("/", .{ .BuiltinOperator = .Div }) catch unreachable;
+        variables.put("%", .{ .BuiltinOperator = .Mod }) catch unreachable;
+        variables.put("**", .{ .BuiltinOperator = .Pow }) catch unreachable;
+        
+        // Comparison operators
+        variables.put("==", .{ .BuiltinOperator = .Eq }) catch unreachable;
+        variables.put("!=", .{ .BuiltinOperator = .Ne }) catch unreachable;
+        variables.put("<", .{ .BuiltinOperator = .LessThan }) catch unreachable;
+        variables.put(">", .{ .BuiltinOperator = .GreaterThan }) catch unreachable;
+        variables.put("<=", .{ .BuiltinOperator = .LessEqual }) catch unreachable;
+        variables.put(">=", .{ .BuiltinOperator = .GreaterEqual }) catch unreachable;
+        
+        // Logical operators
+        variables.put("&&", .{ .BuiltinOperator = .And }) catch unreachable;
+        variables.put("||", .{ .BuiltinOperator = .Or }) catch unreachable;
+        variables.put("!", .{ .BuiltinOperator = .Not }) catch unreachable;
+        
+        // Bitwise operators
+        variables.put("&", .{ .BuiltinOperator = .BitAnd }) catch unreachable;
+        variables.put("|", .{ .BuiltinOperator = .BitOr }) catch unreachable;
+        variables.put("^", .{ .BuiltinOperator = .BitXor }) catch unreachable;
+        variables.put("~", .{ .BuiltinOperator = .BitNot }) catch unreachable;
+        variables.put("<<", .{ .BuiltinOperator = .Shl }) catch unreachable;
+        variables.put(">>", .{ .BuiltinOperator = .Shr }) catch unreachable;
+        
+        // String operators
+        variables.put("++", .{ .BuiltinOperator = .Concat }) catch unreachable;
+        
+        // Built-in functions
+        variables.put("len", .{ .BuiltinOperator = .Len }) catch unreachable;
+        variables.put("type", .{ .BuiltinOperator = .Type }) catch unreachable;
         
         return VM{
             .allocator = allocator,
@@ -1099,6 +1127,638 @@ pub const VM = struct {
 
                             return;
                         },
+                        .Ne => {
+                            // Not equal operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            // Reuse equality logic but negate result
+                            const equal = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| left_val == right_val,
+                                    .Float => |right_val| @as(f64, @floatFromInt(left_val)) == right_val,
+                                    else => false,
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| left_val == @as(f64, @floatFromInt(right_val)),
+                                    .Float => |right_val| left_val == right_val,
+                                    else => false,
+                                },
+                                .String => |left_val| switch (right) {
+                                    .String => |right_val| std.mem.eql(u8, left_val, right_val),
+                                    else => false,
+                                },
+                                .Bool => |left_val| switch (right) {
+                                    .Bool => |right_val| left_val == right_val,
+                                    else => false,
+                                },
+                                .Nil => switch (right) {
+                                    .Nil => true,
+                                    else => false,
+                                },
+                                else => false,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(.{ .Bool = !equal });
+                            return;
+                        },
+                        .Mod => {
+                            // Modulo operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| blk: {
+                                        if (right_val == 0) return error.DivisionByZero;
+                                        break :blk types.Value{ .Int = @mod(left_val, right_val) };
+                                    },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .Pow => {
+                            // Power operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| blk: {
+                                        if (right_val < 0) {
+                                            // Convert to float for negative exponents
+                                            const result = std.math.pow(f64, @as(f64, @floatFromInt(left_val)), @as(f64, @floatFromInt(right_val)));
+                                            break :blk types.Value{ .Float = result };
+                                        } else {
+                                            const result = std.math.pow(i64, left_val, @as(u32, @intCast(right_val)));
+                                            break :blk types.Value{ .Int = result };
+                                        }
+                                    },
+                                    .Float => |right_val| blk: {
+                                        const result = std.math.pow(f64, @as(f64, @floatFromInt(left_val)), right_val);
+                                        break :blk types.Value{ .Float = result };
+                                    },
+                                    else => return error.TypeMismatch,
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| blk: {
+                                        const result = std.math.pow(f64, left_val, @as(f64, @floatFromInt(right_val)));
+                                        break :blk types.Value{ .Float = result };
+                                    },
+                                    .Float => |right_val| blk: {
+                                        const result = std.math.pow(f64, left_val, right_val);
+                                        break :blk types.Value{ .Float = result };
+                                    },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .LessEqual => {
+                            // Less than or equal operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| left_val <= right_val,
+                                    .Float => |right_val| @as(f64, @floatFromInt(left_val)) <= right_val,
+                                    else => false,
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| left_val <= @as(f64, @floatFromInt(right_val)),
+                                    .Float => |right_val| left_val <= right_val,
+                                    else => false,
+                                },
+                                else => false,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(.{ .Bool = result });
+                            return;
+                        },
+                        .GreaterEqual => {
+                            // Greater than or equal operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| left_val >= right_val,
+                                    .Float => |right_val| @as(f64, @floatFromInt(left_val)) >= right_val,
+                                    else => false,
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| left_val >= @as(f64, @floatFromInt(right_val)),
+                                    .Float => |right_val| left_val >= right_val,
+                                    else => false,
+                                },
+                                else => false,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(.{ .Bool = result });
+                            return;
+                        },
+                        .And => {
+                            // Logical and operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            // Convert values to boolean (truthy evaluation)
+                            const left_bool = switch (left) {
+                                .Bool => |b| b,
+                                .Nil => false,
+                                .Int => |i| i != 0,
+                                .Float => |f| f != 0.0,
+                                .String => |s| s.len > 0,
+                                else => true, // Other values are truthy
+                            };
+                            
+                            const right_bool = switch (right) {
+                                .Bool => |b| b,
+                                .Nil => false,
+                                .Int => |i| i != 0,
+                                .Float => |f| f != 0.0,
+                                .String => |s| s.len > 0,
+                                else => true, // Other values are truthy
+                            };
+                            
+                            const result = left_bool and right_bool;
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(.{ .Bool = result });
+                            return;
+                        },
+                        .Or => {
+                            // Logical or operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            // Convert values to boolean (truthy evaluation)
+                            const left_bool = switch (left) {
+                                .Bool => |b| b,
+                                .Nil => false,
+                                .Int => |i| i != 0,
+                                .Float => |f| f != 0.0,
+                                .String => |s| s.len > 0,
+                                else => true, // Other values are truthy
+                            };
+                            
+                            const right_bool = switch (right) {
+                                .Bool => |b| b,
+                                .Nil => false,
+                                .Int => |i| i != 0,
+                                .Float => |f| f != 0.0,
+                                .String => |s| s.len > 0,
+                                else => true, // Other values are truthy
+                            };
+                            
+                            const result = left_bool or right_bool;
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(.{ .Bool = result });
+                            return;
+                        },
+                        .Not => {
+                            // Logical not operator
+                            if (arg_count_usize != 1) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const operand_ref = self.stack.items[self.stack.items.len - 1];
+                            var operand = try operand_ref.clone(self.allocator);
+                            
+                            // Convert value to boolean (truthy evaluation)
+                            const operand_bool = switch (operand) {
+                                .Bool => |b| b,
+                                .Nil => false,
+                                .Int => |i| i != 0,
+                                .Float => |f| f != 0.0,
+                                .String => |s| s.len > 0,
+                                else => true, // Other values are truthy
+                            };
+                            
+                            const result = !operand_bool;
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            operand.deinit(self.allocator);
+                            
+                            try self.stack.append(.{ .Bool = result });
+                            return;
+                        },
+                        .BitAnd => {
+                            // Bitwise and operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Int = left_val & right_val },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .BitOr => {
+                            // Bitwise or operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Int = left_val | right_val },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .BitXor => {
+                            // Bitwise xor operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Int = left_val ^ right_val },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .BitNot => {
+                            // Bitwise not operator
+                            if (arg_count_usize != 1) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const operand_ref = self.stack.items[self.stack.items.len - 1];
+                            var operand = try operand_ref.clone(self.allocator);
+                            
+                            const result_value = switch (operand) {
+                                .Int => |val| types.Value{ .Int = ~val },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            operand.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .Shl => {
+                            // Shift left operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| blk: {
+                                        if (right_val < 0 or right_val >= 64) return error.TypeMismatch;
+                                        const shift_amount = @as(u6, @intCast(right_val));
+                                        break :blk types.Value{ .Int = left_val << shift_amount };
+                                    },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .Shr => {
+                            // Shift right operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| blk: {
+                                        if (right_val < 0 or right_val >= 64) return error.TypeMismatch;
+                                        const shift_amount = @as(u6, @intCast(right_val));
+                                        break :blk types.Value{ .Int = left_val >> shift_amount };
+                                    },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .Concat => {
+                            // String concatenation operator
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+                            
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+                            
+                            const result_value = switch (left) {
+                                .String => |left_val| switch (right) {
+                                    .String => |right_val| blk: {
+                                        const result = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{left_val, right_val});
+                                        break :blk types.Value{ .String = result };
+                                    },
+                                    else => return error.TypeMismatch,
+                                },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .Len => {
+                            // Length function
+                            if (arg_count_usize != 1) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const operand_ref = self.stack.items[self.stack.items.len - 1];
+                            var operand = try operand_ref.clone(self.allocator);
+                            
+                            const result_value = switch (operand) {
+                                .String => |s| types.Value{ .Int = @as(i64, @intCast(s.len)) },
+                                .Array => |arr| types.Value{ .Int = @as(i64, @intCast(arr.len)) },
+                                .Map => |map| types.Value{ .Int = @as(i64, @intCast(map.count())) },
+                                else => return error.TypeMismatch,
+                            };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            operand.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
+                        .Type => {
+                            // Type introspection function
+                            if (arg_count_usize != 1) {
+                                return error.ArgumentCountMismatch;
+                            }
+                            
+                            const operand_ref = self.stack.items[self.stack.items.len - 1];
+                            var operand = try operand_ref.clone(self.allocator);
+                            
+                            const type_name = switch (operand) {
+                                .Nil => "nil",
+                                .Bool => "bool",
+                                .Int => "int",
+                                .Float => "float",
+                                .String => "string",
+                                .Symbol => "symbol",
+                                .Array => "array",
+                                .Map => "map",
+                                .Function => "function",
+                                .Variable => "variable",
+                                .BuiltinOperator => "builtin-operator",
+                                .ReturnAddress => "return-address",
+                            };
+                            
+                            const result_value = types.Value{ .String = try self.allocator.dupe(u8, type_name) };
+                            
+                            // Clean up the stack
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+                            
+                            operand.deinit(self.allocator);
+                            
+                            try self.stack.append(result_value);
+                            return;
+                        },
                         .Print => {
                             // Check if we have one argument
                             if (arg_count_usize != 1) {
@@ -1566,6 +2226,174 @@ pub const VM = struct {
             .Print => {
                 // Print is handled specially in the main call switch, not here
                 // This should never be called since Print is handled elsewhere
+                return error.TypeMismatch;
+            },
+            .Mod => {
+                // Handle % operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    if (arg2.Int == 0) return error.DivisionByZero;
+                    return types.Value{ .Int = @mod(arg1.Int, arg2.Int) };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Pow => {
+                // Handle ** operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    if (arg2.Int < 0) {
+                        const result = std.math.pow(f64, @as(f64, @floatFromInt(arg1.Int)), @as(f64, @floatFromInt(arg2.Int)));
+                        return types.Value{ .Float = result };
+                    } else {
+                        const result = std.math.pow(i64, arg1.Int, @as(u32, @intCast(arg2.Int)));
+                        return types.Value{ .Int = result };
+                    }
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Ne => {
+                // Handle != operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Bool = arg1.Int != arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .LessEqual => {
+                // Handle <= operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Bool = arg1.Int <= arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .GreaterEqual => {
+                // Handle >= operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Bool = arg1.Int >= arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .And => {
+                // Handle && operator
+                const left_bool = switch (arg1) {
+                    .Bool => |b| b,
+                    .Int => |i| i != 0,
+                    else => true,
+                };
+                const right_bool = switch (arg2) {
+                    .Bool => |b| b,
+                    .Int => |i| i != 0,
+                    else => true,
+                };
+                return types.Value{ .Bool = left_bool and right_bool };
+            },
+            .Or => {
+                // Handle || operator
+                const left_bool = switch (arg1) {
+                    .Bool => |b| b,
+                    .Int => |i| i != 0,
+                    else => true,
+                };
+                const right_bool = switch (arg2) {
+                    .Bool => |b| b,
+                    .Int => |i| i != 0,
+                    else => true,
+                };
+                return types.Value{ .Bool = left_bool or right_bool };
+            },
+            .Not => {
+                // Handle ! operator (unary)
+                const operand_bool = switch (arg1) {
+                    .Bool => |b| b,
+                    .Int => |i| i != 0,
+                    else => true,
+                };
+                return types.Value{ .Bool = !operand_bool };
+            },
+            .BitAnd => {
+                // Handle & operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Int = arg1.Int & arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .BitOr => {
+                // Handle | operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Int = arg1.Int | arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .BitXor => {
+                // Handle ^ operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Int = arg1.Int ^ arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .BitNot => {
+                // Handle ~ operator (unary)
+                if (arg1 == .Int) {
+                    return types.Value{ .Int = ~arg1.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Shl => {
+                // Handle << operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    if (arg2.Int < 0 or arg2.Int >= 64) return error.TypeMismatch;
+                    const shift_amount = @as(u6, @intCast(arg2.Int));
+                    return types.Value{ .Int = arg1.Int << shift_amount };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Shr => {
+                // Handle >> operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    if (arg2.Int < 0 or arg2.Int >= 64) return error.TypeMismatch;
+                    const shift_amount = @as(u6, @intCast(arg2.Int));
+                    return types.Value{ .Int = arg1.Int >> shift_amount };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Concat => {
+                // Handle ++ operator
+                if (arg1 == .String and arg2 == .String) {
+                    // This would need allocator access, but we don't have it here
+                    // This function should probably be redesigned
+                    return error.TypeMismatch;
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Len => {
+                // Handle len function (unary)
+                const result = switch (arg1) {
+                    .String => |s| @as(i64, @intCast(s.len)),
+                    .Array => |arr| @as(i64, @intCast(arr.len)),
+                    else => return error.TypeMismatch,
+                };
+                return types.Value{ .Int = result };
+            },
+            .Type => {
+                // Handle type function (unary)
+                const type_name = switch (arg1) {
+                    .Int => "int",
+                    .Bool => "bool",
+                    .String => "string",
+                    else => "unknown",
+                };
+                // This would need allocator access to duplicate the string
+                // This function should probably be redesigned
+                _ = type_name;
                 return error.TypeMismatch;
             },
         };

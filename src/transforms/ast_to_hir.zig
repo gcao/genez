@@ -367,18 +367,133 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 },
             };
         },
-        .ClassDef => {
-            // TODO: Implement proper HIR class support
-            // For now, convert class definitions to nil literals as placeholder
+        .ClassDef => |class_def| {
+            // Convert AST class definition to HIR class definition
+            var hir_class = try allocator.create(hir.HIR.ClassDef);
+            errdefer allocator.destroy(hir_class);
+            
+            // Convert class name
+            hir_class.name = try allocator.dupe(u8, class_def.name);
+            hir_class.allocator = allocator;
+            
+            // Convert parent class if present
+            hir_class.parent_class = if (class_def.parent_class) |parent|
+                try allocator.dupe(u8, parent)
+            else
+                null;
+            
+            // Convert traits
+            hir_class.traits = try allocator.alloc([]const u8, class_def.traits.len);
+            for (class_def.traits, 0..) |trait_name, i| {
+                hir_class.traits[i] = try allocator.dupe(u8, trait_name);
+            }
+            
+            // Convert fields
+            hir_class.fields = try allocator.alloc(hir.HIR.ClassField, class_def.fields.len);
+            for (class_def.fields, 0..) |field, i| {
+                hir_class.fields[i] = hir.HIR.ClassField{
+                    .name = try allocator.dupe(u8, field.name),
+                    .type_annotation = if (field.type_annotation) |type_ann|
+                        try allocator.dupe(u8, type_ann)
+                    else
+                        null,
+                    .is_public = field.is_public,
+                    .default_value = if (field.default_value) |default_val| blk: {
+                        var hir_default = try lowerExpression(allocator, default_val.*);
+                        errdefer hir_default.deinit(allocator);
+                        const default_ptr = try allocator.create(hir.HIR.Expression);
+                        errdefer allocator.destroy(default_ptr);
+                        default_ptr.* = hir_default;
+                        break :blk default_ptr;
+                    } else null,
+                };
+            }
+            
+            // Convert methods
+            hir_class.methods = try allocator.alloc(hir.HIR.ClassMethod, class_def.methods.len);
+            for (class_def.methods, 0..) |method, i| {
+                // Convert method parameters
+                var hir_params = try allocator.alloc(hir.HIR.FuncParam, method.params.len);
+                for (method.params, 0..) |param, j| {
+                    hir_params[j] = hir.HIR.FuncParam{
+                        .name = try allocator.dupe(u8, param.name),
+                        .param_type = if (param.type_annotation) |type_ann|
+                            try allocator.dupe(u8, type_ann)
+                        else
+                            null,
+                    };
+                }
+                
+                // Convert method body
+                var hir_body = try lowerExpression(allocator, method.body.*);
+                errdefer hir_body.deinit(allocator);
+                const body_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(body_ptr);
+                body_ptr.* = hir_body;
+                
+                hir_class.methods[i] = hir.HIR.ClassMethod{
+                    .name = try allocator.dupe(u8, method.name),
+                    .params = hir_params,
+                    .body = body_ptr,
+                    .is_public = method.is_public,
+                    .is_virtual = method.is_virtual,
+                    .is_abstract = method.is_abstract,
+                    .is_static = method.is_static,
+                };
+            }
+            
             return hir.HIR.Expression{
-                .literal = .{ .nil = {} }
+                .class_def = hir_class
             };
         },
-        .MatchExpr => {
-            // TODO: Implement proper HIR pattern matching support
-            // For now, convert match expressions to nil literals as placeholder
+        .MatchExpr => |match_expr| {
+            // Convert AST match expression to HIR match expression
+            var hir_match = try allocator.create(hir.HIR.MatchExpr);
+            errdefer allocator.destroy(hir_match);
+            
+            // Convert scrutinee (the value being matched)
+            var hir_scrutinee = try lowerExpression(allocator, match_expr.scrutinee.*);
+            errdefer hir_scrutinee.deinit(allocator);
+            const scrutinee_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(scrutinee_ptr);
+            scrutinee_ptr.* = hir_scrutinee;
+            
+            hir_match.scrutinee = scrutinee_ptr;
+            
+            // Convert match arms
+            hir_match.arms = try allocator.alloc(hir.HIR.MatchArm, match_expr.arms.len);
+            for (match_expr.arms, 0..) |arm, i| {
+                // Convert pattern
+                var hir_pattern = try convertPattern(allocator, arm.pattern);
+                errdefer hir_pattern.deinit(allocator);
+                
+                // Convert guard if present
+                var hir_guard: ?*hir.HIR.Expression = null;
+                if (arm.guard) |guard| {
+                    var guard_expr = try lowerExpression(allocator, guard.*);
+                    errdefer guard_expr.deinit(allocator);
+                    const guard_ptr = try allocator.create(hir.HIR.Expression);
+                    errdefer allocator.destroy(guard_ptr);
+                    guard_ptr.* = guard_expr;
+                    hir_guard = guard_ptr;
+                }
+                
+                // Convert body
+                var hir_body = try lowerExpression(allocator, arm.body.*);
+                errdefer hir_body.deinit(allocator);
+                const body_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(body_ptr);
+                body_ptr.* = hir_body;
+                
+                hir_match.arms[i] = hir.HIR.MatchArm{
+                    .pattern = hir_pattern,
+                    .guard = hir_guard,
+                    .body = body_ptr,
+                };
+            }
+            
             return hir.HIR.Expression{
-                .literal = .{ .nil = {} }
+                .match_expr = hir_match
             };
         },
         .ModuleDef => {
@@ -400,6 +515,149 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             // For now, convert export statements to nil literals as placeholder
             return hir.HIR.Expression{
                 .literal = .{ .nil = {} }
+            };
+        },
+    };
+}
+
+// Helper function to convert AST patterns to HIR patterns
+fn convertPattern(allocator: std.mem.Allocator, pattern: ast.MatchExpr.Pattern) anyerror!hir.HIR.Pattern {
+    return switch (pattern) {
+        .Literal => |lit| blk: {
+            var hir_value = try lowerExpression(allocator, lit.value.*);
+            errdefer hir_value.deinit(allocator);
+            const value_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(value_ptr);
+            value_ptr.* = hir_value;
+            
+            break :blk hir.HIR.Pattern{
+                .literal = .{ .value = value_ptr }
+            };
+        },
+        .Variable => |var_pat| hir.HIR.Pattern{
+            .variable = .{
+                .name = try allocator.dupe(u8, var_pat.name),
+                .type_annotation = if (var_pat.type_annotation) |type_ann|
+                    try allocator.dupe(u8, type_ann)
+                else
+                    null,
+            }
+        },
+        .Wildcard => hir.HIR.Pattern{ .wildcard = {} },
+        .Constructor => |ctor| blk: {
+            var hir_fields = try allocator.alloc(hir.HIR.Pattern, ctor.fields.len);
+            errdefer allocator.free(hir_fields);
+            
+            for (ctor.fields, 0..) |field, i| {
+                hir_fields[i] = try convertPattern(allocator, field);
+                errdefer {
+                    // Clean up already converted patterns if later ones fail
+                    for (hir_fields[0..i]) |*prev_field| {
+                        prev_field.deinit(allocator);
+                    }
+                }
+            }
+            
+            break :blk hir.HIR.Pattern{
+                .constructor = .{
+                    .constructor = try allocator.dupe(u8, ctor.constructor),
+                    .fields = hir_fields,
+                }
+            };
+        },
+        .Array => |arr| blk: {
+            var hir_elements = try allocator.alloc(hir.HIR.Pattern, arr.elements.len);
+            errdefer allocator.free(hir_elements);
+            
+            for (arr.elements, 0..) |element, i| {
+                hir_elements[i] = try convertPattern(allocator, element);
+                errdefer {
+                    // Clean up already converted patterns if later ones fail
+                    for (hir_elements[0..i]) |*prev_elem| {
+                        prev_elem.deinit(allocator);
+                    }
+                }
+            }
+            
+            break :blk hir.HIR.Pattern{
+                .array = .{
+                    .elements = hir_elements,
+                    .rest = if (arr.rest) |rest|
+                        try allocator.dupe(u8, rest)
+                    else
+                        null,
+                }
+            };
+        },
+        .Map => |map| blk: {
+            var hir_fields = try allocator.alloc(hir.HIR.Pattern.MapPattern.MapFieldPattern, map.fields.len);
+            errdefer allocator.free(hir_fields);
+            
+            for (map.fields, 0..) |field, i| {
+                var hir_pattern = try convertPattern(allocator, field.pattern);
+                errdefer hir_pattern.deinit(allocator);
+                
+                hir_fields[i] = hir.HIR.Pattern.MapPattern.MapFieldPattern{
+                    .key = try allocator.dupe(u8, field.key),
+                    .pattern = hir_pattern,
+                };
+                
+                errdefer {
+                    // Clean up already converted fields if later ones fail
+                    for (hir_fields[0..i]) |*prev_field| {
+                        prev_field.deinit(allocator);
+                        prev_field.pattern.deinit(allocator);
+                    }
+                }
+            }
+            
+            break :blk hir.HIR.Pattern{
+                .map = .{
+                    .fields = hir_fields,
+                    .rest = if (map.rest) |rest|
+                        try allocator.dupe(u8, rest)
+                    else
+                        null,
+                }
+            };
+        },
+        .Or => |or_pat| blk: {
+            var hir_patterns = try allocator.alloc(hir.HIR.Pattern, or_pat.patterns.len);
+            errdefer allocator.free(hir_patterns);
+            
+            for (or_pat.patterns, 0..) |sub_pattern, i| {
+                hir_patterns[i] = try convertPattern(allocator, sub_pattern);
+                errdefer {
+                    // Clean up already converted patterns if later ones fail
+                    for (hir_patterns[0..i]) |*prev_pattern| {
+                        prev_pattern.deinit(allocator);
+                    }
+                }
+            }
+            
+            break :blk hir.HIR.Pattern{
+                .or_pattern = .{ .patterns = hir_patterns }
+            };
+        },
+        .Range => |range| blk: {
+            var hir_start = try lowerExpression(allocator, range.start.*);
+            errdefer hir_start.deinit(allocator);
+            const start_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(start_ptr);
+            start_ptr.* = hir_start;
+            
+            var hir_end = try lowerExpression(allocator, range.end.*);
+            errdefer hir_end.deinit(allocator);
+            const end_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(end_ptr);
+            end_ptr.* = hir_end;
+            
+            break :blk hir.HIR.Pattern{
+                .range = .{
+                    .start = start_ptr,
+                    .end = end_ptr,
+                    .inclusive = range.inclusive,
+                }
             };
         },
     };

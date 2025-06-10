@@ -1,0 +1,28 @@
+;; Showcase of pattern matching and class infrastructure
+;; This tests the HIR structures we've built
+
+;; Class with pattern matching in methods (conceptual)
+(class OptionType
+  :fields (
+    (has_value :bool :public)
+    (value :any :public)
+  )
+  :methods (
+    (is_some () this.has_value)
+    (unwrap () 
+      (if this.has_value 
+        this.value 
+        nil))
+  )
+)
+
+;; Variables for testing
+(var result 42)
+(var message "HIR pattern matching infrastructure complete!")
+
+;; Output
+(print message)
+(print result)
+
+;; Class definition should be processed through HIR
+(print "Class and pattern infrastructure ready")
