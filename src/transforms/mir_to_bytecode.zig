@@ -71,7 +71,6 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
 }
 
 fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, created_functions: *std.ArrayList(*bytecode.Function)) !void {
-    std.debug.print("[MIR->BC] Converting instruction: {s} to function with {d} instructions\n", .{ @tagName(instr.*), func.instructions.items.len });
     switch (instr.*) {
         .LoadInt => |val| try func.instructions.append(.{
             .op = bytecode.OpCode.LoadConst,
@@ -225,7 +224,6 @@ fn convertInstruction(func: *bytecode.Function, instr: *mir.MIR.Instruction, cre
         }),
         .LoadFunction => |func_ptr| {
             // Create a proper function object and convert the MIR function body to bytecode
-            std.debug.print("[MIR->BC] LoadFunction: name={s}, param_count={}\n", .{ func_ptr.name, func_ptr.param_count });
             const new_func = try func.allocator.create(bytecode.Function);
             new_func.* = bytecode.Function{
                 .instructions = std.ArrayList(bytecode.Instruction).init(func.allocator),

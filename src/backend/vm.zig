@@ -48,7 +48,6 @@ pub const VM = struct {
     function_called: bool, // Flag to indicate if a function was just called
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
-        debug.log("Initializing VM", .{});
 
         // Initialize variables with builtins
         var variables = std.StringArrayHashMap(types.Value).init(allocator);
@@ -76,31 +75,21 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
-        debug.log("Deinitializing VM", .{});
-
-        debug.log("Cleaning up call frames", .{});
         self.call_frames.deinit();
 
-        debug.log("Cleaning up allocated functions", .{});
         for (self.allocated_functions.items) |func| {
             func.deinit();
             self.allocator.destroy(func);
         }
         self.allocated_functions.deinit();
 
-        debug.log("Cleaning up stack with {} items", .{self.stack.items.len});
         for (self.stack.items) |*value| {
-            debug.log("Deinitializing stack value:", .{});
-            debug.log("{any}", .{value.*});
             value.deinit(self.allocator);
         }
         self.stack.deinit();
 
-        debug.log("Cleaning up variables map with {} entries", .{self.variables.count()});
         var it = self.variables.iterator();
         while (it.next()) |entry| {
-            debug.log("Deinitializing variable {s}:", .{entry.key_ptr.*});
-            debug.log("{any}", .{entry.value_ptr.*});
             entry.value_ptr.deinit(self.allocator);
             // Don't free the key here, as it's owned by the Variable value
             // self.allocator.free(entry.key_ptr.*);
@@ -153,7 +142,6 @@ pub const VM = struct {
 
             // Execute the current instruction
             const instruction = executing_func.instructions.items[self.pc];
-            debug.log("Executing instruction {}: {any}", .{ self.pc, instruction.op });
             self.function_called = false; // Reset the flag
             try self.executeInstruction(instruction);
 
@@ -163,7 +151,6 @@ pub const VM = struct {
             }
         }
 
-        debug.log("Finished execution", .{});
     }
 
     fn executeInstruction(self: *VM, instruction: bytecode.Instruction) VMError!void {
@@ -228,7 +215,6 @@ pub const VM = struct {
                 right.deinit(self.allocator);
             },
             .LoadConst => {
-                debug.log("LoadConst:", .{});
                 debug.logValue(instruction.operand.?);
                 // For functions, don't clone - just use the reference directly
                 const value = if (instruction.operand.? == .Function)
@@ -236,7 +222,6 @@ pub const VM = struct {
                 else
                     try instruction.operand.?.clone(self.allocator);
                 try self.stack.append(value);
-                debug.log("Stack size after instruction: {}", .{self.stack.items.len});
             },
             .LoadVar => {
                 const name = switch (instruction.operand.?) {
@@ -324,7 +309,6 @@ pub const VM = struct {
                 const param_value = try self.stack.items[param_pos].clone(self.allocator);
                 try self.stack.append(param_value);
                 debug.log("Loaded parameter: {any}", .{param_value});
-                debug.log("Stack size after instruction: {}", .{self.stack.items.len});
             },
             .StoreVar => {
                 debug.log("StoreVar instruction", .{});
@@ -694,7 +678,6 @@ pub const VM = struct {
                     .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}\n", .{op}),
                 }
                 value.deinit(self.allocator);
-                debug.log("Stack size after instruction: {}", .{self.stack.items.len});
             },
             .Call => {
                 debug.log("Call operation", .{});

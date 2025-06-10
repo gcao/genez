@@ -1,7 +1,16 @@
 const std = @import("std");
 
+// Global debug flag - set by the runtime
+var debug_enabled: bool = false;
+
+pub fn setDebugEnabled(enabled: bool) void {
+    debug_enabled = enabled;
+}
+
 pub fn log(comptime format: []const u8, args: anytype) void {
-    std.debug.print("[DEBUG] " ++ format ++ "\n", args);
+    if (debug_enabled) {
+        std.debug.print("[DEBUG] " ++ format ++ "\n", args);
+    }
 }
 
 pub fn logValue(value: @import("types.zig").Value) void {

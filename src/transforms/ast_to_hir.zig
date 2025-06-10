@@ -81,14 +81,6 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             };
         },
         .FuncCall => |func_call| {
-            std.debug.print("ast_to_hir: FuncCall.func_expr kind: {any}\n", .{func_call.func.*});
-            if (func_call.func.* == .Variable) {
-                std.debug.print("ast_to_hir: FuncCall.func_expr.Variable.name: '{s}', len: {}\n", .{
-                    func_call.func.*.Variable.name,
-                    func_call.func.*.Variable.name.len,
-                });
-            }
-            std.debug.print("ast_to_hir: FuncCall.args.len: {}\n", .{func_call.args.items.len});
 
             // Process as a regular function call.
             const func = try lowerExpression(allocator, func_call.func.*);
@@ -190,7 +182,6 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             hir_func.name = try allocator.dupe(u8, func_def.name);
 
             // Convert parameters
-            std.debug.print("[AST->HIR] FuncDef: name={s}, params.len={}\n", .{ func_def.name, func_def.params.len });
             hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
             for (func_def.params, 0..) |param, i| {
                 hir_func.params[i] = .{

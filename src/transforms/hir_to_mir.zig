@@ -23,7 +23,6 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
     mir_func.name = try allocator.dupe(u8, func.name);
 
     // Set parameter count and names
-    std.debug.print("[HIR->MIR] convertFunction: name={s}, params.len={}\n", .{ func.name, func.params.len });
     mir_func.param_count = func.params.len;
     for (func.params) |param| {
         const param_name = try allocator.dupe(u8, param.name);
@@ -35,11 +34,6 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
 
     // Create context for the function body with parameter names
     const func_context = ConversionContext{ .param_names = mir_func.param_names.items };
-    std.debug.print("[HIR->MIR] Created context with {} parameters: ", .{mir_func.param_names.items.len});
-    for (mir_func.param_names.items, 0..) |param_name, i| {
-        std.debug.print("{}:{s} ", .{ i, param_name });
-    }
-    std.debug.print("\n", .{});
 
     // Convert HIR statements to MIR instructions
     for (func.body.items) |stmt| {
@@ -131,7 +125,6 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
     switch (expr) {
         .literal => |lit| switch (lit) {
             .int => |val| {
-                std.debug.print("[HIR->MIR] LoadInt: {}\n", .{val});
                 try block.instructions.append(.{ .LoadInt = val });
             },
             .string => |val| try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, val) }),
@@ -179,7 +172,6 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             },
         },
         .binary_op => |bin_op| {
-            std.debug.print("[HIR->MIR] Binary op: {}\n", .{bin_op.op});
             // First convert and load the left operand
             try convertExpressionWithContext(block, bin_op.left.*, context);
 
@@ -191,7 +183,6 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 .add => try block.instructions.append(.Add),
                 .sub => try block.instructions.append(.Sub),
                 .lt => {
-                    std.debug.print("[HIR->MIR] Appending LessThan\n", .{});
                     try block.instructions.append(.LessThan);
                 },
                 .gt => try block.instructions.append(.GreaterThan), // Added GreaterThan
@@ -205,11 +196,9 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Check if this is a parameter reference
             if (context.isParameter(var_expr.name)) |param_index| {
                 // Load parameter by index
-                std.debug.print("[HIR->MIR] LoadParameter: {s} (index {})\n", .{ var_expr.name, param_index });
                 try block.instructions.append(.{ .LoadParameter = param_index });
             } else {
                 // Load regular variable
-                std.debug.print("[HIR->MIR] LoadVariable: {s}\n", .{var_expr.name});
                 const name_copy = try block.allocator.dupe(u8, var_expr.name);
                 try block.instructions.append(.{ .LoadVariable = name_copy });
             }
@@ -314,7 +303,6 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
         .function => |hir_func_ptr| {
             // When a function is encountered as an expression, it needs to be converted to MIR
             // and then loaded as a function object.
-            std.debug.print("[HIR->MIR] Converting HIR Function to MIR Function (as expression): {s}\n", .{hir_func_ptr.*.name});
             var mir_func = convertFunction(block.allocator, hir_func_ptr.*) catch |err| {
                 std.debug.print("Error converting function: {}\n", .{err});
                 return err;

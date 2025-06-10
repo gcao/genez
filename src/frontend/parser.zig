@@ -99,38 +99,32 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
         switch (c) {
             '(' => {
                 const token = Token{ .kind = .LParen, .loc = i };
-                debug.log("Found (", .{});
                 try tokens.append(token);
                 i += 1;
                 continue;
             },
             ')' => {
                 const token = Token{ .kind = .RParen, .loc = i };
-                debug.log("Found )", .{});
                 try tokens.append(token);
                 i += 1;
                 continue;
             },
             '[' => {
-                debug.log("Found [", .{});
                 try tokens.append(.{ .kind = .LBracket, .loc = i });
                 i += 1;
                 continue;
             },
             ']' => {
-                debug.log("Found ]", .{});
                 try tokens.append(.{ .kind = .RBracket, .loc = i });
                 i += 1;
                 continue;
             },
             '{' => {
-                debug.log("Found {{", .{}); // Escaped literal brace
                 try tokens.append(.{ .kind = .LBrace, .loc = i });
                 i += 1;
                 continue;
             },
             '}' => {
-                debug.log("Found }}", .{}); // Escaped literal brace
                 try tokens.append(.{ .kind = .RBrace, .loc = i });
                 i += 1;
                 continue;
@@ -138,20 +132,17 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             '=' => {
                 // Check for == operator
                 if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '=') {
-                    debug.log("Found ==", .{});
                     // Create an identifier token for ==
                     const op_str = source_to_parse[i .. i + 2];
                     try tokens.append(.{ .kind = .{ .Ident = op_str }, .loc = i });
                     i += 2;
                 } else {
-                    debug.log("Found =", .{});
                     try tokens.append(.{ .kind = .Equals, .loc = i });
                     i += 1;
                 }
                 continue;
             },
             '.' => {
-                debug.log("Found .", .{});
                 try tokens.append(.{ .kind = .Dot, .loc = i });
                 i += 1;
                 continue;
@@ -168,7 +159,6 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                 std.debug.print("Error parsing int '{s}': {any}\n", .{ int_str, err });
                 return err;
             };
-            debug.log("Found {}", .{int_val});
             try tokens.append(.{ .kind = .{ .Int = int_val }, .loc = start });
             i += 1;
             continue;
@@ -182,7 +172,6 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             if (i >= source_to_parse.len) return error.UnterminatedString;
             // Allocate string here
             const str = try allocator.dupe(u8, source_to_parse[start..i]);
-            debug.log("Found \"{s}\"", .{str});
             try tokens.append(.{ .kind = .{ .String = str }, .loc = start - 1 });
             i += 1; // Move past closing quote
             continue;
@@ -205,7 +194,6 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                 token_kind = .{ .Ident = word };
             }
 
-            debug.log("Found {s}", .{word});
             try tokens.append(.{ .kind = token_kind, .loc = start });
             i += 1;
             continue;
@@ -214,7 +202,6 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
         debug.log("Skipping unknown character: {c}", .{c});
         i += 1;
     }
-    debug.log("Finished tokenizing, found {} tokens", .{tokens.items.len});
     return tokens;
 }
 
@@ -283,7 +270,6 @@ pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) 
     var tokens = try tokenize(arena_allocator, source);
     // No need to defer cleanup for tokens since they'll be freed with the arena
 
-    debug.log("Starting to parse tokens into AST", .{});
     // Use arena allocator for everything to avoid mixing allocators
     var result_nodes = std.ArrayList(ast.AstNode).init(arena_allocator);
     errdefer {
@@ -349,7 +335,6 @@ pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) 
 fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) ParserError!ParseResult {
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
     if (toks.len == 0) return error.EmptyExpression;
-    debug.log("parseExpression depth={} tokens[0]={any}", .{ depth, toks[0] });
     if (toks[0].kind == .LParen and toks.len > 1) {
         debug.log("  Next token: {any}", .{toks[1]});
     }
@@ -863,12 +848,9 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
 
     if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1; // Skip '['
-        std.debug.print("[PARSER] Starting parameter parsing loop\n", .{});
         while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
-            std.debug.print("[PARSER] Loop iteration: current_pos={}, token={any}\n", .{ current_pos, if (current_pos < toks.len) toks[current_pos] else null });
             if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
             const param_name_slice = toks[current_pos].kind.Ident;
-            std.debug.print("[PARSER] Found parameter: {s}\n", .{param_name_slice});
             const param_name_copy = try alloc.dupe(u8, param_name_slice);
             current_pos += 1;
 
@@ -883,14 +865,11 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
                     std.mem.eql(u8, potential_type, "bool")) {
                     param_type = try alloc.dupe(u8, potential_type);
                     current_pos += 1; // Skip the type annotation
-                    std.debug.print("[PARSER] Found type annotation: {s}\n", .{potential_type});
                 }
             }
 
             try params_list.append(.{ .name = param_name_copy, .param_type = param_type });
-            std.debug.print("[PARSER] Added parameter to list, current count: {}\n", .{params_list.items.len});
         }
-        std.debug.print("[PARSER] Finished parameter parsing loop\n", .{});
         if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
         current_pos += 1; // Skip ']'
     }
@@ -914,12 +893,10 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
         }
     }
 
-    std.debug.print("[PARSER] Function {s} has {} parameters\n", .{ name_copy, params_list.items.len });
     const fn_node: ast.AstNode = if (params_list.items.len > 0) blk: {
         const params_slice = try params_list.toOwnedSlice(); // Transfers ownership
         const body_ptr = try alloc.create(ast.Expression);
         body_ptr.* = body_result.node.Expression;
-        std.debug.print("[PARSER] Creating FuncDef with {} parameters\n", .{params_slice.len});
         break :blk .{
             .Expression = .{
                 .FuncDef = .{ .name = name_copy, .params = params_slice, .body = body_ptr },

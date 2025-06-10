@@ -5,6 +5,7 @@ const vm = @import("backend/vm.zig");
 const pipeline = @import("pipeline.zig");
 const compiler = @import("compiler.zig");
 const debug_output = @import("core/debug_output.zig");
+const debug = @import("core/debug.zig");
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
@@ -12,6 +13,9 @@ pub const Runtime = struct {
     stdout: std.fs.File.Writer,
 
     pub fn init(allocator: std.mem.Allocator, debug_mode: bool, stdout: std.fs.File.Writer) Runtime {
+        // Set the global debug flag
+        debug.setDebugEnabled(debug_mode);
+        
         return Runtime{
             .allocator = allocator,
             .debug_mode = debug_mode,
@@ -34,13 +38,9 @@ pub const Runtime = struct {
         defer result.deinit();
 
         // Execute bytecode
-        if (self.debug_mode) {
-            std.debug.print("[DEBUG] Starting execution...\n", .{});
-        }
+        debug.log("Starting execution...", .{});
         try self.execute(@constCast(&result.main_func));
-        if (self.debug_mode) {
-            std.debug.print("[DEBUG] Execution completed successfully\n", .{});
-        }
+        debug.log("Execution completed successfully", .{});
     }
 
     fn runBytecodeFile(self: *Runtime, path: []const u8) !void {
@@ -74,21 +74,17 @@ pub const Runtime = struct {
         var result = try pipeline.compileFile(self.allocator, path, options);
         defer result.deinit();
 
-        if (self.debug_mode) {
-            std.debug.print("[DEBUG] Compilation completed, starting execution...\n", .{});
-        }
+        debug.log("Compilation completed, starting execution...", .{});
 
         try self.execute(@constCast(&result.main_func));
 
-        if (self.debug_mode) {
-            std.debug.print("[DEBUG] File execution completed successfully!\n", .{});
-        }
+        debug.log("File execution completed successfully!", .{});
     }
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {
         // Use debug output for bytecode display
-        const debug = debug_output.DebugOutput.init(self.stdout, self.debug_mode);
-        debug.writeBytecodeInstructions(func);
+        const debug_out = debug_output.DebugOutput.init(self.stdout, self.debug_mode);
+        debug_out.writeBytecodeInstructions(func);
 
         // Create VM and execute bytecode
         var gene_vm = vm.VM.init(self.allocator, self.stdout);
@@ -107,9 +103,7 @@ pub const Runtime = struct {
         var result = try pipeline.compileFile(self.allocator, file_path, options);
         defer result.deinit();
 
-        if (self.debug_mode) {
-            std.debug.print("[DEBUG] Compilation completed, writing bytecode...\n", .{});
-        }
+        debug.log("Compilation completed, writing bytecode...", .{});
 
         // Generate output filename by replacing .gene with .gbc
         const output_path = if (std.mem.endsWith(u8, file_path, ".gene"))
@@ -147,9 +141,8 @@ pub const Runtime = struct {
         // Write module to file
         try module.writeToFile(output_file.writer());
 
-        if (self.debug_mode) {
-            std.debug.print("[DEBUG] Bytecode written to: {s}\n", .{output_path});
-        } else {
+        debug.log("Bytecode written to: {s}", .{output_path});
+        if (!self.debug_mode) {
             try self.stdout.print("Compiled {s} -> {s}\n", .{ file_path, output_path });
         }
     }
