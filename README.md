@@ -55,9 +55,12 @@ Output from default.gene
 ```
 src/
 ├── main.zig         # Main entry point + WASM exports
-├── parser.zig       # Parser implementation
-├── bytecode.zig     # Bytecode generation
-├── vm.zig           # Virtual machine
+├── pipeline.zig     # Top-level compilation pipeline
+├── runtime.zig      # Runtime helpers for the VM
+├── frontend/        # AST definitions and parser
+├── ir/              # High/Mid-level IR data structures
+├── transforms/      # Passes converting between IR levels
+└── backend/         # Bytecode generation and virtual machine
 ```
 
 ## Status
