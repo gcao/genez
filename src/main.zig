@@ -10,6 +10,7 @@ fn printHelp(writer: anytype) !void {
     try writer.print("  run       Run a Gene source file\n", .{});
     try writer.print("  compile   Compile a Gene source file\n", .{});
     try writer.print("  repl      Start the Gene REPL\n", .{});
+    try writer.print("  eval      Evaluate a Gene expression string\n", .{});
     try writer.print("  help      Show this help message\n", .{});
     try writer.print("  version   Show the current version\n", .{});
     try writer.print("\nOptions:\n", .{});
@@ -62,6 +63,17 @@ pub fn main() !void {
         defer rt.deinit();
 
         try rt.compileFile(file);
+    } else if (std.mem.eql(u8, command, "eval")) {
+        if (args.len < 3) {
+            std.debug.print("Usage: gene eval <source> [--debug]\n", .{});
+            return;
+        }
+
+        const source = args[2];
+        var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
+        defer rt.deinit();
+
+        try rt.eval(source);
     } else if (std.mem.eql(u8, command, "repl")) {
         var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
