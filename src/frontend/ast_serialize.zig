@@ -109,6 +109,240 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             }
             try writer.writeAll(")");
         },
+        .ClassDef => |class_def| {
+            try writer.print("(class \"{s}\"", .{class_def.name});
+            
+            // Add parent class if present
+            if (class_def.parent_class) |parent| {
+                try writer.print(" :extends \"{s}\"", .{parent});
+            }
+            
+            // Add traits if present
+            if (class_def.traits.len > 0) {
+                try writer.writeAll(" :implements (");
+                for (class_def.traits, 0..) |trait_name, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("\"{s}\"", .{trait_name});
+                }
+                try writer.writeAll(")");
+            }
+            
+            // Add fields
+            if (class_def.fields.len > 0) {
+                try writer.writeAll(" :fields (");
+                for (class_def.fields, 0..) |field, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("(\"{s}\"", .{field.name});
+                    if (field.type_annotation) |type_ann| {
+                        try writer.print(" :{s}", .{type_ann});
+                    }
+                    if (!field.is_public) try writer.writeAll(" :private");
+                    if (field.default_value) |default_val| {
+                        try writer.writeAll(" :default ");
+                        try serializeExpression(writer, default_val.*, indent + 1);
+                    }
+                    try writer.writeAll(")");
+                }
+                try writer.writeAll(")");
+            }
+            
+            // Add methods
+            if (class_def.methods.len > 0) {
+                try writer.writeAll(" :methods (");
+                for (class_def.methods, 0..) |method, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("(\"{s}\" (", .{method.name});
+                    
+                    // Parameters
+                    for (method.params, 0..) |param, j| {
+                        if (j > 0) try writer.writeAll(" ");
+                        try writer.print("\"{s}\"", .{param.name});
+                        if (param.type_annotation) |type_ann| {
+                            try writer.print(" :{s}", .{type_ann});
+                        }
+                    }
+                    try writer.writeAll(") ");
+                    
+                    // Method body
+                    try serializeExpression(writer, method.body.*, indent + 1);
+                    
+                    // Method flags
+                    if (!method.is_public) try writer.writeAll(" :private");
+                    if (method.is_virtual) try writer.writeAll(" :virtual");
+                    if (method.is_abstract) try writer.writeAll(" :abstract");
+                    if (method.is_static) try writer.writeAll(" :static");
+                    
+                    try writer.writeAll(")");
+                }
+                try writer.writeAll(")");
+            }
+            
+            try writer.writeAll(")");
+        },
+        .MatchExpr => |match_expr| {
+            try writer.writeAll("(match ");
+            try serializeExpression(writer, match_expr.scrutinee.*, indent + 1);
+            
+            for (match_expr.arms) |arm| {
+                try writer.writeAll(" (");
+                try serializePattern(writer, arm.pattern, indent + 1);
+                
+                if (arm.guard) |guard| {
+                    try writer.writeAll(" :when ");
+                    try serializeExpression(writer, guard.*, indent + 1);
+                }
+                
+                try writer.writeAll(" ");
+                try serializeExpression(writer, arm.body.*, indent + 1);
+                try writer.writeAll(")");
+            }
+            
+            try writer.writeAll(")");
+        },
+        .ModuleDef => |module_def| {
+            try writer.print("(module \"{s}\"", .{module_def.name});
+            
+            // Add imports
+            if (module_def.imports.len > 0) {
+                try writer.writeAll(" :imports (");
+                for (module_def.imports, 0..) |import_spec, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("(\"{s}\"", .{import_spec.module_path});
+                    if (import_spec.alias) |alias| {
+                        try writer.print(" :as \"{s}\"", .{alias});
+                    }
+                    if (import_spec.items) |items| {
+                        try writer.writeAll(" :items (");
+                        for (items, 0..) |item, j| {
+                            if (j > 0) try writer.writeAll(" ");
+                            try writer.print("\"{s}\"", .{item.name});
+                            if (item.alias) |alias| {
+                                try writer.print(" :as \"{s}\"", .{alias});
+                            }
+                        }
+                        try writer.writeAll(")");
+                    }
+                    try writer.writeAll(")");
+                }
+                try writer.writeAll(")");
+            }
+            
+            // Add exports
+            if (module_def.exports.len > 0) {
+                try writer.writeAll(" :exports (");
+                for (module_def.exports, 0..) |export_name, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("\"{s}\"", .{export_name});
+                }
+                try writer.writeAll(")");
+            }
+            
+            // Add body
+            try writer.writeAll(" ");
+            try serializeExpression(writer, module_def.body.*, indent + 1);
+            
+            try writer.writeAll(")");
+        },
+        .ImportStmt => |import_stmt| {
+            try writer.print("(import \"{s}\"", .{import_stmt.module_path});
+            
+            if (import_stmt.alias) |alias| {
+                try writer.print(" :as \"{s}\"", .{alias});
+            }
+            
+            if (import_stmt.items) |items| {
+                try writer.writeAll(" :items (");
+                for (items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("\"{s}\"", .{item.name});
+                    if (item.alias) |alias| {
+                        try writer.print(" :as \"{s}\"", .{alias});
+                    }
+                }
+                try writer.writeAll(")");
+            }
+            
+            try writer.writeAll(")");
+        },
+        .ExportStmt => |export_stmt| {
+            try writer.writeAll("(export ");
+            for (export_stmt.items, 0..) |item, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.print("\"{s}\"", .{item.name});
+                if (item.alias) |alias| {
+                    try writer.print(" :as \"{s}\"", .{alias});
+                }
+            }
+            try writer.writeAll(")");
+        },
+    }
+}
+
+/// Serialize a pattern to Gene format
+fn serializePattern(writer: anytype, pattern: ast.MatchExpr.Pattern, indent: usize) @TypeOf(writer).Error!void {
+    switch (pattern) {
+        .Literal => |lit| {
+            try serializeExpression(writer, lit.value.*, indent);
+        },
+        .Variable => |var_pat| {
+            try writer.print("${s}", .{var_pat.name});
+            if (var_pat.type_annotation) |type_ann| {
+                try writer.print(":{s}", .{type_ann});
+            }
+        },
+        .Wildcard => {
+            try writer.writeAll("_");
+        },
+        .Constructor => |ctor| {
+            try writer.print("({s}", .{ctor.constructor});
+            for (ctor.fields) |field| {
+                try writer.writeAll(" ");
+                try serializePattern(writer, field, indent + 1);
+            }
+            try writer.writeAll(")");
+        },
+        .Array => |arr| {
+            try writer.writeAll("[");
+            for (arr.elements, 0..) |elem, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try serializePattern(writer, elem, indent + 1);
+            }
+            if (arr.rest) |rest| {
+                if (arr.elements.len > 0) try writer.writeAll(" ");
+                try writer.print("..{s}", .{rest});
+            }
+            try writer.writeAll("]");
+        },
+        .Map => |map| {
+            try writer.writeAll("{");
+            for (map.fields, 0..) |field, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.print("{s}: ", .{field.key});
+                try serializePattern(writer, field.pattern, indent + 1);
+            }
+            if (map.rest) |rest| {
+                if (map.fields.len > 0) try writer.writeAll(" ");
+                try writer.print("..{s}", .{rest});
+            }
+            try writer.writeAll("}");
+        },
+        .Or => |or_pat| {
+            try writer.writeAll("(");
+            for (or_pat.patterns, 0..) |pat, i| {
+                if (i > 0) try writer.writeAll(" | ");
+                try serializePattern(writer, pat, indent + 1);
+            }
+            try writer.writeAll(")");
+        },
+        .Range => |range| {
+            try serializeExpression(writer, range.start.*, indent);
+            if (range.inclusive) {
+                try writer.writeAll("..");
+            } else {
+                try writer.writeAll("...");
+            }
+            try serializeExpression(writer, range.end.*, indent);
+        },
     }
 }
 

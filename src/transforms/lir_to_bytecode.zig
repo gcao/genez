@@ -89,6 +89,14 @@ fn convertInstruction(allocator: std.mem.Allocator, lir_instr: lir.LIR.Instructi
                 .operand = name_value,
             });
         },
+        .StoreVariable => |store_var| {
+            // Convert LIR StoreVariable to bytecode StoreVar
+            const name_value = try valueToOperand(allocator, store_var.name);
+            try bytecode_func.instructions.append(.{
+                .op = .StoreVar,
+                .operand = name_value,
+            });
+        },
         .Add => {
             try bytecode_func.instructions.append(.{
                 .op = .Add,
@@ -187,6 +195,7 @@ fn valueToOperand(allocator: std.mem.Allocator, value: anytype) !bytecode.Value 
         .Nil => bytecode.Value{ .Nil = {} },
         .String => |s| bytecode.Value{ .String = try allocator.dupe(u8, s) },
         .Symbol => |s| bytecode.Value{ .Symbol = try allocator.dupe(u8, s) },
+        .Function => |f| bytecode.Value{ .Function = f }, // Pass function pointers through directly
         else => {
             // For other value types, pass through for now
             return value;

@@ -81,6 +81,7 @@ pub const LIR = struct {
         
         // Variables
         LoadVariable: struct { dest: Reg, name: types.Value },
+        StoreVariable: struct { src: Reg, name: types.Value },
 
         // Arithmetic
         Add: struct { dest: Reg, left: Reg, right: Reg },
@@ -143,6 +144,9 @@ pub const LIR = struct {
                 },
                 .LoadVariable => |*load_var| {
                     load_var.name.deinit(allocator);
+                },
+                .StoreVariable => |*store_var| {
+                    store_var.name.deinit(allocator);
                 },
                 .Call => |*call| {
                     call.args.deinit();

@@ -61,6 +61,8 @@ pub const VM = struct {
         variables.put("==", .{ .BuiltinOperator = .Eq }) catch unreachable;
         variables.put("+", .{ .BuiltinOperator = .Add }) catch unreachable;
         variables.put("-", .{ .BuiltinOperator = .Sub }) catch unreachable;
+        variables.put("*", .{ .BuiltinOperator = .Mul }) catch unreachable;
+        variables.put("/", .{ .BuiltinOperator = .Div }) catch unreachable;
         
         return VM{
             .allocator = allocator,
@@ -909,6 +911,106 @@ pub const VM = struct {
 
                             return;
                         },
+                        .Mul => {
+                            // Check if we have two arguments
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the arguments
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                            // Clone the values to avoid use-after-free issues
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+
+                            // Handle multiplication based on types
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Int = left_val * right_val },
+                                    .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) * right_val },
+                                    else => types.Value{ .Nil = {} }, // Type error, return nil
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| types.Value{ .Float = left_val * @as(f64, @floatFromInt(right_val)) },
+                                    .Float => |right_val| types.Value{ .Float = left_val * right_val },
+                                    else => types.Value{ .Nil = {} }, // Type error, return nil
+                                },
+                                else => types.Value{ .Nil = {} }, // Type error, return nil
+                            };
+
+                            // Clean up the stack - remove operator AND arguments
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+
+                            // Clean up operands
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+
+                            // Push result onto stack
+                            try self.stack.append(result_value);
+
+                            return;
+                        },
+                        .Div => {
+                            // Check if we have two arguments
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the arguments
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                            // Clone the values to avoid use-after-free issues
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+
+                            // Handle division based on types
+                            const result_value = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| blk: {
+                                        if (right_val == 0) break :blk types.Value{ .Nil = {} }; // Division by zero
+                                        break :blk types.Value{ .Int = @divTrunc(left_val, right_val) };
+                                    },
+                                    .Float => |right_val| blk: {
+                                        if (right_val == 0.0) break :blk types.Value{ .Nil = {} }; // Division by zero
+                                        break :blk types.Value{ .Float = @as(f64, @floatFromInt(left_val)) / right_val };
+                                    },
+                                    else => types.Value{ .Nil = {} }, // Type error, return nil
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| blk: {
+                                        if (right_val == 0) break :blk types.Value{ .Nil = {} }; // Division by zero
+                                        break :blk types.Value{ .Float = left_val / @as(f64, @floatFromInt(right_val)) };
+                                    },
+                                    .Float => |right_val| blk: {
+                                        if (right_val == 0.0) break :blk types.Value{ .Nil = {} }; // Division by zero
+                                        break :blk types.Value{ .Float = left_val / right_val };
+                                    },
+                                    else => types.Value{ .Nil = {} }, // Type error, return nil
+                                },
+                                else => types.Value{ .Nil = {} }, // Type error, return nil
+                            };
+
+                            // Clean up the stack - remove operator AND arguments
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+
+                            // Clean up operands
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+
+                            // Push result onto stack
+                            try self.stack.append(result_value);
+
+                            return;
+                        },
                         .LessThan => {
                             // Check if we have two arguments
                             if (arg_count_usize != 2) {
@@ -1430,6 +1532,25 @@ pub const VM = struct {
                 // Handle - operator
                 if (arg1 == .Int and arg2 == .Int) {
                     return types.Value{ .Int = arg1.Int - arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Mul => {
+                // Handle * operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Int = arg1.Int * arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
+            .Div => {
+                // Handle / operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    if (arg2.Int == 0) {
+                        return error.DivisionByZero;
+                    }
+                    return types.Value{ .Int = @divTrunc(arg1.Int, arg2.Int) };
                 } else {
                     return error.TypeMismatch;
                 }

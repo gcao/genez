@@ -367,5 +367,40 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 },
             };
         },
+        .ClassDef => {
+            // TODO: Implement proper HIR class support
+            // For now, convert class definitions to nil literals as placeholder
+            return hir.HIR.Expression{
+                .literal = .{ .nil = {} }
+            };
+        },
+        .MatchExpr => {
+            // TODO: Implement proper HIR pattern matching support
+            // For now, convert match expressions to nil literals as placeholder
+            return hir.HIR.Expression{
+                .literal = .{ .nil = {} }
+            };
+        },
+        .ModuleDef => {
+            // TODO: Implement proper HIR module support
+            // For now, convert module definitions to nil literals as placeholder
+            return hir.HIR.Expression{
+                .literal = .{ .nil = {} }
+            };
+        },
+        .ImportStmt => {
+            // TODO: Implement proper HIR import support
+            // For now, convert import statements to nil literals as placeholder
+            return hir.HIR.Expression{
+                .literal = .{ .nil = {} }
+            };
+        },
+        .ExportStmt => {
+            // TODO: Implement proper HIR export support
+            // For now, convert export statements to nil literals as placeholder
+            return hir.HIR.Expression{
+                .literal = .{ .nil = {} }
+            };
+        },
     };
 }

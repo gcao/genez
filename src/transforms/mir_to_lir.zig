@@ -179,6 +179,24 @@ fn convertInstruction(allocator: std.mem.Allocator, reg_alloc: *RegisterAllocato
                 .Call = .{ .dest = dest_reg, .func = func_reg, .args = args },
             });
         },
+        .LoadFunction => |mir_func_ptr| {
+            // Skip the LoadFunction for now - this instruction type is not yet fully supported
+            // in the LIR stage. The function loading should be handled differently.
+            // For now, we'll skip this instruction and let the higher-level compilation handle it.
+            _ = mir_func_ptr;
+            // This is a placeholder - the function loading is complex and needs to be 
+            // handled at the bytecode generation level
+        },
+        .StoreVariable => |name| {
+            // Store variable by name - this will be converted to StoreVar in bytecode
+            const src_reg = reg_alloc.getLastRegister();
+            const name_copy = try allocator.dupe(u8, name);
+            const lir_value = types.Value{ .Symbol = name_copy };
+            // Use a special StoreVariable instruction that will map to StoreVar
+            try lir_func.instructions.append(.{
+                .StoreVariable = .{ .src = src_reg, .name = lir_value },
+            });
+        },
         .Return => {
             if (reg_alloc.stack_depth > 0) {
                 const value_reg = reg_alloc.getLastRegister();

@@ -8,6 +8,7 @@ const ast_to_hir = @import("transforms/ast_to_hir.zig");
 const hir_to_mir = @import("transforms/hir_to_mir.zig");
 const mir_to_lir = @import("transforms/mir_to_lir.zig");
 const lir_to_bytecode = @import("transforms/lir_to_bytecode.zig");
+const mir_to_bytecode = @import("transforms/mir_to_bytecode.zig");
 
 pub const CompilerOptions = struct {
     debug_mode: bool = false,
@@ -26,7 +27,7 @@ pub const CompilationContext = struct {
     }
 };
 
-pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !lir_to_bytecode.ConversionResult {
+pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.ConversionResult {
     // Initialize debug output
     const debug = debug_output.DebugOutput.init(std.io.getStdOut().writer(), ctx.options.debug_mode);
     
@@ -49,17 +50,9 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !lir_to_bytecode.C
     // Display MIR
     try debug.writeMIR(mir_prog, "MIR");
 
-    // MIR -> LIR
-    debug.writeMessage("\n=== MIR to LIR ===\n", .{});
-    var lir_prog = try mir_to_lir.convert(ctx.allocator, &mir_prog);
-    defer lir_prog.deinit();
-
-    // Display LIR
-    try debug.writeLIR(lir_prog, "LIR");
-
-    // LIR -> Bytecode
-    debug.writeMessage("\n=== LIR to Bytecode ===\n", .{});
-    const conversion_result = try lir_to_bytecode.convert(ctx.allocator, &lir_prog);
+    // MIR -> Bytecode (bypassing LIR for now until function handling is fixed)
+    debug.writeMessage("\n=== MIR to Bytecode ===\n", .{});
+    const conversion_result = try mir_to_bytecode.convert(ctx.allocator, &mir_prog);
 
     // Display Bytecode
     try debug.writeBytecode(conversion_result.main_func, "Bytecode");

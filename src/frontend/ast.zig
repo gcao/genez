@@ -382,6 +382,572 @@ pub const DoBlock = struct {
     }
 };
 
+pub const ClassDef = struct {
+    name: []const u8,
+    fields: []ClassField,
+    methods: []ClassMethod,
+    parent_class: ?[]const u8, // Name of parent class for inheritance
+    traits: [][]const u8, // Names of traits this class implements
+    
+    pub const ClassField = struct {
+        name: []const u8,
+        type_annotation: ?[]const u8, // Optional type annotation
+        default_value: ?*Expression, // Optional default value
+        is_public: bool,
+    };
+    
+    pub const ClassMethod = struct {
+        name: []const u8,
+        params: []Parameter,
+        return_type: ?[]const u8, // Optional return type annotation
+        body: *Expression,
+        is_public: bool,
+        is_virtual: bool, // Can be overridden
+        is_abstract: bool, // Must be implemented by subclasses
+        is_static: bool, // Class method vs instance method
+    };
+    
+    pub const Parameter = struct {
+        name: []const u8,
+        type_annotation: ?[]const u8,
+        default_value: ?*Expression,
+    };
+    
+    pub fn deinit(self: *ClassDef, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        
+        // Free fields
+        for (self.fields) |*field| {
+            allocator.free(field.name);
+            if (field.type_annotation) |type_ann| {
+                allocator.free(type_ann);
+            }
+            if (field.default_value) |default_val| {
+                default_val.deinit(allocator);
+                allocator.destroy(default_val);
+            }
+        }
+        allocator.free(self.fields);
+        
+        // Free methods
+        for (self.methods) |*method| {
+            allocator.free(method.name);
+            if (method.return_type) |ret_type| {
+                allocator.free(ret_type);
+            }
+            
+            // Free parameters
+            for (method.params) |*param| {
+                allocator.free(param.name);
+                if (param.type_annotation) |type_ann| {
+                    allocator.free(type_ann);
+                }
+                if (param.default_value) |default_val| {
+                    default_val.deinit(allocator);
+                    allocator.destroy(default_val);
+                }
+            }
+            allocator.free(method.params);
+            
+            method.body.deinit(allocator);
+            allocator.destroy(method.body);
+        }
+        allocator.free(self.methods);
+        
+        if (self.parent_class) |parent| {
+            allocator.free(parent);
+        }
+        
+        // Free traits
+        for (self.traits) |trait_name| {
+            allocator.free(trait_name);
+        }
+        allocator.free(self.traits);
+    }
+    
+    pub fn clone(self: ClassDef, allocator: std.mem.Allocator) !ClassDef {
+        const new_name = try allocator.dupe(u8, self.name);
+        
+        // Clone fields
+        var new_fields = try allocator.alloc(ClassField, self.fields.len);
+        errdefer allocator.free(new_fields);
+        for (self.fields, 0..) |field, i| {
+            new_fields[i] = ClassField{
+                .name = try allocator.dupe(u8, field.name),
+                .type_annotation = if (field.type_annotation) |type_ann| try allocator.dupe(u8, type_ann) else null,
+                .default_value = if (field.default_value) |default_val| blk: {
+                    const new_default = try allocator.create(Expression);
+                    new_default.* = try default_val.clone(allocator);
+                    break :blk new_default;
+                } else null,
+                .is_public = field.is_public,
+            };
+        }
+        
+        // Clone methods
+        var new_methods = try allocator.alloc(ClassMethod, self.methods.len);
+        errdefer allocator.free(new_methods);
+        for (self.methods, 0..) |method, i| {
+            // Clone parameters
+            var new_params = try allocator.alloc(Parameter, method.params.len);
+            errdefer allocator.free(new_params);
+            for (method.params, 0..) |param, j| {
+                new_params[j] = Parameter{
+                    .name = try allocator.dupe(u8, param.name),
+                    .type_annotation = if (param.type_annotation) |type_ann| try allocator.dupe(u8, type_ann) else null,
+                    .default_value = if (param.default_value) |default_val| blk: {
+                        const new_default = try allocator.create(Expression);
+                        new_default.* = try default_val.clone(allocator);
+                        break :blk new_default;
+                    } else null,
+                };
+            }
+            
+            const new_body = try allocator.create(Expression);
+            new_body.* = try method.body.clone(allocator);
+            
+            new_methods[i] = ClassMethod{
+                .name = try allocator.dupe(u8, method.name),
+                .params = new_params,
+                .return_type = if (method.return_type) |ret_type| try allocator.dupe(u8, ret_type) else null,
+                .body = new_body,
+                .is_public = method.is_public,
+                .is_virtual = method.is_virtual,
+                .is_abstract = method.is_abstract,
+                .is_static = method.is_static,
+            };
+        }
+        
+        const new_parent_class = if (self.parent_class) |parent| try allocator.dupe(u8, parent) else null;
+        
+        // Clone traits
+        var new_traits = try allocator.alloc([]const u8, self.traits.len);
+        errdefer allocator.free(new_traits);
+        for (self.traits, 0..) |trait_name, i| {
+            new_traits[i] = try allocator.dupe(u8, trait_name);
+        }
+        
+        return ClassDef{
+            .name = new_name,
+            .fields = new_fields,
+            .methods = new_methods,
+            .parent_class = new_parent_class,
+            .traits = new_traits,
+        };
+    }
+};
+
+pub const MatchExpr = struct {
+    scrutinee: *Expression, // The value being matched
+    arms: []MatchArm, // Pattern arms
+    
+    pub const MatchArm = struct {
+        pattern: Pattern,
+        guard: ?*Expression, // Optional guard clause (when condition)
+        body: *Expression, // Expression to execute if pattern matches
+    };
+    
+    pub const Pattern = union(enum) {
+        // Literal patterns - match exact values
+        Literal: LiteralPattern,
+        
+        // Variable patterns - bind to variables
+        Variable: VariablePattern,
+        
+        // Wildcard pattern - matches anything
+        Wildcard,
+        
+        // Constructor patterns - match specific types/classes
+        Constructor: ConstructorPattern,
+        
+        // Array patterns - destructure arrays
+        Array: ArrayPattern,
+        
+        // Map patterns - destructure maps/objects  
+        Map: MapPattern,
+        
+        // Or patterns - match any of several patterns
+        Or: OrPattern,
+        
+        // Range patterns - match within ranges
+        Range: RangePattern,
+        
+        pub const LiteralPattern = struct {
+            value: *Expression, // The literal value to match
+        };
+        
+        pub const VariablePattern = struct {
+            name: []const u8, // Variable name to bind to
+            type_annotation: ?[]const u8, // Optional type constraint
+        };
+        
+        pub const ConstructorPattern = struct {
+            constructor: []const u8, // Constructor/type name
+            fields: []Pattern, // Nested patterns for fields
+        };
+        
+        pub const ArrayPattern = struct {
+            elements: []Pattern, // Patterns for array elements
+            rest: ?[]const u8, // Optional rest pattern (..rest)
+        };
+        
+        pub const MapPattern = struct {
+            fields: []MapFieldPattern, // Key-value patterns
+            rest: ?[]const u8, // Optional rest pattern
+            
+            pub const MapFieldPattern = struct {
+                key: []const u8, // Map key
+                pattern: Pattern, // Pattern for the value
+            };
+        };
+        
+        pub const OrPattern = struct {
+            patterns: []Pattern, // Alternative patterns
+        };
+        
+        pub const RangePattern = struct {
+            start: *Expression, // Range start
+            end: *Expression, // Range end
+            inclusive: bool, // Whether end is inclusive
+        };
+        
+        pub fn deinit(self: *Pattern, allocator: std.mem.Allocator) void {
+            switch (self.*) {
+                .Literal => |*lit| {
+                    lit.value.deinit(allocator);
+                    allocator.destroy(lit.value);
+                },
+                .Variable => |*var_pat| {
+                    allocator.free(var_pat.name);
+                    if (var_pat.type_annotation) |type_ann| {
+                        allocator.free(type_ann);
+                    }
+                },
+                .Wildcard => {},
+                .Constructor => |*ctor| {
+                    allocator.free(ctor.constructor);
+                    for (ctor.fields) |*field| {
+                        field.deinit(allocator);
+                    }
+                    allocator.free(ctor.fields);
+                },
+                .Array => |*arr| {
+                    for (arr.elements) |*elem| {
+                        elem.deinit(allocator);
+                    }
+                    allocator.free(arr.elements);
+                    if (arr.rest) |rest| {
+                        allocator.free(rest);
+                    }
+                },
+                .Map => |*map| {
+                    for (map.fields) |*field| {
+                        allocator.free(field.key);
+                        field.pattern.deinit(allocator);
+                    }
+                    allocator.free(map.fields);
+                    if (map.rest) |rest| {
+                        allocator.free(rest);
+                    }
+                },
+                .Or => |*or_pat| {
+                    for (or_pat.patterns) |*pattern| {
+                        pattern.deinit(allocator);
+                    }
+                    allocator.free(or_pat.patterns);
+                },
+                .Range => |*range| {
+                    range.start.deinit(allocator);
+                    allocator.destroy(range.start);
+                    range.end.deinit(allocator);
+                    allocator.destroy(range.end);
+                },
+            }
+        }
+        
+        pub fn clone(self: Pattern, allocator: std.mem.Allocator) !Pattern {
+            return switch (self) {
+                .Literal => |lit| blk: {
+                    const new_value = try allocator.create(Expression);
+                    new_value.* = try lit.value.clone(allocator);
+                    break :blk Pattern{ .Literal = .{ .value = new_value } };
+                },
+                .Variable => |var_pat| Pattern{ .Variable = .{
+                    .name = try allocator.dupe(u8, var_pat.name),
+                    .type_annotation = if (var_pat.type_annotation) |type_ann| try allocator.dupe(u8, type_ann) else null,
+                } },
+                .Wildcard => Pattern{ .Wildcard = {} },
+                .Constructor => |ctor| blk: {
+                    var new_fields = try allocator.alloc(Pattern, ctor.fields.len);
+                    errdefer allocator.free(new_fields);
+                    for (ctor.fields, 0..) |field, i| {
+                        new_fields[i] = try field.clone(allocator);
+                    }
+                    break :blk Pattern{ .Constructor = .{
+                        .constructor = try allocator.dupe(u8, ctor.constructor),
+                        .fields = new_fields,
+                    } };
+                },
+                .Array => |arr| blk: {
+                    var new_elements = try allocator.alloc(Pattern, arr.elements.len);
+                    errdefer allocator.free(new_elements);
+                    for (arr.elements, 0..) |elem, i| {
+                        new_elements[i] = try elem.clone(allocator);
+                    }
+                    break :blk Pattern{ .Array = .{
+                        .elements = new_elements,
+                        .rest = if (arr.rest) |rest| try allocator.dupe(u8, rest) else null,
+                    } };
+                },
+                .Map => |map| blk: {
+                    var new_fields = try allocator.alloc(MapPattern.MapFieldPattern, map.fields.len);
+                    errdefer allocator.free(new_fields);
+                    for (map.fields, 0..) |field, i| {
+                        new_fields[i] = MapPattern.MapFieldPattern{
+                            .key = try allocator.dupe(u8, field.key),
+                            .pattern = try field.pattern.clone(allocator),
+                        };
+                    }
+                    break :blk Pattern{ .Map = .{
+                        .fields = new_fields,
+                        .rest = if (map.rest) |rest| try allocator.dupe(u8, rest) else null,
+                    } };
+                },
+                .Or => |or_pat| blk: {
+                    var new_patterns = try allocator.alloc(Pattern, or_pat.patterns.len);
+                    errdefer allocator.free(new_patterns);
+                    for (or_pat.patterns, 0..) |pattern, i| {
+                        new_patterns[i] = try pattern.clone(allocator);
+                    }
+                    break :blk Pattern{ .Or = .{ .patterns = new_patterns } };
+                },
+                .Range => |range| blk: {
+                    const new_start = try allocator.create(Expression);
+                    new_start.* = try range.start.clone(allocator);
+                    const new_end = try allocator.create(Expression);
+                    new_end.* = try range.end.clone(allocator);
+                    break :blk Pattern{ .Range = .{
+                        .start = new_start,
+                        .end = new_end,
+                        .inclusive = range.inclusive,
+                    } };
+                },
+            };
+        }
+    };
+    
+    pub fn deinit(self: *MatchExpr, allocator: std.mem.Allocator) void {
+        self.scrutinee.deinit(allocator);
+        allocator.destroy(self.scrutinee);
+        
+        for (self.arms) |*arm| {
+            arm.pattern.deinit(allocator);
+            if (arm.guard) |guard| {
+                guard.deinit(allocator);
+                allocator.destroy(guard);
+            }
+            arm.body.deinit(allocator);
+            allocator.destroy(arm.body);
+        }
+        allocator.free(self.arms);
+    }
+    
+    pub fn clone(self: MatchExpr, allocator: std.mem.Allocator) !MatchExpr {
+        const new_scrutinee = try allocator.create(Expression);
+        new_scrutinee.* = try self.scrutinee.clone(allocator);
+        
+        var new_arms = try allocator.alloc(MatchArm, self.arms.len);
+        errdefer allocator.free(new_arms);
+        
+        for (self.arms, 0..) |arm, i| {
+            const new_guard = if (arm.guard) |guard| blk: {
+                const new_guard_expr = try allocator.create(Expression);
+                new_guard_expr.* = try guard.clone(allocator);
+                break :blk new_guard_expr;
+            } else null;
+            
+            const new_body = try allocator.create(Expression);
+            new_body.* = try arm.body.clone(allocator);
+            
+            new_arms[i] = MatchArm{
+                .pattern = try arm.pattern.clone(allocator),
+                .guard = new_guard,
+                .body = new_body,
+            };
+        }
+        
+        return MatchExpr{
+            .scrutinee = new_scrutinee,
+            .arms = new_arms,
+        };
+    }
+};
+
+pub const ModuleDef = struct {
+    name: []const u8, // Module name
+    body: *Expression, // Module body (usually a DoBlock)
+    exports: [][]const u8, // Explicitly exported symbols
+    imports: []ImportSpec, // Import specifications
+    
+    pub const ImportSpec = struct {
+        module_path: []const u8, // Path to the module
+        alias: ?[]const u8, // Optional alias for the module
+        items: ?[]ImportItem, // Specific items to import (None = import all)
+        
+        pub const ImportItem = struct {
+            name: []const u8, // Name in source module
+            alias: ?[]const u8, // Local alias
+        };
+    };
+    
+    pub fn deinit(self: *ModuleDef, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+        
+        for (self.exports) |export_name| {
+            allocator.free(export_name);
+        }
+        allocator.free(self.exports);
+        
+        for (self.imports) |*import_spec| {
+            allocator.free(import_spec.module_path);
+            if (import_spec.alias) |alias| {
+                allocator.free(alias);
+            }
+            if (import_spec.items) |items| {
+                for (items) |*item| {
+                    allocator.free(item.name);
+                    if (item.alias) |alias| {
+                        allocator.free(alias);
+                    }
+                }
+                allocator.free(items);
+            }
+        }
+        allocator.free(self.imports);
+    }
+    
+    pub fn clone(self: ModuleDef, allocator: std.mem.Allocator) !ModuleDef {
+        const new_body = try allocator.create(Expression);
+        new_body.* = try self.body.clone(allocator);
+        
+        var new_exports = try allocator.alloc([]const u8, self.exports.len);
+        errdefer allocator.free(new_exports);
+        for (self.exports, 0..) |export_name, i| {
+            new_exports[i] = try allocator.dupe(u8, export_name);
+        }
+        
+        var new_imports = try allocator.alloc(ImportSpec, self.imports.len);
+        errdefer allocator.free(new_imports);
+        for (self.imports, 0..) |import_spec, i| {
+            const new_items = if (import_spec.items) |items| blk: {
+                var items_copy = try allocator.alloc(ImportSpec.ImportItem, items.len);
+                for (items, 0..) |item, j| {
+                    items_copy[j] = ImportSpec.ImportItem{
+                        .name = try allocator.dupe(u8, item.name),
+                        .alias = if (item.alias) |alias| try allocator.dupe(u8, alias) else null,
+                    };
+                }
+                break :blk items_copy;
+            } else null;
+            
+            new_imports[i] = ImportSpec{
+                .module_path = try allocator.dupe(u8, import_spec.module_path),
+                .alias = if (import_spec.alias) |alias| try allocator.dupe(u8, alias) else null,
+                .items = new_items,
+            };
+        }
+        
+        return ModuleDef{
+            .name = try allocator.dupe(u8, self.name),
+            .body = new_body,
+            .exports = new_exports,
+            .imports = new_imports,
+        };
+    }
+};
+
+pub const ImportStmt = struct {
+    module_path: []const u8, // Path to the module to import
+    alias: ?[]const u8, // Optional alias for the entire module
+    items: ?[]ImportItem, // Specific items to import
+    
+    pub const ImportItem = struct {
+        name: []const u8, // Name in source module  
+        alias: ?[]const u8, // Local alias
+    };
+    
+    pub fn deinit(self: *ImportStmt, allocator: std.mem.Allocator) void {
+        allocator.free(self.module_path);
+        if (self.alias) |alias| {
+            allocator.free(alias);
+        }
+        if (self.items) |items| {
+            for (items) |*item| {
+                allocator.free(item.name);
+                if (item.alias) |alias| {
+                    allocator.free(alias);
+                }
+            }
+            allocator.free(items);
+        }
+    }
+    
+    pub fn clone(self: ImportStmt, allocator: std.mem.Allocator) !ImportStmt {
+        const new_items = if (self.items) |items| blk: {
+            var items_copy = try allocator.alloc(ImportItem, items.len);
+            for (items, 0..) |item, i| {
+                items_copy[i] = ImportItem{
+                    .name = try allocator.dupe(u8, item.name),
+                    .alias = if (item.alias) |alias| try allocator.dupe(u8, alias) else null,
+                };
+            }
+            break :blk items_copy;
+        } else null;
+        
+        return ImportStmt{
+            .module_path = try allocator.dupe(u8, self.module_path),
+            .alias = if (self.alias) |alias| try allocator.dupe(u8, alias) else null,
+            .items = new_items,
+        };
+    }
+};
+
+pub const ExportStmt = struct {
+    items: []ExportItem, // Items to export
+    
+    pub const ExportItem = struct {
+        name: []const u8, // Name to export
+        alias: ?[]const u8, // Optional export alias
+    };
+    
+    pub fn deinit(self: *ExportStmt, allocator: std.mem.Allocator) void {
+        for (self.items) |*item| {
+            allocator.free(item.name);
+            if (item.alias) |alias| {
+                allocator.free(alias);
+            }
+        }
+        allocator.free(self.items);
+    }
+    
+    pub fn clone(self: ExportStmt, allocator: std.mem.Allocator) !ExportStmt {
+        var new_items = try allocator.alloc(ExportItem, self.items.len);
+        errdefer allocator.free(new_items);
+        for (self.items, 0..) |item, i| {
+            new_items[i] = ExportItem{
+                .name = try allocator.dupe(u8, item.name),
+                .alias = if (item.alias) |alias| try allocator.dupe(u8, alias) else null,
+            };
+        }
+        
+        return ExportStmt{
+            .items = new_items,
+        };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
@@ -394,6 +960,11 @@ pub const Expression = union(enum) {
     ArrayLiteral: ArrayLiteral, // New
     MapLiteral: MapLiteral, // New
     DoBlock: DoBlock, // New
+    ClassDef: ClassDef, // New - Class definitions for OOP
+    MatchExpr: MatchExpr, // New - Pattern matching expressions
+    ModuleDef: ModuleDef, // New - Module definitions
+    ImportStmt: ImportStmt, // New - Import statements
+    ExportStmt: ExportStmt, // New - Export statements
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -408,6 +979,11 @@ pub const Expression = union(enum) {
             .ArrayLiteral => |*arr_lit| arr_lit.deinit(allocator), // New
             .MapLiteral => |*map_lit| map_lit.deinit(allocator), // New
             .DoBlock => |*do_block| do_block.deinit(allocator), // New
+            .ClassDef => |*class_def| class_def.deinit(allocator), // New
+            .MatchExpr => |*match_expr| match_expr.deinit(allocator), // New
+            .ModuleDef => |*module_def| module_def.deinit(allocator), // New
+            .ImportStmt => |*import_stmt| import_stmt.deinit(allocator), // New
+            .ExportStmt => |*export_stmt| export_stmt.deinit(allocator), // New
         }
     }
 
@@ -424,6 +1000,11 @@ pub const Expression = union(enum) {
             .ArrayLiteral => |arr_lit| Expression{ .ArrayLiteral = try arr_lit.clone(allocator) }, // New
             .MapLiteral => |map_lit| Expression{ .MapLiteral = try map_lit.clone(allocator) }, // New
             .DoBlock => |do_block| Expression{ .DoBlock = try do_block.clone(allocator) }, // New
+            .ClassDef => |class_def| Expression{ .ClassDef = try class_def.clone(allocator) }, // New
+            .MatchExpr => |match_expr| Expression{ .MatchExpr = try match_expr.clone(allocator) }, // New
+            .ModuleDef => |module_def| Expression{ .ModuleDef = try module_def.clone(allocator) }, // New
+            .ImportStmt => |import_stmt| Expression{ .ImportStmt = try import_stmt.clone(allocator) }, // New
+            .ExportStmt => |export_stmt| Expression{ .ExportStmt = try export_stmt.clone(allocator) }, // New
         };
     }
 };
