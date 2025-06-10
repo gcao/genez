@@ -1160,7 +1160,7 @@ Methods are functions with special dispatch:
   (.prop y Float)
   
   (.fn area [] :Float)  # Abstract method
-  
+
   (.fn describe [] :Str
     (new Str "Shape with area: " (.area))))
 ```
@@ -1237,7 +1237,84 @@ Mixins are bundles of functionality that get **copied** into the including class
 (doc .has-prop? :created-at)  # true - the property exists
 ```
 
-## 7.5 Field Modifiers
+## 7.5 Method Types
+
+Gene supports multiple types of methods to provide different execution semantics:
+
+```gene
+(class Component
+  (.prop state Map = {})
+  (.prop listeners Array = [])
+  
+  # Regular method - standard evaluation
+  (.fn update [key value]
+    (/state .set key value)
+    (.notify-listeners key value))
+  
+  # Pseudo macro method - lazy evaluation
+  (.macro when-changed [condition body]
+    (if condition
+      (do
+        (.update :last-change (time/now))
+        body)
+      nil))
+  
+  # Static method
+  (.static fn create-default []
+    (Component))
+  
+  # Virtual method (can be overridden)
+  (.virtual fn render []
+    (print "Base component"))
+  
+  # Abstract method (must be implemented by subclasses)
+  (.abstract fn validate [])
+  
+  # Private method
+  (.-fn internal-cleanup []
+    (.clear-cache)))
+```
+
+### 7.5.1 Pseudo Macro Methods
+
+Pseudo macro methods combine the lazy evaluation semantics of pseudo macros with object-oriented method dispatch:
+
+```gene
+(class StateMachine
+  (.prop current-state Symbol = :initial)
+  (.prop transition-log Array = [])
+  
+  # Macro method for state transitions with validation
+  (.macro transition-to [new-state guard-expr action-expr]
+    (when guard-expr
+      (do
+        (/transition-log .push {^from /current-state ^to new-state ^time (time/now)})
+        action-expr                    # Evaluated in caller's context
+        (/current-state = new-state))))
+
+# Usage - arguments evaluated in caller's context
+(var machine = (StateMachine))
+(var user-authorized = true)
+(var activation-data = {...})
+
+(machine .transition-to :active user-authorized    # 'user-authorized' from caller
+  (do                                              # 'activation-data' from caller
+    (setup-with activation-data)
+    (print "Machine activated!")))
+```
+
+### 7.5.2 Method Resolution Order
+
+When calling methods, Gene follows this resolution order:
+1. Instance methods (regular and macro)
+2. Class methods
+3. Parent class methods (depth-first)
+4. Trait methods
+5. Mixin methods
+
+Macro methods are resolved using the same order but execute with lazy evaluation semantics.
+
+## 7.6 Field Modifiers
 
 ```gene
 (class BankAccount
@@ -1270,7 +1347,7 @@ Mixins are bundles of functionality that get **copied** into the including class
     /-balance))
 ```
 
-## 7.6 Static Members
+## 7.7 Static Members
 
 ```gene
 (class Math
@@ -1291,7 +1368,7 @@ Math/PI
 (Math .abs -5)
 ```
 
-## 7.7 Key Differences Between Traits and Mixins
+## 7.8 Key Differences Between Traits and Mixins
 
 ```gene
 # Trait example - Serializable IS-A type
@@ -1336,7 +1413,7 @@ Math/PI
 (fn process [obj :Observable])  # ERROR: Observable is not a type
 ```
 
-## 7.8 Method Resolution
+## 7.9 Method Resolution
 
 ```gene
 # Method resolution order (MRO)
@@ -1717,8 +1794,8 @@ Pseudo macros are a unique metaprogramming feature that provides lazy evaluation
 3. **On-Demand Resolution**: Inside the macro body, argument references trigger evaluation in the original context
 
 ```gene
-# Define a pseudo macro using 'pmacro' keyword
-(pmacro when [condition body]
+# Define a pseudo macro using 'macro' keyword
+(macro when [condition body]
   (if condition body nil))
 
 # Usage - arguments not evaluated until needed
@@ -1734,11 +1811,11 @@ Pseudo macros are a unique metaprogramming feature that provides lazy evaluation
 
 ```gene
 # Conditional execution with multiple statements
-(pmacro unless [condition body]
+(macro unless [condition body]
   (if condition nil body))
 
 # Resource management with cleanup
-(pmacro with-resource [resource-expr body]
+(macro with-resource [resource-expr body]
   (do
     (var resource resource-expr)
     (try
@@ -1753,7 +1830,67 @@ Pseudo macros are a unique metaprogramming feature that provides lazy evaluation
     (process-data resource)))         ;; 'resource' comes from macro
 ```
 
-### 11.1.3 Implementation Architecture
+### 11.1.3 Pseudo Macro Methods
+
+Pseudo macros can also be defined as methods within classes, combining lazy evaluation with object-oriented programming:
+
+```gene
+(class Component
+  (.prop state Map = {})
+  (.prop dirty Bool = false)
+  
+  # Regular method
+  (.fn update [key value]
+    (/state .set key value)
+    (/dirty = true))
+  
+  # Pseudo macro method - lazy evaluation with object context
+  (.macro when-dirty [condition cleanup-expr]
+    (when (and /dirty condition)
+      (do
+        cleanup-expr               # Evaluated in caller's context
+        (/dirty = false))))
+  
+  # Macro method for conditional updates
+  (.macro conditional-update [guard-expr key-expr value-expr]
+    (when guard-expr
+      (.update key-expr value-expr))))
+
+# Usage - arguments evaluated in caller's context
+(var comp = (Component))
+(var should-cleanup = true)
+(var user-data = {...})
+
+(comp .when-dirty should-cleanup
+  (save-to-disk user-data))        # 'user-data' from caller's scope
+
+(comp .conditional-update (user .has-permission?)
+  :user-id (user .id)
+  :data user-data)                 # All expressions from caller
+```
+
+### 11.1.4 Macro Method Inheritance
+
+Pseudo macro methods participate in inheritance like regular methods:
+
+```gene
+(class BaseComponent
+  (.macro with-timing [operation-expr]
+    (do
+      (var start = (time/now))
+      operation-expr
+      (var end = (time/now))
+      (.log "Operation took" (- end start) "ms"))))
+
+(class Button extends BaseComponent
+  (.fn click []
+    (.with-timing                  # Inherited macro method
+      (do
+        (.handle-click)
+        (.update-ui)))))
+```
+
+### 11.1.5 Implementation Architecture
 
 Pseudo macros integrate into Gene's compilation pipeline through:
 
@@ -1770,8 +1907,8 @@ See `docs/design_of_macros.md` for complete implementation details.
 Gene also supports traditional compile-time macros for cases where compile-time code generation is needed:
 
 ```gene
-# Define macro
-(macro when [test body...]
+# Define compile-time macro
+(defmacro when [test body...]
   :(if %test
      (do %body...)
      nil))
@@ -1782,14 +1919,14 @@ Gene also supports traditional compile-time macros for cases where compile-time 
   (* x 2))
 
 # Macro with pattern matching
-(macro defn 
+(defmacro defn 
   [[name args... => ret] body...]
     :(fn %name %args... => %ret %body...)
   [[name args...] body...]
     :(fn %name %args... %body...))
 
 # Hygiene
-(macro swap! [a b]
+(defmacro swap! [a b]
   (gensym tmp
     :(let %tmp %a
        (%a = %b)

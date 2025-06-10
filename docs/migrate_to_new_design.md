@@ -296,13 +296,22 @@ Any                    # Root type - all values are Any
 **Target:** Pseudo macros, traditional macros, reflection, code generation
 
 **Migration Tasks:**
-- [ ] **Pseudo Macros** - Implement lazy evaluation macros (see `docs/design_of_macros.md`)
-  - [ ] Add `PseudoMacroDef` and `PseudoMacroCall` AST nodes
-  - [ ] Implement HIR lazy argument wrapping with context capture
-  - [ ] Add MIR thunk-based lazy evaluation mechanism
-  - [ ] Create bytecode instructions for runtime context switching
-  - [ ] Implement VM support for thunk evaluation and lexical environment preservation
-- [ ] **Traditional Macros** - Add compile-time macro system with hygiene
+- [ ] **Pseudo Macros** - Implement lazy evaluation macros using `macro` keyword (see `docs/design_of_macros.md`)
+  - [ ] **Function-Level Pseudo Macros**:
+    - [ ] Add `PseudoMacroDef` and `PseudoMacroCall` AST nodes
+    - [ ] Implement HIR lazy argument wrapping with context capture
+    - [ ] Add MIR thunk-based lazy evaluation mechanism
+    - [ ] Create bytecode instructions for runtime context switching
+    - [ ] Implement VM support for thunk evaluation and lexical environment preservation
+  - [ ] **Method-Level Pseudo Macros**:
+    - [ ] Extend `ClassMethod` AST with `is_macro` flag
+    - [ ] Add `MacroMethodCall` AST node for lazy method calls
+    - [ ] Implement HIR `LazyMethodCall` nodes with object context
+    - [ ] Add MIR method dispatch logic for macro vs regular methods
+    - [ ] Create `MacroMethodCall` and `BindSelfContext` bytecode opcodes
+    - [ ] Implement VM macro method dispatch with `self` binding
+    - [ ] Add inheritance and overriding support for macro methods
+- [ ] **Traditional Macros** - Add compile-time macro system with `defmacro` keyword and hygiene
 - [ ] **Reflection** - Implement reflection APIs
 - [ ] **Code Generation** - Add compile-time code generation
 - [ ] **Quotation** - Support quasi-quotation
@@ -397,8 +406,8 @@ Any                    # Root type - all values are Any
 1. Add concurrency primitives
 2. Implement error handling
 3. **Create metaprogramming system**
-   - [ ] **Priority: Pseudo Macros** - Implement lazy evaluation macros (see `docs/design_of_macros.md`)
-   - [ ] Traditional compile-time macros
+   - [ ] **Priority: Pseudo Macros** - Implement lazy evaluation macros using `macro` keyword (see `docs/design_of_macros.md`)
+   - [ ] Traditional compile-time macros using `defmacro` keyword
    - [ ] Reflection system
 4. Add comprehensive standard library
 

@@ -137,18 +137,75 @@ pub const CallContext = struct {
 };
 ```
 
+**ClassMethod extension for macro methods:**
+```zig
+// Extend existing ClassMethod structure to support macro methods
+pub const ClassMethod = struct {
+    name: []const u8,
+    params: []ClassMethodParam,
+    body: *Expression,
+    is_public: bool = true,
+    is_virtual: bool = false,
+    is_abstract: bool = false,
+    is_static: bool = false,
+    is_macro: bool = false,        // NEW: Indicates pseudo macro method
+    
+    pub fn deinit(self: *ClassMethod, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        if (self.return_type) |ret_type| {
+            allocator.free(ret_type);
+        }
+        
+        // Free parameters
+        for (self.params) |*param| {
+            param.deinit(allocator);
+        }
+        allocator.free(self.params);
+        
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+    }
+    
+    pub fn clone(self: ClassMethod, allocator: std.mem.Allocator) !ClassMethod {
+        var params = try allocator.alloc(ClassMethodParam, self.params.len);
+        errdefer allocator.free(params);
+        
+        for (self.params, 0..) |param, i| {
+            params[i] = try param.clone(allocator);
+        }
+        
+        const body = try allocator.create(Expression);
+        errdefer allocator.destroy(body);
+        body.* = try self.body.clone(allocator);
+        
+        return ClassMethod{
+            .name = try allocator.dupe(u8, self.name),
+            .params = params,
+            .body = body,
+            .is_public = self.is_public,
+            .is_virtual = self.is_virtual,
+            .is_abstract = self.is_abstract,
+            .is_static = self.is_static,
+            .is_macro = self.is_macro,    // Copy macro flag
+        };
+    }
+};
+```
+
 **Expression enum addition:**
 ```zig
 pub const Expression = union(enum) {
     // ... existing variants ...
     PseudoMacroDef: PseudoMacroDef,
     PseudoMacroCall: PseudoMacroCall,
+    MacroMethodCall: MacroMethodCall,     // NEW: Macro method calls
     
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
             // ... existing cases ...
             .PseudoMacroDef => |*pmacro_def| pmacro_def.deinit(allocator),
             .PseudoMacroCall => |*pmacro_call| pmacro_call.deinit(allocator),
+            .MacroMethodCall => |*macro_method_call| macro_method_call.deinit(allocator),
         }
     }
     
@@ -157,6 +214,58 @@ pub const Expression = union(enum) {
             // ... existing cases ...
             .PseudoMacroDef => |pmacro_def| .{ .PseudoMacroDef = try pmacro_def.clone(allocator) },
             .PseudoMacroCall => |pmacro_call| .{ .PseudoMacroCall = try pmacro_call.clone(allocator) },
+            .MacroMethodCall => |macro_method_call| .{ .MacroMethodCall = try macro_method_call.clone(allocator) },
+        };
+    }
+};
+
+// New AST node for macro method calls
+pub const MacroMethodCall = struct {
+    instance: *Expression,           // Object instance
+    method_name: []const u8,         // Method name
+    args: std.ArrayList(*Expression), // Unevaluated arguments
+    call_context: ?CallContext,      // Caller's context
+    
+    pub fn deinit(self: *MacroMethodCall, allocator: std.mem.Allocator) void {
+        self.instance.deinit(allocator);
+        allocator.destroy(self.instance);
+        allocator.free(self.method_name);
+        for (self.args.items) |arg| {
+            arg.deinit(allocator);
+            allocator.destroy(arg);
+        }
+        self.args.deinit();
+        if (self.call_context) |*ctx| {
+            ctx.deinit(allocator);
+        }
+    }
+    
+    pub fn clone(self: MacroMethodCall, allocator: std.mem.Allocator) !MacroMethodCall {
+        const instance = try allocator.create(Expression);
+        errdefer allocator.destroy(instance);
+        instance.* = try self.instance.clone(allocator);
+        
+        var args = std.ArrayList(*Expression).init(allocator);
+        errdefer {
+            for (args.items) |arg| {
+                arg.deinit(allocator);
+                allocator.destroy(arg);
+            }
+            args.deinit();
+        }
+        
+        for (self.args.items) |arg| {
+            const new_arg = try allocator.create(Expression);
+            errdefer allocator.destroy(new_arg);
+            new_arg.* = try arg.clone(allocator);
+            try args.append(new_arg);
+        }
+        
+        return MacroMethodCall{
+            .instance = instance,
+            .method_name = try allocator.dupe(u8, self.method_name),
+            .args = args,
+            .call_context = if (self.call_context) |ctx| try ctx.clone(allocator) else null,
         };
     }
 };
@@ -245,10 +354,36 @@ pub const HIR = struct {
         }
     };
     
+    // Extend existing ClassMethod to support macro methods
+    pub const ClassMethod = struct {
+        name: []const u8,
+        params: []FuncParam,
+        body: *Expression,
+        is_public: bool,
+        is_virtual: bool,
+        is_abstract: bool,
+        is_static: bool,
+        is_macro: bool,               // NEW: Pseudo macro flag
+        
+        pub fn deinit(self: *ClassMethod) void {
+            self.allocator.free(self.name);
+            for (self.params) |*param| {
+                self.allocator.free(param.name);
+                if (param.param_type) |param_type| {
+                    self.allocator.free(param_type);
+                }
+            }
+            self.allocator.free(self.params);
+            self.body.deinit(self.allocator);
+            self.allocator.destroy(self.body);
+        }
+    };
+
     pub const Expression = union(enum) {
         // ... existing variants ...
         pseudo_macro_def: *PseudoMacro,
         lazy_call: *LazyCall,
+        lazy_method_call: *LazyMethodCall,  // NEW: Lazy method calls
         
         pub fn deinit(self: Expression, allocator: std.mem.Allocator) void {
             switch (self) {
@@ -261,7 +396,32 @@ pub const HIR = struct {
                     lazy_call.deinit();
                     allocator.destroy(lazy_call);
                 },
+                .lazy_method_call => |lazy_method_call| {
+                    lazy_method_call.deinit();
+                    allocator.destroy(lazy_method_call);
+                },
             }
+        }
+    };
+    
+    // New HIR node for macro method calls
+    pub const LazyMethodCall = struct {
+        instance: *Expression,            // Object instance
+        method_name: []const u8,          // Method name
+        lazy_args: []*LazyArgument,       // Unevaluated arguments
+        lexical_context: LexicalContext,  // Caller's context
+        allocator: std.mem.Allocator,
+        
+        pub fn deinit(self: *LazyMethodCall) void {
+            self.instance.deinit(self.allocator);
+            self.allocator.destroy(self.instance);
+            self.allocator.free(self.method_name);
+            for (self.lazy_args) |lazy_arg| {
+                lazy_arg.deinit();
+                self.allocator.destroy(lazy_arg);
+            }
+            self.allocator.free(self.lazy_args);
+            self.lexical_context.deinit();
         }
     };
 };
@@ -304,6 +464,7 @@ pub const MIR = struct {
     pub const Expression = union(enum) {
         // ... existing variants ...
         lazy_eval_call: LazyEvalCall,
+        lazy_method_call: LazyMethodCall,   // NEW: Lazy method calls
         thunk_creation: Thunk,
         thunk_evaluation: ThunkRef,
         
@@ -311,9 +472,23 @@ pub const MIR = struct {
             switch (self) {
                 // ... existing cases ...
                 .lazy_eval_call => |*lazy_call| lazy_call.deinit(allocator),
+                .lazy_method_call => |*lazy_method| lazy_method.deinit(allocator),
                 .thunk_creation => |*thunk| thunk.deinit(allocator),
                 .thunk_evaluation => {}, // ThunkRef is just an ID
             }
+        }
+    };
+    
+    // New MIR node for lazy method calls  
+    pub const LazyMethodCall = struct {
+        instance_ref: BasicBlockRef,     // Object instance
+        method_ref: MethodRef,           // Method reference
+        thunks: []ThunkRef,              // Argument thunks
+        context_frame: ContextRef,       // Lexical environment
+        
+        pub fn deinit(self: *LazyMethodCall, allocator: std.mem.Allocator) void {
+            allocator.free(self.thunks);
+            // Other refs are managed by MIR context
         }
     };
 };
@@ -330,12 +505,14 @@ pub const Instruction = struct {
     
     pub const Opcode = enum {
         // ... existing opcodes ...
-        CreateThunk,      // Create a lazy evaluation thunk
-        EvalThunk,        // Force evaluation of a thunk
-        CaptureContext,   // Capture current lexical environment
-        RestoreContext,   // Restore captured environment
-        PseudoMacroCall,  // Call pseudo macro with lazy args
-        PushThunkArg,     // Push thunk as argument instead of value
+        CreateThunk,         // Create a lazy evaluation thunk
+        EvalThunk,           // Force evaluation of a thunk
+        CaptureContext,      // Capture current lexical environment
+        RestoreContext,      // Restore captured environment
+        PseudoMacroCall,     // Call pseudo macro with lazy args
+        MacroMethodCall,     // Call pseudo macro method with lazy args
+        PushThunkArg,        // Push thunk as argument instead of value
+        BindSelfContext,     // Bind 'self' in method context
     };
 };
 
@@ -471,6 +648,35 @@ pub const VM = struct {
         return self.executeMacroBody(macro_id, thunk_ids);
     }
     
+    fn executeMacroMethodCall(self: *VM, obj_reg: u16, method_id: u32, thunk_ids: []const u32) !Value {
+        // Get object and method
+        const obj = self.get_register(obj_reg);
+        const method = self.get_macro_method(obj, method_id)?;
+        
+        // Capture current context including 'self' binding
+        var method_context = try self.captureCurrentContext();
+        try method_context.bind("self", obj);  // Bind 'self' to the object
+        defer method_context.deinit();
+        
+        // Push method context
+        try self.context_stack.append(method_context);
+        defer _ = self.context_stack.pop();
+        
+        // Execute macro method body with lazy arguments
+        return self.executeMacroMethodBody(method, thunk_ids);
+    }
+    
+    fn get_macro_method(self: *VM, obj: Value, method_id: u32) !*MacroMethod {
+        // Look up macro method in object's class
+        const obj_class = obj.get_class();
+        for (obj_class.methods) |*method| {
+            if (method.id == method_id and method.is_macro) {
+                return method;
+            }
+        }
+        return error.MethodNotFound;
+    }
+    
     fn captureCurrentContext(self: *VM) !LexicalContext {
         var context = LexicalContext.init(self.allocator);
         for (self.variables.items) |variable| {
@@ -504,18 +710,18 @@ pub const VM = struct {
 
 ## Syntax Design
 
-### Macro Definition
+### Function-Level Macro Definition
 ```gene
-;; Define a pseudo macro using 'pmacro' keyword
-(pmacro when [condition body]
+;; Define a pseudo macro using 'macro' keyword
+(macro when [condition body]
   (if condition body nil))
 
 ;; More complex example with multiple arguments
-(pmacro unless [condition body]
+(macro unless [condition body]
   (if condition nil body))
 
 ;; Macro with multiple statements
-(pmacro with-resource [resource-expr body]
+(macro with-resource [resource-expr body]
   (do
     (var resource resource-expr)
     (try
@@ -523,22 +729,83 @@ pub const VM = struct {
       (finally (cleanup resource)))))
 ```
 
+### Method-Level Macro Definition
+```gene
+;; Pseudo macro methods within classes
+(class Component
+  (.prop state Map = {})
+  (.prop dirty Bool = false)
+  
+  ;; Regular method
+  (.fn update [key value]
+    (/state .set key value)
+    (/dirty = true))
+  
+  ;; Pseudo macro method - lazy evaluation with object context
+  (.macro when-dirty [condition cleanup-expr]
+    (when (and /dirty condition)
+      (do
+        cleanup-expr               # Evaluated in caller's context
+        (/dirty = false))))
+  
+  ;; Macro method for conditional operations
+  (.macro with-state-backup [operation-expr]
+    (do
+      (var backup = /state .clone)
+      (try
+        operation-expr
+        (catch e
+          (/state = backup)
+          (throw e))))))
+```
+
 ### Macro Usage
 ```gene
-;; Usage - arguments not evaluated until needed
+;; Function-level usage - arguments not evaluated until needed
 (var x 0)
 (when (> x 5)           ;; This comparison not evaluated immediately
   (print "x is large")) ;; This print not evaluated immediately
 
-;; The macro body evaluates 'condition' and 'body' on demand
-;; in the caller's context where x is visible
+;; Method-level usage - combines object context with lazy evaluation
+(var comp = (Component))
+(var should-cleanup = true)
+(var user-data = {...})
 
-;; Another example
-(var file-path "data.txt")
-(with-resource (open-file file-path)  ;; File opening delayed
+(comp .when-dirty should-cleanup       ;; 'should-cleanup' from caller
+  (save-to-disk user-data))            ;; 'user-data' from caller's scope
+
+;; Macro method with complex caller expressions
+(comp .with-state-backup
   (do
-    (print "Processing file")
-    (process-data resource)))         ;; 'resource' comes from macro
+    (.update :key (expensive-computation))  ;; Only executed if needed
+    (.validate user-input)                  ;; 'user-input' from caller
+    (.commit-changes)))
+```
+
+### Inheritance of Macro Methods
+```gene
+(class BaseComponent
+  (.macro with-timing [operation-expr]
+    (do
+      (var start = (time/now))
+      operation-expr
+      (var end = (time/now))
+      (.log "Operation took" (- end start) "ms"))))
+
+(class Button extends BaseComponent
+  (.fn click []
+    (.with-timing                      ;; Inherited macro method
+      (do
+        (.handle-click)
+        (.update-ui)))))
+
+;; Override macro method
+(class OptimizedButton extends BaseComponent  
+  (.macro with-timing [operation-expr]   ;; Override with better implementation
+    (do
+      (var start = (perf/mark))
+      operation-expr
+      (perf/measure "button-operation" start))))
 ```
 
 ### Key Benefits
@@ -551,36 +818,49 @@ pub const VM = struct {
 
 ### Phase 1: AST Support
 - [ ] Add `PseudoMacroDef` and `PseudoMacroCall` AST nodes
+- [ ] **Extend `ClassMethod` to support macro methods** with `is_macro` flag
+- [ ] **Add `MacroMethodCall` AST node** for lazy method calls
 - [ ] Implement memory management for new nodes
-- [ ] Add parser support for `pmacro` syntax
+- [ ] Add parser support for `macro` syntax (functions and methods)
 - [ ] Update AST serialization for debugging
 
 ### Phase 2: HIR Transformation
 - [ ] Implement AST to HIR conversion for pseudo macros
+- [ ] **Add HIR support for macro methods** with `LazyMethodCall` nodes
+- [ ] **Extend class method resolution** to distinguish macro vs regular methods
 - [ ] Add context capture mechanisms
 - [ ] Implement lazy argument wrapping
 - [ ] Add HIR serialization support
 
 ### Phase 3: MIR Support
 - [ ] Add thunk creation and management to MIR
+- [ ] **Add `LazyMethodCall` MIR nodes** for macro method dispatch
 - [ ] Implement lazy evaluation lowering
+- [ ] **Add method dispatch logic** for macro vs regular methods
 - [ ] Add MIR optimization passes for thunks
 - [ ] Update MIR serialization
 
 ### Phase 4: Bytecode Generation
 - [ ] Add new opcodes for lazy evaluation
+- [ ] **Add `MacroMethodCall` and `BindSelfContext` opcodes**
 - [ ] Implement thunk bytecode generation
+- [ ] **Add method resolution bytecode** for macro methods
 - [ ] Add context capture/restore instructions
 - [ ] Update bytecode serialization
 
 ### Phase 5: VM Runtime
 - [ ] Implement thunk table management
+- [ ] **Add macro method dispatch** with `executeMacroMethodCall`
+- [ ] **Implement `self` binding** in method context
 - [ ] Add context stack for lexical scoping
+- [ ] **Add method inheritance** support for macro methods
 - [ ] Implement lazy argument evaluation
 - [ ] Add debugging support for macro execution
 
 ### Phase 6: Integration & Testing
 - [ ] Create comprehensive test cases
+- [ ] **Add macro method inheritance tests**
+- [ ] **Test macro method overriding**
 - [ ] Add performance benchmarks
 - [ ] Document usage patterns
 - [ ] Add error handling for edge cases
