@@ -1163,6 +1163,9 @@ pub const VM = struct {
                 // If we have no call frames, we're done with the program
                 if (self.call_frames.items.len == 0) {
                     debug.log("No call frames, returning from main function", .{});
+                    // Free the cloned return value since we're not using it
+                    var mutable_return_value = return_value;
+                    mutable_return_value.deinit(self.allocator);
                     return;
                 }
 

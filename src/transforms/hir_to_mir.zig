@@ -403,6 +403,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                         .array => |_| try block.allocator.dupe(u8, "array_key"),
                         .map => |_| try block.allocator.dupe(u8, "map_key"),
                     },
+                    .variable => |var_expr| try block.allocator.dupe(u8, var_expr.name),
                     else => try block.allocator.dupe(u8, "unknown_key"),
                 };
 
