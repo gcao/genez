@@ -9,6 +9,10 @@ echo $ gene run examples/default.gene
 zig-out/bin/gene run examples/default.gene
 
 echo
+echo $ gene run examples/fibonacci.gene
+zig-out/bin/gene run examples/fibonacci.gene
+
+echo
 echo $ gene compile examples/default.gene
 rm examples/*.gbc
 zig-out/bin/gene compile examples/default.gene
