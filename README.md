@@ -66,4 +66,4 @@ Early development. Basic infrastructure for parsing, bytecode generation and VM 
 
 ## License
 
-[Add license]
+Gene is released under the [MIT License](LICENSE).
