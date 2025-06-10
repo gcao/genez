@@ -2,12 +2,14 @@ const std = @import("std");
 const ast = @import("../frontend/ast.zig");
 const hir = @import("../ir/hir.zig");
 const mir = @import("../ir/mir.zig");
+const lir = @import("../ir/lir.zig");
 const bytecode = @import("../backend/bytecode.zig");
 
 // Re-use existing serialization implementations
 const ast_serialize = @import("../frontend/ast_serialize.zig");
 const hir_serialize = @import("../ir/hir_serialize.zig");
 const mir_serialize = @import("../ir/mir_serialize.zig");
+const lir_serialize = @import("../ir/lir_serialize.zig");
 const bytecode_serialize = @import("../backend/bytecode_serialize.zig");
 
 /// Unified debug output interface for all compilation stages
@@ -57,6 +59,18 @@ pub const DebugOutput = struct {
         }
         
         try mir_serialize.serializeModule(self.writer, mir_module, 0);
+        std.debug.print("\n", .{});
+    }
+    
+    /// Write LIR module with optional header
+    pub fn writeLIR(self: DebugOutput, lir_module: lir.LIR, comptime header: ?[]const u8) !void {
+        if (!self.enabled) return;
+        
+        if (header) |h| {
+            std.debug.print("\n=== {s} ===\n", .{h});
+        }
+        
+        try lir_serialize.serialize(self.writer, lir_module, "");
         std.debug.print("\n", .{});
     }
     

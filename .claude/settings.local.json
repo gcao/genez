@@ -11,7 +11,8 @@
       "Bash(rm:*)",
       "Bash(rg:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(./zig-out/bin/gene:*)"
     ],
     "deny": []
   },

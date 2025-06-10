@@ -3,7 +3,7 @@ const ast = @import("frontend/ast.zig");
 const parser = @import("frontend/parser.zig");
 const bytecode = @import("backend/bytecode.zig");
 const compiler = @import("compiler.zig");
-const mir_to_bytecode = @import("transforms/mir_to_bytecode.zig");
+const lir_to_bytecode = @import("transforms/lir_to_bytecode.zig");
 
 /// Result of a compilation pipeline run
 pub const CompiledResult = struct {

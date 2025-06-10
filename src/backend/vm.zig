@@ -52,11 +52,13 @@ pub const VM = struct {
         // Initialize variables with builtins
         var variables = std.StringArrayHashMap(types.Value).init(allocator);
 
-        // Store the print function as a variable
-        variables.put("print", .{ .Variable = .{ .name = "print" } }) catch unreachable;
+        // Store the print function as a built-in operator
+        variables.put("print", .{ .BuiltinOperator = .Print }) catch unreachable;
         
         // Store built-in operators
         variables.put("<", .{ .BuiltinOperator = .LessThan }) catch unreachable;
+        variables.put(">", .{ .BuiltinOperator = .GreaterThan }) catch unreachable;
+        variables.put("==", .{ .BuiltinOperator = .Eq }) catch unreachable;
         variables.put("+", .{ .BuiltinOperator = .Add }) catch unreachable;
         variables.put("-", .{ .BuiltinOperator = .Sub }) catch unreachable;
         
@@ -951,6 +953,88 @@ pub const VM = struct {
 
                             return;
                         },
+                        .GreaterThan => {
+                            // Check if we have two arguments
+                            if (arg_count_usize != 2) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the arguments
+                            const right_ref = self.stack.items[self.stack.items.len - 1];
+                            const left_ref = self.stack.items[self.stack.items.len - 2];
+
+                            // Clone the values to avoid use-after-free issues
+                            var right = try right_ref.clone(self.allocator);
+                            var left = try left_ref.clone(self.allocator);
+
+                            // Handle greater than comparison based on types
+                            const result = switch (left) {
+                                .Int => |left_val| switch (right) {
+                                    .Int => |right_val| left_val > right_val,
+                                    .Float => |right_val| @as(f64, @floatFromInt(left_val)) > right_val,
+                                    else => false, // Type error, return false
+                                },
+                                .Float => |left_val| switch (right) {
+                                    .Int => |right_val| left_val > @as(f64, @floatFromInt(right_val)),
+                                    .Float => |right_val| left_val > right_val,
+                                    else => false, // Type error, return false
+                                },
+                                else => false, // Type error, return false
+                            };
+
+                            // Clean up the stack - remove operator AND arguments
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1);
+
+                            // Clean up operands
+                            left.deinit(self.allocator);
+                            right.deinit(self.allocator);
+
+                            // Push result onto stack
+                            try self.stack.append(.{ .Bool = result });
+
+                            return;
+                        },
+                        .Print => {
+                            // Check if we have one argument
+                            if (arg_count_usize != 1) {
+                                return error.ArgumentCountMismatch;
+                            }
+
+                            // Get the argument
+                            const arg_ref = self.stack.items[self.stack.items.len - 1];
+
+                            // Clone the value to avoid use-after-free issues
+                            var arg = try arg_ref.clone(self.allocator);
+
+                            // Print the value based on its type
+                            switch (arg) {
+                                .Int => |val| try self.stdout.print("{}\n", .{val}),
+                                .Float => |val| try self.stdout.print("{}\n", .{val}),
+                                .String => |val| try self.stdout.print("{s}\n", .{val}),
+                                .Bool => |val| try self.stdout.print("{}\n", .{val}),
+                                .Nil => try self.stdout.print("nil\n", .{}),
+                                .Symbol => |val| try self.stdout.print("{s}\n", .{val}),
+                                else => try self.stdout.print("{any}\n", .{arg}),
+                            }
+
+                            // Clean up the stack - remove operator AND arguments
+                            // Deinit values before shrinking
+                            for (self.stack.items[self.stack.items.len - arg_count_usize - 1 ..]) |*v| {
+                                v.deinit(self.allocator);
+                            }
+                            self.stack.items.len -= (arg_count_usize + 1); // Remove operator and arguments
+
+                            // Clean up operand
+                            arg.deinit(self.allocator);
+
+                            // Print returns nil
+                            try self.stack.append(.{ .Nil = {} });
+
+                            return;
+                        },
                     }
                 }
 
@@ -1326,6 +1410,14 @@ pub const VM = struct {
                     return error.TypeMismatch;
                 }
             },
+            .GreaterThan => {
+                // Handle > operator
+                if (arg1 == .Int and arg2 == .Int) {
+                    return types.Value{ .Bool = arg1.Int > arg2.Int };
+                } else {
+                    return error.TypeMismatch;
+                }
+            },
             .Add => {
                 // Handle + operator  
                 if (arg1 == .Int and arg2 == .Int) {
@@ -1349,6 +1441,11 @@ pub const VM = struct {
                 } else {
                     return error.TypeMismatch;
                 }
+            },
+            .Print => {
+                // Print is handled specially in the main call switch, not here
+                // This should never be called since Print is handled elsewhere
+                return error.TypeMismatch;
             },
         };
     }
