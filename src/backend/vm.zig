@@ -171,11 +171,11 @@ pub const VM = struct {
                 }
 
                 // Otherwise, return to the caller
-                if (self.call_frames.pop()) |frame| {
-                    self.current_func = frame.func;
-                    self.pc = frame.return_addr;
-                    self.current_register_base = frame.prev_register_base;
-                }
+                const frame = self.call_frames.items[self.call_frames.items.len - 1];
+                _ = self.call_frames.pop();
+                self.current_func = frame.func;
+                self.pc = frame.return_addr;
+                self.current_register_base = frame.prev_register_base;
                 continue;
             }
 
@@ -801,6 +801,88 @@ pub const VM = struct {
                         try self.setRegister(dst_reg, result);
                         return;
                     }
+                    
+                    // Handle subtract operator
+                    if (builtin_op == .Sub) {
+                        if (arg_count != 2) {
+                            debug.log("Sub operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+                        
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+                        
+                        // Perform subtraction based on types
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| types.Value{ .Int = left_val - right_val },
+                                .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) - right_val },
+                                else => {
+                                    debug.log("TypeMismatch in Sub: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| types.Value{ .Float = left_val - @as(f64, @floatFromInt(right_val)) },
+                                .Float => |right_val| types.Value{ .Float = left_val - right_val },
+                                else => {
+                                    debug.log("TypeMismatch in Sub: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in Sub: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+                        
+                        try self.setRegister(dst_reg, result);
+                        return;
+                    }
+                    
+                    // Handle less than operator
+                    if (builtin_op == .LessThan) {
+                        if (arg_count != 2) {
+                            debug.log("LessThan operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+                        
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+                        
+                        // Perform comparison based on types
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val < right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) < right_val,
+                                else => {
+                                    debug.log("TypeMismatch in LessThan: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val < @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val < right_val,
+                                else => {
+                                    debug.log("TypeMismatch in LessThan: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in LessThan: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+                        
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
 
                     // Handle other built-in operators here...
                     debug.log("Unsupported built-in operator: {any}", .{builtin_op});
@@ -854,7 +936,39 @@ pub const VM = struct {
                 }
 
                 // Handle user-defined functions
-                debug.log("User-defined function calls not yet implemented", .{});
+                if (func_val == .Function) {
+                    const user_func = func_val.Function;
+                    debug.log("Calling user-defined function: {s}", .{user_func.name});
+                    
+                    // Set up new call frame for the function
+                    const new_register_base = self.next_free_register;
+                    const frame = CallFrame.init(user_func, new_register_base, self.current_register_base, self.pc + 1);
+                    try self.call_frames.append(frame);
+                    
+                    // Allocate registers for the function (parameters + locals)
+                    const needed_regs = @as(u16, @intCast(user_func.param_count + user_func.register_count));
+                    const allocated_base = try self.allocateRegisters(needed_regs);
+                    
+                    // Copy arguments to parameter registers
+                    for (0..arg_count) |i| {
+                        const arg_reg = if (arg_count == 1) 
+                            dst_reg - 1  // Previous register for single arg calls
+                        else 
+                            func_reg + 1 + @as(u16, @intCast(i));
+                        const arg = try self.getRegister(arg_reg);
+                        try self.setRegister(allocated_base + @as(u16, @intCast(i)), arg);
+                    }
+                    
+                    // Switch to the new function
+                    self.current_func = user_func;
+                    self.pc = 0;  // Start at beginning of function
+                    self.current_register_base = allocated_base;
+                    self.function_called = true;  // Don't increment PC
+                    
+                    return;
+                }
+                
+                debug.log("User-defined function calls not yet implemented for this function type", .{});
                 return error.NotImplemented;
             },
             .Return => {
@@ -862,21 +976,41 @@ pub const VM = struct {
                 debug.log("Return operation", .{});
                 debug.log("Current register count: {}", .{self.registers.items.len});
 
-                // For now, just implement a simple return mechanism
-                // TODO: Implement proper register-based function returns with call frames
-
-                // If we have a return register specified, log it
+                // Get return value if specified
+                var return_value: ?types.Value = null;
                 if (instruction.src1) |return_reg| {
-                    var return_value = try self.getRegister(return_reg);
-                    defer return_value.deinit(self.allocator);
-                    debug.log("Return value from R{}: {any}", .{ return_reg, return_value });
+                    return_value = try self.getRegister(return_reg);
+                    debug.log("Return value from R{}: {any}", .{ return_reg, return_value.? });
                 } else {
                     debug.log("Return with no value", .{});
+                    return_value = .{ .Nil = {} };
                 }
-
-                // For now, just exit the function
-                // TODO: Implement proper call frame management for register-based VM
-                return;
+                
+                // If we have call frames, restore the previous one
+                if (self.call_frames.items.len > 0) {
+                    const frame = self.call_frames.items[self.call_frames.items.len - 1];
+                    _ = self.call_frames.pop();
+                    
+                    // Store return value in the destination register of the calling context
+                    if (return_value) |ret_val| {
+                        // For simplicity, put return value where the caller expects it
+                        try self.setRegister(self.current_register_base, ret_val);
+                    }
+                    
+                    // Restore the previous function context
+                    self.current_func = frame.func;
+                    self.pc = frame.return_addr;
+                    self.current_register_base = frame.prev_register_base;
+                    
+                    debug.log("Restored call frame: pc={}, base={}", .{ self.pc, self.current_register_base });
+                } else {
+                    // No call frames - this is the main function returning
+                    debug.log("Main function returning", .{});
+                    if (return_value) |*ret_val| {
+                        ret_val.deinit(self.allocator);
+                    }
+                    return;  // Exit the VM
+                }
             },
             .Jump => {
                 // Register-based jump: Jump #target_address

@@ -467,26 +467,32 @@ Successfully completed **Phase 1: Core Language Features** of the migration road
    - Union/intersection types for gradual typing
    - User-defined types with enums, structs, unions
 
-2. **🔧 Function Definition Bug Fix** - Resolved critical UndefinedVariable error:
+2. **🔧 Register Allocation Bug Fix** - Resolved critical NotImplemented error in nested function calls:
+   - Implemented stack-based register tracking system in MIR→Bytecode conversion
+   - Fixed register allocation for complex expressions like `(print (+ 1 2))`
+   - Updated all load/store instructions to use proper stack tracking
+   - **Result**: `default.gene` now executes correctly and outputs expected result ✅
+
+3. **🔧 Function Definition Bug Fix** - Resolved critical UndefinedVariable error:
    - Fixed MIR→LIR→Bytecode pipeline for function loading
    - Bypassed incomplete LIR stage temporarily
    - Added missing arithmetic operators (*,/)
    - **Result**: `fibonacci.gene` now computes correctly (outputs 55 ✅)
 
-3. **🏛️ Object-Oriented Programming** - Full AST support for classes:
+4. **🏛️ Object-Oriented Programming** - Full AST support for classes:
    - ClassDef with fields, methods, inheritance, traits
    - Public/private visibility modifiers
    - Virtual, abstract, and static method support
    - Complete memory management with deinit/clone
 
-4. **🔍 Pattern Matching** - Comprehensive pattern system:
+5. **🔍 Pattern Matching** - Comprehensive pattern system:
    - Match expressions with multiple pattern types
    - Literal, variable, wildcard, constructor patterns
    - Array/map destructuring with rest patterns
    - Or patterns and range patterns
    - Guard clauses support
 
-5. **📦 Module System** - Full namespace and import/export infrastructure:
+6. **📦 Module System** - Full namespace and import/export infrastructure:
    - ModuleDef with imports, exports, and body
    - ImportStmt with selective imports and aliases
    - ExportStmt with export aliases
