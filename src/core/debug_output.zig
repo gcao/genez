@@ -99,12 +99,15 @@ pub const DebugOutput = struct {
         std.debug.print("\n[DEBUG] === Bytecode ===\n", .{});
         for (func.instructions.items, 0..) |instr, i| {
             std.debug.print("[{}] {s}", .{ i, @tagName(instr.op) });
-            if (instr.operand) |operand| {
-                switch (operand) {
+            if (instr.immediate) |immediate| {
+                switch (immediate) {
                     .Int => |val| std.debug.print(" {}", .{val}),
                     .String => |val| std.debug.print(" \"{s}\"", .{val}),
-                    else => std.debug.print(" (other operand)", .{}),
+                    else => std.debug.print(" (other immediate)", .{}),
                 }
+            }
+            if (instr.var_name) |var_name| {
+                std.debug.print(" var:{s}", .{var_name});
             }
             std.debug.print("\n", .{});
         }

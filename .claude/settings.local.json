@@ -12,7 +12,9 @@
       "Bash(rg:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
-      "Bash(./zig-out/bin/gene:*)"
+      "Bash(./zig-out/bin/gene:*)",
+      "Bash(sed:*)",
+      "Bash(cp:*)"
     ],
     "deny": []
   },

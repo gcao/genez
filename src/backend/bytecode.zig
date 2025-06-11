@@ -6,35 +6,86 @@ const debug = @import("../core/debug.zig");
 pub const Value = types.Value;
 
 pub const OpCode = enum {
-    LoadConst,
-    LoadVar,
-    LoadParam, // Added for loading function parameters
-    StoreVar,
-    StoreGlobal, // Added for global variable storage
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Lt,
-    Gt, // Added GreaterThan opcode
-    Eq, // Added Equal opcode
-    Print,
-    Return,
-    Call,
-    Jump, // Unconditional jump
-    JumpIfFalse, // Conditional jump if top of stack is false
-    Array, // New: for array literals
-    Map, // New: for map literals
+    // Register operations
+    LoadConst, // Load constant into register: LoadConst Rd, #constant
+    LoadVar, // Load variable into register: LoadVar Rd, var_name
+    LoadParam, // Load parameter into register: LoadParam Rd, #param_index
+    StoreVar, // Store register to variable: StoreVar var_name, Rs
+    StoreGlobal, // Store register to global: StoreGlobal global_name, Rs
+    Move, // Copy register to register: Move Rd, Rs
+
+    // Arithmetic operations (3-address code)
+    Add, // Add Rs1, Rs2 -> Rd
+    Sub, // Sub Rs1, Rs2 -> Rd
+    Mul, // Mul Rs1, Rs2 -> Rd
+    Div, // Div Rs1, Rs2 -> Rd
+
+    // Comparison operations
+    Lt, // Lt Rs1, Rs2 -> Rd (result: boolean)
+    Gt, // Gt Rs1, Rs2 -> Rd
+    Eq, // Eq Rs1, Rs2 -> Rd
+
+    // I/O operations
+    Print, // Print Rs
+
+    // Control flow
+    Return, // Return [Rs] (optional return value)
+    Call, // Call function_id, [R0, R1, ...] -> Rd
+    Jump, // Jump #offset
+    JumpIfFalse, // JumpIfFalse Rs, #offset
+
+    // Collection operations
+    Array, // Create array: Array Rd, [Rs1, Rs2, ...]
+    Map, // Create map: Map Rd, [Rkey1, Rval1, ...]
 };
+
+// Register identifier - u16 allows for 65,536 virtual registers
+pub const Reg = u16;
 
 pub const Instruction = struct {
     op: OpCode,
-    operand: ?Value = null,
+    // Destination register (for operations that produce a result)
+    dst: ?Reg = null,
+    // Source registers (for operations that read registers)
+    src1: ?Reg = null,
+    src2: ?Reg = null,
+    // Immediate value (for constants, offsets, etc.)
+    immediate: ?Value = null,
+    // Variable name (for LoadVar/StoreVar)
+    var_name: ?[]const u8 = null,
 
     pub fn deinit(self: *Instruction, allocator: std.mem.Allocator) void {
-        if (self.operand) |*op| {
-            op.deinit(allocator);
+        if (self.immediate) |*imm| {
+            imm.deinit(allocator);
         }
+        if (self.var_name) |name| {
+            allocator.free(name);
+        }
+    }
+
+    // Helper constructors for common instruction patterns
+    pub fn loadConst(dst: Reg, value: Value) Instruction {
+        return .{ .op = .LoadConst, .dst = dst, .immediate = value };
+    }
+
+    pub fn loadVar(dst: Reg, var_name: []const u8) Instruction {
+        return .{ .op = .LoadVar, .dst = dst, .var_name = var_name };
+    }
+
+    pub fn add(dst: Reg, src1: Reg, src2: Reg) Instruction {
+        return .{ .op = .Add, .dst = dst, .src1 = src1, .src2 = src2 };
+    }
+
+    pub fn call(dst: Reg, func_reg: Reg) Instruction {
+        return .{ .op = .Call, .dst = dst, .src1 = func_reg };
+    }
+
+    pub fn jumpIfFalse(condition: Reg, offset: i32) Instruction {
+        return .{ .op = .JumpIfFalse, .src1 = condition, .immediate = .{ .Int = offset } };
+    }
+
+    pub fn ret(value_reg: ?Reg) Instruction {
+        return .{ .op = .Return, .src1 = value_reg };
     }
 };
 
@@ -43,6 +94,10 @@ pub const Function = struct {
     allocator: std.mem.Allocator,
     name: []const u8,
     param_count: usize,
+    // Register allocation info
+    register_count: u16, // Total number of registers needed for this function
+    local_count: u16, // Number of local variable registers
+    temp_count: u16, // Number of temporary computation registers
 
     pub fn init(allocator: std.mem.Allocator) Function {
         return Function{
@@ -50,6 +105,9 @@ pub const Function = struct {
             .allocator = allocator,
             .name = "",
             .param_count = 0,
+            .register_count = 0,
+            .local_count = 0,
+            .temp_count = 0,
         };
     }
 
@@ -57,9 +115,13 @@ pub const Function = struct {
     pub fn deinit(self: *Function) void {
         for (self.instructions.items) |*instr| {
             // instr is already *Instruction (mutable pointer from iterator)
-            if (instr.operand) |*operand| {
-                // operand is *Value (mutable pointer)
-                operand.deinit(self.allocator);
+            if (instr.immediate) |*immediate| {
+                // immediate is *Value (mutable pointer)
+                immediate.deinit(self.allocator);
+            }
+            // Free var_name if it exists
+            if (instr.var_name) |name| {
+                self.allocator.free(name);
             }
         }
         self.instructions.deinit();
@@ -162,12 +224,12 @@ pub const Module = struct {
             // Write opcode
             try writer.writeByte(@intFromEnum(instr.op));
 
-            // Write operand if present
-            if (instr.operand) |operand| {
-                try writer.writeByte(1); // Has operand
-                try writeValueToFile(operand, writer);
+            // Write immediate if present
+            if (instr.immediate) |immediate| {
+                try writer.writeByte(1); // Has immediate
+                try writeValueToFile(immediate, writer);
             } else {
-                try writer.writeByte(0); // No operand
+                try writer.writeByte(0); // No immediate
             }
         }
     }
@@ -227,12 +289,12 @@ pub const Module = struct {
                     // Write opcode
                     try writer.writeByte(@intFromEnum(instr.op));
 
-                    // Write operand presence flag
-                    try writer.writeByte(if (instr.operand != null) 1 else 0);
+                    // Write immediate presence flag
+                    try writer.writeByte(if (instr.immediate != null) 1 else 0);
 
-                    // Write operand if present
-                    if (instr.operand) |operand| {
-                        try writeValueToFile(operand, writer);
+                    // Write immediate if present
+                    if (instr.immediate) |immediate| {
+                        try writeValueToFile(immediate, writer);
                     }
                 }
             },
@@ -275,7 +337,7 @@ fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype, deseriali
 
         try func.instructions.append(.{
             .op = op,
-            .operand = operand,
+            .immediate = operand,
         });
     }
 
@@ -377,7 +439,7 @@ fn readValueFromFile(allocator: std.mem.Allocator, reader: anytype, deserialized
 
                 try func.instructions.append(.{
                     .op = op,
-                    .operand = operand,
+                    .immediate = operand,
                 });
             }
 
@@ -464,7 +526,7 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
         .Literal => |lit| {
             try instructions.append(.{
                 .op = .LoadConst,
-                .operand = try lit.value.clone(allocator),
+                .immediate = try lit.value.clone(allocator),
             });
         },
         .BinaryOp => |bin_op| {
@@ -500,7 +562,7 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             // Load the variable onto the stack
             try instructions.append(.{
                 .op = .LoadVar,
-                .operand = .{ .String = try allocator.dupe(u8, var_expr.name) },
+                .var_name = try allocator.dupe(u8, var_expr.name),
             });
         },
         .If => |if_expr| {
@@ -567,7 +629,7 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             debug.log("lowerExpression: Adding Call instruction with {} args", .{func_call.args.items.len});
             try instructions.append(.{
                 .op = .Call,
-                .operand = .{ .Int = @intCast(func_call.args.items.len) },
+                .immediate = .{ .Int = @intCast(func_call.args.items.len) },
             });
             debug.log("lowerExpression: Call instruction added successfully", .{});
         },
@@ -610,29 +672,27 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             // First load the function value onto the stack
             try instructions.append(.{
                 .op = .LoadConst,
-                .operand = func_value,
+                .immediate = func_value,
             });
             debug.log("lowerExpression: LoadConst instruction added for function", .{});
 
             // Then store the function value in a variable with the function name
             try instructions.append(.{
                 .op = .StoreVar,
-                .operand = .{ .String = try allocator.dupe(u8, func_def.name) },
+                .var_name = try allocator.dupe(u8, func_def.name),
             });
             debug.log("lowerExpression: Stored function {s} as Function value", .{func_def.name});
 
             // Load the function value again for global storage
             try instructions.append(.{
                 .op = .LoadConst,
-                .operand = types.Value{ .Function = func_obj },
+                .immediate = types.Value{ .Function = func_obj },
             });
 
             // Store the function in a variable with its name
             try instructions.append(.{
                 .op = .StoreGlobal,
-                .operand = types.Value{
-                    .String = try allocator.dupe(u8, func_def.name),
-                },
+                .var_name = try allocator.dupe(u8, func_def.name),
             });
             debug.log("lowerExpression: StoreGlobal instruction added for function {s}", .{func_def.name});
         },
@@ -643,9 +703,7 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             // Store it in a variable
             try instructions.append(.{
                 .op = .StoreGlobal,
-                .operand = types.Value{
-                    .String = try allocator.dupe(u8, var_decl.name),
-                },
+                .var_name = try allocator.dupe(u8, var_decl.name),
             });
         },
         .ArrayLiteral => |arr_lit| {
@@ -655,7 +713,7 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             }
             try instructions.append(.{
                 .op = .Array,
-                .operand = .{ .Int = @intCast(arr_lit.elements.len) },
+                .immediate = .{ .Int = @intCast(arr_lit.elements.len) },
             });
             debug.log("lowerExpression: Array instruction added with {} elements", .{arr_lit.elements.len});
         },
@@ -667,7 +725,7 @@ fn lowerExpression(allocator: std.mem.Allocator, instructions: *std.ArrayList(In
             }
             try instructions.append(.{
                 .op = .Map,
-                .operand = .{ .Int = @intCast(map_lit.entries.len) },
+                .immediate = .{ .Int = @intCast(map_lit.entries.len) },
             });
             debug.log("lowerExpression: Map instruction added with {} entries", .{map_lit.entries.len});
         },

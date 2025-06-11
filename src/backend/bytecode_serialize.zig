@@ -42,9 +42,12 @@ pub fn serializeFunction(writer: anytype, func: bytecode.Function, indent: usize
 fn serializeInstruction(writer: anytype, instr: bytecode.Instruction) !void {
     try writer.print("{s}", .{@tagName(instr.op)});
     
-    if (instr.operand) |operand| {
+    if (instr.immediate) |immediate| {
         try writer.writeAll(" ");
-        try serializeValue(writer, operand);
+        try serializeValue(writer, immediate);
+    }
+    if (instr.var_name) |var_name| {
+        try writer.print(" var:{s}", .{var_name});
     }
 }
 
