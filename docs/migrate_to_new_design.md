@@ -27,25 +27,47 @@ LIR → Bytecode (Stack-based VM)
 - ✅ Fixed memory management issues in value conversion between stages
 - ✅ Enhanced VM to handle built-in operators through proper dispatch system
 
-### Design Document Target
+### Design Document Target - Unified Runtime Architecture
 ```
-Source Code (.gene files)
-    ↓
-Lexer (Tokenization)
-    ↓
-Parser (AST Generation)
-    ↓
-Macro Expansion
-    ↓
-Type Checker (Optional)
-    ↓
-HIR Generation
-    ↓
-MIR Generation & Optimization
-    ↓
-LIR Generation (Register-based)
-    ↓
-VM Execution / JIT Compilation
+                    Source Code (.gene files)
+                            ↓
+                    Lexer (Tokenization)
+                            ↓
+                    Parser (AST Generation)
+                            ↓
+                    Macro Expansion
+                            ↓
+                    Type Checker (Optional)
+                            ↓
+                    HIR Generation
+                            ↓
+                    MIR Generation & Optimization
+                            ↓
+              ┌─────────────┴─────────────┐
+              │                           │
+      ═══ Fast Path ═══           ═══ Optimized Path ═══
+              │                           │
+      MIR → Bytecode                MIR → LIR → Native
+              │                           │
+              ↓                           ↓
+    ┌─────────────────────────────────────────────────────────┐
+    │                 Unified Runtime                         │
+    ├─────────────────────────────────────────────────────────┤
+    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │
+    │  │Interpreted  │  │    JIT      │  │  AOT Compiled   │  │
+    │  │ Functions   │  │ Functions   │  │   Functions     │  │
+    │  │             │  │             │  │                 │  │
+    │  │Quick Start  │  │ Hot Paths   │  │Core Libraries   │  │
+    │  │Development  │  │ Optimized   │  │System Functions │  │
+    │  └─────────────┘  └─────────────┘  └─────────────────┘  │
+    │         │                │                    │         │
+    │         └────────────────┼────────────────────┘         │
+    │                          │                              │
+    │            ┌─────────────────────────────┐              │
+    │            │ Unified Function Dispatch   │              │
+    │            │    (Transparent Calls)      │              │
+    │            └─────────────────────────────┘              │
+    └─────────────────────────────────────────────────────────┘
 ```
 
 ## Key Differences and Migration Tasks
@@ -95,8 +117,8 @@ VM Execution / JIT Compilation
 - [ ] Improve basic block representation
 
 #### LIR Stage ✅ COMPLETED
-**Previous:** MIR → Bytecode  
-**Current:** MIR → LIR → Bytecode  
+**Previous:** MIR → Bytecode
+**Current:** MIR → LIR → Bytecode
 **Status:** ✅ **Implemented**
 
 **Completed Tasks:**
@@ -134,11 +156,11 @@ The comprehensive type hierarchy from the design document has been implemented i
 pub const Type = union(enum) {
     // Root type - all values are Any
     Any,
-    
+
     // Void and Nil types
     Void,    // No value (function returns)
     Nil,     // The nil value
-    
+
     // Basic types
     Bool,    // true/false
     Number,  // Abstract numeric type
@@ -148,39 +170,39 @@ pub const Type = union(enum) {
     String,  // UTF-8 string
     Symbol,  // Interned symbol
     ComplexSymbol,  // Symbol with namespace/path
-    
+
     // Collection types
     Map: *MapType,       // Key-value mapping
-    Array: *ArrayType,   // Indexed sequence  
+    Array: *ArrayType,   // Indexed sequence
     Set: *SetType,       // Unique value collection
     Gene: *GeneType,     // Generic container
-    
+
     // Function and callable types
     Fn: *FunctionType,   // Function type
-    
+
     // Object-oriented types
     Class: *ClassType,     // Class metaobject
     Trait: *TraitType,     // Trait metaobject
     Instance: *InstanceType, // Instance of a class
-    
+
     // Module and namespace types
     Module: *ModuleType,     // Module/namespace
     Namespace: *NamespaceType, // Keep for compatibility
-    
+
     // Concurrency and reference types
     Ref: *RefType,       // Mutable reference
     Atom: *AtomType,     // Atomic reference
     Chan: *ChanType,     // Channel for concurrency
     Promise: *PromiseType, // Future value
-    
+
     // Union and intersection types for gradual typing
     Union: *UnionType,        // Union of types (T | U)
     Intersection: *IntersectionType, // Intersection of types (T & U)
-    
+
     // Generic type variables
     Generic: *GenericType,    // Generic type parameter
-    
-    // User-defined and extension types  
+
+    // User-defined and extension types
     UserDefined: *UserDefinedType, // User-defined types
     // ... (see types.zig for complete definition)
 };
@@ -236,7 +258,7 @@ Any                    # Root type - all values are Any
 ### 3. Missing Language Features
 
 #### Object-Oriented Programming
-**Current:** None  
+**Current:** None
 **Target:** Full OOP with classes, inheritance, traits, mixins
 
 **Migration Tasks:**
@@ -248,7 +270,7 @@ Any                    # Root type - all values are Any
 - [ ] Add property access with inline caching
 
 #### Pattern Matching
-**Current:** None  
+**Current:** None
 **Target:** Full pattern matching on all data types
 
 **Migration Tasks:**
@@ -259,7 +281,7 @@ Any                    # Root type - all values are Any
 - [ ] Optimize pattern matching with dispatch trees
 
 #### Module System
-**Current:** None  
+**Current:** None
 **Target:** Namespace-based modules with explicit imports/exports
 
 **Migration Tasks:**
@@ -270,7 +292,7 @@ Any                    # Root type - all values are Any
 - [x] **COMPLETED** - Support module properties and metadata (AST structure)
 
 #### Concurrency
-**Current:** None  
+**Current:** None
 **Target:** Actor model, channels, STM, futures
 
 **Migration Tasks:**
@@ -281,7 +303,7 @@ Any                    # Root type - all values are Any
 - [ ] Implement parallel collections
 
 #### Error Handling
-**Current:** Basic exceptions  
+**Current:** Basic exceptions
 **Target:** Exceptions + Result types + error boundaries
 
 **Migration Tasks:**
@@ -292,7 +314,7 @@ Any                    # Root type - all values are Any
 - [ ] Implement error boundaries
 
 #### Metaprogramming
-**Current:** None  
+**Current:** None
 **Target:** Pseudo macros, traditional macros, reflection, code generation
 
 **Migration Tasks:**
@@ -440,7 +462,7 @@ Successfully completed **Phase 1: Core Language Features** of the migration road
 
 1. **🏗️ Comprehensive Type System** - Implemented full type hierarchy with 20+ types including:
    - Object-oriented types (Class, Trait, Instance)
-   - Generic types with variance and constraints  
+   - Generic types with variance and constraints
    - Concurrency types (Chan, Promise, Ref, Atom)
    - Union/intersection types for gradual typing
    - User-defined types with enums, structs, unions

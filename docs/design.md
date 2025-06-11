@@ -86,7 +86,7 @@ Gene uses S-expressions as its foundation with extensions for common patterns:
 
 ```gene
 # Comments start with #
-#< Block comments 
+#< Block comments
    can span multiple lines >#
 
 # Basic expressions
@@ -177,8 +177,8 @@ Gene supports infix operators within S-expressions:
 (/property = value)        # Update object property of self in current context
 
 # Control flow
-(if condition 
-  then-expr 
+(if condition
+  then-expr
   else-expr)
 
 (do                        # Sequential execution
@@ -197,7 +197,7 @@ Gene supports infix operators within S-expressions:
 
 ```gene
 # Function definition
-(fn add [x y] 
+(fn add [x y]
   (+ x y))
 
 # With types
@@ -378,7 +378,7 @@ Any                    # Root type - all values are Any
 ```gene
 # Parameterized types
 (Array T)           # Array of T
-(Map K V)           # Map from K to V  
+(Map K V)           # Map from K to V
 (Set T)             # Set of T
 (Gene H)            # Gene with head type H
 (Fn A B)            # Function from A to B
@@ -388,7 +388,7 @@ Any                    # Root type - all values are Any
 (| Int Str)         # Int or Str
 (| Int Nil)         # Nullable Int
 
-# Intersection types  
+# Intersection types
 (& Comparable Hashable)  # Both traits
 
 # Tuple types
@@ -952,7 +952,7 @@ In Gene, all constructs return values:
 ### 5.4.3 Loop/Recur
 
 ```gene
-(loop 
+(loop
   (var i = 0)
   (var sum = 0)
   (if (>= i 10)
@@ -965,15 +965,15 @@ In Gene, all constructs return values:
 ```gene
 (try
   (dangerous-operation)
-  
+
   catch IOError => e
     (log "IO error: " e)
     :io-failed
-    
+
   catch _ => e
     (log "General error: " e)
     :error
-    
+
   finally
     (cleanup))
 ```
@@ -1049,7 +1049,7 @@ Functions capture their lexical environment:
 ```gene
 (fn make-counter [initial :Int]
   (var count = initial)
-  (fnx [] 
+  (fnx []
     (count = (+ count 1))
     count))
 
@@ -1114,21 +1114,21 @@ Methods are functions with special dispatch:
   # Fields using .prop macro-method
   (.prop x Float)
   (.prop y Float)
-  
+
   # Constructor
   (.new [x :Float y :Float]
     (/x = x)
     (/y = y))
-  
+
   # Methods
   (.fn distance [other :Point => :Float]
     (math/sqrt (+ (** (- other/x /x) 2)
                   (** (- other/y /y) 2))))
-  
+
   # Properties (getters/setters)
   (.get magnitude []
     (math/sqrt (+ (* /x /x) (* /y /y))))
-  
+
   (.set magnitude [m :Float]
     (var scale = (/ m /magnitude))
     (/x = (* /x scale))
@@ -1145,11 +1145,11 @@ Methods are functions with special dispatch:
 # Single inheritance
 (class Circle extends Shape
   (.prop radius Float)
-  
+
   (.new [x :Float y :Float radius :Float]
     (super x y)  # Call parent constructor
     (/radius = radius))
-  
+
   # Override parent method
   (.fn area [] :Float
     (* math/pi (* /radius /radius))))
@@ -1158,7 +1158,7 @@ Methods are functions with special dispatch:
 (abstract class Shape
   (.prop x Float)
   (.prop y Float)
-  
+
   (.fn area [] :Float)  # Abstract method
 
   (.fn describe [] :Str
@@ -1174,17 +1174,17 @@ Traits are interfaces that can provide default implementations. Classes **implem
 (trait Comparable ^^T
   # Abstract method - must be implemented
   (.fn compare [other :T => :Int])
-  
+
   # Default implementations using the abstract method
   (.fn < [other :T => :Bool]
     (< (.compare other) 0))
-  
+
   (.fn > [other :T => :Bool]
     (> (.compare other) 0))
-    
+
   (.fn <= [other :T => :Bool]
     (not (.> other)))
-    
+
   (.fn >= [other :T => :Bool]
     (not (.< other))))
 
@@ -1216,10 +1216,10 @@ Mixins are bundles of functionality that get **copied** into the including class
 (mixin Timestamped
   (.prop created-at Time = (time/now))
   (.prop updated-at Time = (time/now))
-  
+
   (.fn touch []
     (/updated-at = (time/now)))
-    
+
   (.fn age [] :Duration
     (time/since /created-at)))
 
@@ -1227,7 +1227,7 @@ Mixins are bundles of functionality that get **copied** into the including class
 (class Document includes Timestamped
   (.prop title Str)
   (.prop content Str)
-  
+
   (.fn save []
     (.touch)  # From mixin
     (db/save self)))
@@ -1245,12 +1245,12 @@ Gene supports multiple types of methods to provide different execution semantics
 (class Component
   (.prop state Map = {})
   (.prop listeners Array = [])
-  
+
   # Regular method - standard evaluation
   (.fn update [key value]
     (/state .set key value)
     (.notify-listeners key value))
-  
+
   # Pseudo macro method - lazy evaluation
   (.macro when-changed [condition body]
     (if condition
@@ -1258,18 +1258,18 @@ Gene supports multiple types of methods to provide different execution semantics
         (.update :last-change (time/now))
         body)
       nil))
-  
+
   # Static method
   (.static fn create-default []
     (Component))
-  
+
   # Virtual method (can be overridden)
   (.virtual fn render []
     (print "Base component"))
-  
+
   # Abstract method (must be implemented by subclasses)
   (.abstract fn validate [])
-  
+
   # Private method
   (.-fn internal-cleanup []
     (.clear-cache)))
@@ -1283,7 +1283,7 @@ Pseudo macro methods combine the lazy evaluation semantics of pseudo macros with
 (class StateMachine
   (.prop current-state Symbol = :initial)
   (.prop transition-log Array = [])
-  
+
   # Macro method for state transitions with validation
   (.macro transition-to [new-state guard-expr action-expr]
     (when guard-expr
@@ -1320,28 +1320,28 @@ Macro methods are resolved using the same order but execute with lazy evaluation
 (class BankAccount
   # Private field (not accessible outside)
   (.prop -balance Float)
-  
+
   # Protected field (accessible in subclasses)
   (.prop #account-number Str)
-  
+
   # Public by default
   (.prop name Str)
-  
+
   # Static field
   (.static prop interest-rate Float = 0.05)
-  
+
   # Mutable field (all fields are mutable by default)
   (.prop mut counter Int = 0)
-  
+
   # Immutable field
   (.prop const id Str)
-  
+
   # Optional field
   (.prop account-type (Option Str))
-  
+
   # Field with default value
   (.prop status Str = "active")
-  
+
   # Read-only property
   (.get balance [] :Float
     /-balance))
@@ -1354,11 +1354,11 @@ Macro methods are resolved using the same order but execute with lazy evaluation
   # Static fields
   (static PI = 3.14159)
   (static E = 2.71828)
-  
+
   # Static methods
   (.static fn abs [x :Number => :Number]
     (if (< x 0) (- x) x))
-  
+
   # Class methods
   (.class fn create-unit-circle []
     (Circle 0 0 1)))
@@ -1374,7 +1374,7 @@ Math/PI
 # Trait example - Serializable IS-A type
 (trait Serializable
   (.fn serialize [] :Str)
-  
+
   # Default using serialize
   (.fn save-to-file [path :Str]
     (file/write path (.serialize))))
@@ -1382,7 +1382,7 @@ Math/PI
 (class Person implements Serializable
   (.prop name Str)
   (.prop age Int)
-  
+
   (.fn serialize [] :Str
     (json/stringify {^name /name ^age /age})))
 
@@ -1394,17 +1394,17 @@ Math/PI
 # Mixin example - Observable is NOT a type
 (mixin Observable
   (.prop -observers Array = [])
-  
+
   (.fn add-observer [fn]
     (/-observers .push fn))
-    
+
   (.fn notify [event]
     (for obs in /-observers
       (obs event))))
 
 (class Model includes Observable
   (.prop data Map)
-  
+
   (.fn update [key value]
     (/data .set key value)
     (.notify {:changed key})))  # From mixin
@@ -1418,7 +1418,7 @@ Math/PI
 ```gene
 # Method resolution order (MRO)
 # 1. Instance methods
-# 2. Class methods  
+# 2. Class methods
 # 3. Parent class methods (depth-first)
 # 4. Trait methods
 # 5. Mixin methods
@@ -1462,13 +1462,13 @@ Math/PI
   ^export [public-fn :function
            PublicClass :class
            PUBLIC-CONST :value]
-  
+
   # Export with renaming
   ^export [internal-name as public-name]
-  
+
   # Export all public definitions
   ^export *
-  
+
   # Re-export from another module
   ^export-from other/module [item1 item2])
 
@@ -1505,14 +1505,14 @@ mu/helper1
   # Private by default with -
   (-fn private-helper []
     ...)
-  
+
   # Public function
   (fn public-fn []
     (private-helper))
-  
+
   # Private variable
   (-var secret-key = "...")
-  
+
   ^export [public-fn])  # Only export public items
 ```
 
@@ -1523,7 +1523,7 @@ mu/helper1
   ^version "1.2.3"
   ^author "John Doe"
   ^license "MIT"
-  
+
   ^export [])
 
 # Access module metadata
@@ -1542,7 +1542,7 @@ Gene uses the actor model for safe concurrent programming:
 # Define an actor
 (actor Counter
   (var count :Int = 0)
-  
+
   (.receive msg
     (match msg
       [:inc n] (/count = (+ /count n))
@@ -1669,7 +1669,7 @@ For independent state updates:
 (counter .compare-and-set! old-val new-val)
 
 # Watch for changes
-(counter .add-watch :logger 
+(counter .add-watch :logger
   (fnx [key ref old new]
     (print "Changed from" old "to" new)))
 ```
@@ -1838,19 +1838,19 @@ Pseudo macros can also be defined as methods within classes, combining lazy eval
 (class Component
   (.prop state Map = {})
   (.prop dirty Bool = false)
-  
+
   # Regular method
   (.fn update [key value]
     (/state .set key value)
     (/dirty = true))
-  
+
   # Pseudo macro method - lazy evaluation with object context
   (.macro when-dirty [condition cleanup-expr]
     (when (and /dirty condition)
       (do
         cleanup-expr               # Evaluated in caller's context
         (/dirty = false))))
-  
+
   # Macro method for conditional updates
   (.macro conditional-update [guard-expr key-expr value-expr]
     (when guard-expr
@@ -1919,7 +1919,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
   (* x 2))
 
 # Macro with pattern matching
-(defmacro defn 
+(defmacro defn
   [[name args... => ret] body...]
     :(fn %name %args... => %ret %body...)
   [[name args...] body...]
@@ -2003,7 +2003,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
   (fnx [node]
     (match node
       (Symbol name) (transform-symbol name)
-      (Gene head props children) 
+      (Gene head props children)
         (Gene head props (map walk children))
       _ node)))
 
@@ -2027,14 +2027,14 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 # Try-catch
 (try
   (risky-operation)
-  
+
   catch :network-error => e
     (handle-network e)
-    
+
   catch Exception => e
     (log-error e)
     (re-throw)
-    
+
   finally
     (cleanup))
 ```
@@ -2051,7 +2051,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
     [:ok (/ a b)]))
 
 # Chain operations
-(var result = 
+(var result =
   (safe-divide 10 2)
   .and-then (fnx [x] (safe-divide x 2))
   .map (fnx [x] (* x 10))
@@ -2090,7 +2090,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 # Invariants
 (class Account
   ^invariant [(>= /balance 0)]
-  
+
   (.fn withdraw [amount :Float]
     ^pre [(<= amount /balance)]
     (/balance = (- /balance amount))))
@@ -2148,7 +2148,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 (m .merge m2)
 (m .select-keys [:k1 :k2])
 
-# Set operations  
+# Set operations
 (s1 .union s2)
 (s1 .intersection s2)
 (s1 .difference s2)
@@ -2228,52 +2228,139 @@ math/e
 
 ## 14.1 High-Level Architecture
 
+Gene uses a unified runtime architecture supporting seamless interoperability between interpreted and compiled code at function granularity:
+
 ```
-Source Code (.gene files)
-    ↓
-Lexer (Tokenization)
-    ↓
-Parser (AST Generation)
-    ↓
-Macro Expansion
-    ↓
-Type Checker (Optional)
-    ↓
-HIR Generation
-    ↓
-MIR Generation & Optimization
-    ↓
-LIR Generation
-    ↓
-VM Execution / JIT Compilation
+                    Source Code (.gene files)
+                            ↓
+                    Lexer (Tokenization)
+                            ↓
+                    Parser (AST Generation)
+                            ↓
+                    Macro Expansion
+                            ↓
+                    Type Checker (Optional)
+                            ↓
+                    HIR Generation
+                            ↓
+                    MIR Generation & Optimization
+                            ↓
+              ┌─────────────┴─────────────┐
+              │                           │
+      ═══ Fast Path ═══           ═══ Optimized Path ═══
+              │                           │
+      MIR → Bytecode                MIR → LIR → Native
+              │                           │
+              ↓                           ↓
+    ┌─────────────────────────────────────────────────────────┐
+    │                 Unified Runtime                         │
+    ├─────────────────────────────────────────────────────────┤
+    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │
+    │  │Interpreted  │  │    JIT      │  │  AOT Compiled   │  │
+    │  │ Functions   │  │ Functions   │  │   Functions     │  │
+    │  │             │  │             │  │                 │  │
+    │  │Quick Start  │  │ Hot Paths   │  │Core Libraries   │  │
+    │  │Development  │  │ Optimized   │  │System Functions │  │
+    │  └─────────────┘  └─────────────┘  └─────────────────┘  │
+    │         │                │                    │         │
+    │         └────────────────┼────────────────────┘         │
+    │                          │                              │
+    │            ┌─────────────────────────────┐              │
+    │            │ Unified Function Dispatch   │              │
+    │            │    (Transparent Calls)      │              │
+    │            └─────────────────────────────┘              │
+    └─────────────────────────────────────────────────────────┘
 ```
 
-## 14.2 Core Components
+## 14.2 Execution Modes
 
-1. **Frontend**
+Gene supports three execution modes that can coexist seamlessly within the same program:
+
+### 14.2.1 Interpreted Execution (Fast Compilation)
+- **Use Case**: Development, REPL, cold code, rapid iteration
+- **Compilation Time**: ~1-5ms per function
+- **Runtime Performance**: Good for development, adequate for most code
+- **Memory Usage**: Moderate (bytecode + VM state)
+
+### 14.2.2 JIT Compilation (Balanced)
+- **Use Case**: Hot paths identified at runtime
+- **Compilation Time**: ~10-50ms per function
+- **Runtime Performance**: Near-native speed
+- **Trigger**: Functions called > 1000 times
+
+### 14.2.3 AOT Compilation (Maximum Performance)
+- **Use Case**: Core libraries, system functions, deployment
+- **Compilation Time**: ~100-500ms per function
+- **Runtime Performance**: Native C-level speed
+- **Usage**: Standard library, critical paths
+
+## 14.3 Core Components
+
+1. **Unified Frontend**
    - Lexer: Token generation
    - Parser: AST construction
-   - Macro expander: Compile-time code generation
+   - Macro expander: Pseudo macro and traditional macro support
+   - Shared HIR/MIR: Common intermediate representation
 
-2. **Middle-end**
-   - Type checker: Gradual type verification
-   - HIR: High-level IR for semantic analysis
-   - MIR: Mid-level IR for optimization
-   - Optimizer: Constant folding, dead code elimination, etc.
+2. **Dual Backend Paths**
+   - **Fast Path**: MIR → Bytecode (simple register allocation)
+   - **Optimized Path**: MIR → LIR → Native (advanced optimization)
 
-3. **Backend**
-   - LIR: Low-level register-based bytecode
-   - VM: Register-based interpreter
-   - JIT: Native code generation for hot paths
-   - GC: Memory management
+3. **Unified Runtime System**
+   - **Function Table**: Tracks execution mode per function
+   - **Transparent Dispatch**: Calls work regardless of execution mode
+   - **Tiered Compilation**: Automatic promotion from interpreted → JIT → AOT
+   - **Profile-Guided Optimization**: Runtime statistics drive compilation decisions
 
-## 14.3 Key Design Decisions
+4. **Memory Management**
+   - **Unified GC**: Works across all execution modes
+   - **Value Representation**: NaN-boxing for uniform handling
+   - **Cross-Mode Calls**: Zero-cost calls between execution modes
 
-- **NaN-boxing**: Uniform 64-bit value representation
-- **Register VM**: Better performance than stack-based
-- **Incremental compilation**: Fast REPL experience
-- **Inline caching**: Optimize dynamic dispatch
-- **Copy-on-write**: Efficient immutable data structures
+## 14.4 Mixed Execution Examples
+
+### Development Workflow
+```gene
+# User function starts interpreted (fast compilation)
+(fn fibonacci [n]
+  (if (< n 2) n
+    (+ (fibonacci (- n 1)) (fibonacci (- n 2)))))
+
+# Built-in functions are AOT compiled
+(print "Computing...")          # Native speed
+
+# Library functions may be JIT compiled
+(map fibonacci [1 2 3 4 5])     # 'map' gets JIT compiled if hot
+```
+
+### Production Deployment
+```zig
+// Production binary contains mixed execution modes
+Gene Binary {
+    // AOT compiled - maximum performance
+    core_functions: [print, +, -, *, map, filter, reduce, ...],
+    stdlib: [io/*, math/*, string/*, ...],
+
+    // Interpreted initially - fast startup
+    user_code: [main, business_logic, ...],
+
+    // JIT compiled at runtime - optimized hot paths
+    hot_functions: [], // Populated during execution
+
+    // Unified runtime manages all modes transparently
+    runtime: FunctionTable + VM + JIT + Profiler,
+}
+```
+
+## 14.5 Key Design Decisions
+
+- **Function-Level Granularity**: Compilation decisions made per function, not per module
+- **Transparent Interoperability**: Calls work seamlessly across execution modes
+- **Progressive Optimization**: Functions automatically upgrade from interpreted → JIT → AOT
+- **Unified Value Representation**: NaN-boxing enables zero-cost cross-mode calls
+- **Profile-Guided Decisions**: Runtime statistics drive optimization choices
+- **Fast Development Cycle**: Always start interpreted for immediate feedback
+- **Production Performance**: Hot paths automatically reach native speeds
 
 ---
 
@@ -2283,117 +2370,169 @@ VM Execution / JIT Compilation
 
 The lexer converts source text into tokens:
 
-```rust
-enum Token {
+```zig
+// src/frontend/token.zig
+pub const Token = union(enum) {
     // Literals
-    Integer(i64),
-    Float(f64),
-    String(String),
-    Char(char),
-    Symbol(String),
-    Keyword(String),
-    
+    integer: i64,
+    float: f64,
+    string: []const u8,
+    char: u21,  // Unicode codepoint
+    symbol: []const u8,
+    keyword: []const u8,
+
     // Delimiters
-    LeftParen,
-    RightParen,
-    LeftBracket,
-    RightBracket,
-    LeftBrace,
-    RightBrace,
-    
+    left_paren,
+    right_paren,
+    left_bracket,
+    right_bracket,
+    left_brace,
+    right_brace,
+
     // Special
-    Quote,      // :
-    Unquote,    // %
-    Property,   // ^
-    Dot,        // .
-    Slash,      // /
-    
+    quote,      // :
+    unquote,    // %
+    property,   // ^
+    dot,        // .
+    slash,      // /
+
     // Operators
-    Plus, Minus, Star, Slash,
-    Eq, Ne, Lt, Gt, Le, Ge,
-    And, Or, Not,
-    
+    plus, minus, star, slash_op,
+    eq, ne, lt, gt, le, ge,
+    and_op, or_op, not_op,
+
     // Keywords
-    If, Else, Do, Fn, Var, Class,
+    if_kw, else_kw, do_kw, fn_kw, var_kw, class_kw,
+    macro_kw, defmacro_kw,
     // ... etc
-}
+
+    pub fn deinit(self: *Token, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .string, .symbol, .keyword => |str| allocator.free(str),
+            else => {},
+        }
+    }
+};
 ```
 
 ## 15.2 Parser Design
 
 The parser builds an AST from tokens:
 
-```rust
-enum Expr {
+```zig
+// src/frontend/ast.zig - Expression types (already implemented)
+pub const Expression = union(enum) {
     // Atoms
-    Nil,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Str(String),
-    Symbol(String),
-    
-    // Compound
-    Gene {
-        head: Box<Expr>,
-        props: HashMap<String, Expr>,
-        children: Vec<Expr>,
-    },
-    
-    Array(Vec<Expr>),
-    Map(HashMap<String, Expr>),
-    Set(HashSet<Expr>),
-    
-    // Special forms
-    If {
-        cond: Box<Expr>,
-        then: Box<Expr>,
-        else_: Option<Box<Expr>>,
-    },
-    
-    Fn {
-        name: Option<String>,
-        params: Vec<Param>,
-        body: Vec<Expr>,
-    },
-    
-    // ... etc
-}
+    Literal: Literal,
+    Variable: Variable,
+
+    // Compound expressions
+    If: If,
+    FuncCall: FuncCall,
+    FuncDef: FuncDef,
+    VarDecl: VarDecl,
+    ArrayLiteral: ArrayLiteral,
+    MapLiteral: MapLiteral,
+    DoBlock: DoBlock,
+
+    // Object-oriented
+    ClassDef: ClassDef,
+    MatchExpr: MatchExpr,
+
+    // Module system
+    ModuleDef: ModuleDef,
+    ImportStmt: ImportStmt,
+    ExportStmt: ExportStmt,
+
+    // Memory management
+    pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .Literal => |*lit| lit.deinit(allocator),
+            .Variable => |*var_expr| var_expr.deinit(allocator),
+            .If => |*if_expr| if_expr.deinit(allocator),
+            .FuncCall => |*func_call| func_call.deinit(allocator),
+            // ... other cases
+        }
+    }
+
+    pub fn clone(self: Expression, allocator: std.mem.Allocator) !Expression {
+        return switch (self) {
+            .Literal => |lit| .{ .Literal = try lit.clone(allocator) },
+            .Variable => |var_expr| .{ .Variable = try var_expr.clone(allocator) },
+            // ... other cases
+        };
+    }
+};
 ```
 
 ## 15.3 Parsing Algorithm
 
-```rust
-fn parse_expr(tokens: &mut TokenStream) -> Result<Expr> {
-    match tokens.peek() {
-        LeftParen => parse_gene(tokens),
-        LeftBracket => parse_array(tokens),
-        LeftBrace => parse_map(tokens),
-        Quote => parse_quote(tokens),
-        Integer(n) => Ok(Expr::Int(n)),
-        Symbol(s) => parse_symbol_or_path(tokens),
-        // ... etc
-    }
-}
+```zig
+// src/frontend/parser.zig
+pub const Parser = struct {
+    allocator: std.mem.Allocator,
+    tokens: TokenStream,
+    current: usize,
 
-fn parse_gene(tokens: &mut TokenStream) -> Result<Expr> {
-    tokens.expect(LeftParen)?;
-    let head = parse_expr(tokens)?;
-    let mut props = HashMap::new();
-    let mut children = Vec::new();
-    
-    while !tokens.peek_is(RightParen) {
-        if tokens.peek_is(Property) {
-            let (key, val) = parse_property(tokens)?;
-            props.insert(key, val);
-        } else {
-            children.push(parse_expr(tokens)?);
+    pub fn parseExpression(self: *Parser) !Expression {
+        const token = self.peek();
+        return switch (token) {
+            .left_paren => self.parseGene(),
+            .left_bracket => self.parseArrayLiteral(),
+            .left_brace => self.parseMapLiteral(),
+            .quote => self.parseQuotedExpr(),
+            .integer => |n| Expression{ .Literal = .{ .value = .{ .Int = n } } },
+            .symbol => |s| self.parseSymbolOrPath(s),
+            else => error.UnexpectedToken,
+        };
+    }
+
+    fn parseGene(self: *Parser) !Expression {
+        try self.expect(.left_paren);
+
+        // Parse head expression
+        const head = try self.allocator.create(Expression);
+        errdefer self.allocator.destroy(head);
+        head.* = try self.parseExpression();
+
+        // Parse arguments
+        var args = std.ArrayList(*Expression).init(self.allocator);
+        errdefer {
+            for (args.items) |arg| {
+                arg.deinit(self.allocator);
+                self.allocator.destroy(arg);
+            }
+            args.deinit();
+        }
+
+        while (!self.checkToken(.right_paren)) {
+            const arg = try self.allocator.create(Expression);
+            errdefer self.allocator.destroy(arg);
+            arg.* = try self.parseExpression();
+            try args.append(arg);
+        }
+
+        try self.expect(.right_paren);
+
+        return Expression{
+            .FuncCall = .{
+                .func = head,
+                .args = args,
+            }
+        };
+    }
+
+    fn peek(self: *Parser) Token {
+        return self.tokens.items[self.current];
+    }
+
+    fn expect(self: *Parser, expected: Token) !void {
+        const token = self.advance();
+        if (!std.meta.eql(token, expected)) {
+            return error.UnexpectedToken;
         }
     }
-    
-    tokens.expect(RightParen)?;
-    Ok(Expr::Gene { head, props, children })
-}
+};
 ```
 
 ---
@@ -2412,81 +2551,91 @@ Gene uses a three-tier IR pipeline for progressive lowering and optimization:
 
 HIR preserves high-level constructs while desugaring syntax:
 
-```rust
-enum HIR {
+```zig
+pub const HIR = union(enum) {
     // Values
-    Const(Value),
-    Var(VarId),
-    
+    Const: Value,
+    Var: VarId,
+
     // Bindings
-    Let {
-        var: VarId,
-        typ: Option<Type>,
-        init: Box<HIR>,
-        body: Box<HIR>,
+    Let: struct {
+        var_id: VarId,
+        type_hint: ?Type,
+        init: *HIR,
+        body: *HIR,
     },
-    
+
     // Functions
-    Function {
+    Function: struct {
         id: FnId,
-        params: Vec<(VarId, Type)>,
-        body: Box<HIR>,
-        captures: Vec<VarId>,
+        params: []FnParam,
+        body: *HIR,
+        captures: []VarId,
     },
-    
-    Call {
-        func: Box<HIR>,
-        args: Vec<HIR>,
+
+    Call: struct {
+        func: *HIR,
+        args: []*HIR,
     },
-    
+
     // Control flow
-    If {
-        cond: Box<HIR>,
-        then: Box<HIR>,
-        else_: Box<HIR>,
+    If: struct {
+        cond: *HIR,
+        then_branch: *HIR,
+        else_branch: *HIR,
     },
-    
-    Match {
-        expr: Box<HIR>,
-        arms: Vec<(Pattern, HIR)>,
+
+    Match: struct {
+        expr: *HIR,
+        arms: []MatchArm,
     },
-    
+
     // Object-oriented
-    Class {
+    Class: struct {
         id: ClassId,
-        parent: Option<ClassId>,
-        traits: Vec<TraitId>,
-        fields: Vec<Field>,
-        methods: Vec<Method>,
+        parent: ?ClassId,
+        traits: []TraitId,
+        fields: []Field,
+        methods: []Method,
     },
-    
-    New {
+
+    New: struct {
         class: ClassId,
-        args: Vec<HIR>,
+        args: []*HIR,
     },
-    
-    FieldAccess {
-        obj: Box<HIR>,
+
+    FieldAccess: struct {
+        obj: *HIR,
         field: FieldId,
     },
-    
-    MethodCall {
-        obj: Box<HIR>,
+
+    MethodCall: struct {
+        obj: *HIR,
         method: MethodId,
-        args: Vec<HIR>,
+        args: []*HIR,
     },
-    
+
     // Blocks
-    Block(Vec<HIR>),
-    
+    Block: []*HIR,
+
     // Loops
-    Loop {
-        body: Box<HIR>,
+    Loop: struct {
+        body: *HIR,
     },
-    
-    Break(Option<Box<HIR>>),
+
+    Break: ?*HIR,
     Continue,
-}
+
+    pub const FnParam = struct {
+        var_id: VarId,
+        param_type: Type,
+    };
+
+    pub const MatchArm = struct {
+        pattern: Pattern,
+        body: *HIR,
+    };
+};
 ```
 
 ### HIR Generation Example
@@ -2512,133 +2661,143 @@ Function {
 
 MIR uses SSA (Static Single Assignment) form for optimization:
 
-```rust
-struct MIRFunction {
+```zig
+pub const MIRFunction = struct {
     id: FnId,
-    params: Vec<VarId>,
-    locals: Vec<(VarId, Type)>,
-    blocks: Vec<BasicBlock>,
-}
+    params: []VarId,
+    locals: []LocalVar,
+    blocks: []BasicBlock,
 
-struct BasicBlock {
+    pub const LocalVar = struct {
+        var_id: VarId,
+        var_type: Type,
+    };
+};
+
+pub const BasicBlock = struct {
     id: BlockId,
-    instructions: Vec<MIR>,
+    instructions: []MIR,
     terminator: Terminator,
-}
+};
 
-enum MIR {
+pub const MIR = union(enum) {
     // SSA operations
-    Assign {
+    Assign: struct {
         dest: VarId,
         value: Operand,
     },
-    
+
     // Arithmetic
-    BinOp {
+    BinOp: struct {
         dest: VarId,
-        op: BinOp,
+        op: BinaryOperation,
         left: Operand,
         right: Operand,
     },
-    
-    UnOp {
+
+    UnOp: struct {
         dest: VarId,
-        op: UnOp,
+        op: UnaryOperation,
         operand: Operand,
     },
-    
+
     // Memory
-    Load {
+    Load: struct {
         dest: VarId,
         addr: Operand,
     },
-    
-    Store {
+
+    Store: struct {
         addr: Operand,
         value: Operand,
     },
-    
+
     // Objects
-    AllocObject {
+    AllocObject: struct {
         dest: VarId,
         class: ClassId,
     },
-    
-    GetField {
+
+    GetField: struct {
         dest: VarId,
         obj: Operand,
         field: FieldId,
     },
-    
-    SetField {
+
+    SetField: struct {
         obj: Operand,
         field: FieldId,
         value: Operand,
     },
-    
+
     // Function calls
-    Call {
-        dest: Option<VarId>,
+    Call: struct {
+        dest: ?VarId,
         func: Operand,
-        args: Vec<Operand>,
+        args: []Operand,
     },
-    
+
     // Type operations
-    Cast {
+    Cast: struct {
         dest: VarId,
         value: Operand,
         to_type: Type,
     },
-    
-    TypeCheck {
+
+    TypeCheck: struct {
         dest: VarId,
         value: Operand,
-        typ: Type,
+        target_type: Type,
     },
-}
+};
 
-enum Terminator {
-    Return(Option<Operand>),
-    Branch(BlockId),
-    CondBranch {
+pub const Terminator = union(enum) {
+    Return: ?Operand,
+    Branch: BlockId,
+    CondBranch: struct {
         cond: Operand,
         then_block: BlockId,
         else_block: BlockId,
     },
-    Switch {
+    Switch: struct {
         value: Operand,
-        targets: Vec<(Value, BlockId)>,
+        targets: []SwitchTarget,
         default: BlockId,
     },
-}
 
-enum Operand {
-    Const(Value),
-    Var(VarId),
-}
+    pub const SwitchTarget = struct {
+        value: Value,
+        target: BlockId,
+    };
+};
+
+pub const Operand = union(enum) {
+    Const: Value,
+    Var: VarId,
+};
 ```
 
 ### MIR Optimization Passes
 
-```rust
-fn optimize_mir(func: &mut MIRFunction) {
+```zig
+fn optimizeMir(allocator: std.mem.Allocator, func: *MIRFunction) !void {
     // Dead code elimination
-    dead_code_elimination(func);
-    
+    try deadCodeElimination(allocator, func);
+
     // Constant propagation
-    constant_propagation(func);
-    
+    try constantPropagation(allocator, func);
+
     // Common subexpression elimination
-    cse(func);
-    
+    try commonSubexpressionElimination(allocator, func);
+
     // Inline small functions
-    inline_functions(func);
-    
+    try inlineFunctions(allocator, func);
+
     // Loop optimizations
-    loop_invariant_code_motion(func);
-    
+    try loopInvariantCodeMotion(allocator, func);
+
     // Escape analysis for stack allocation
-    escape_analysis(func);
+    try escapeAnalysis(allocator, func);
 }
 ```
 
@@ -2646,92 +2805,105 @@ fn optimize_mir(func: &mut MIRFunction) {
 
 LIR is register-based bytecode for the VM:
 
-```rust
-enum LIR {
+```zig
+pub const LIR = union(enum) {
     // Constants
-    LoadConst { dest: Reg, val: Value },
-    LoadNil { dest: Reg },
-    
-    // Arithmetic
-    Add { dest: Reg, left: Reg, right: Reg },
-    Sub { dest: Reg, left: Reg, right: Reg },
-    Mul { dest: Reg, left: Reg, right: Reg },
-    Div { dest: Reg, left: Reg, right: Reg },
-    
-    // Comparison
-    Eq { dest: Reg, left: Reg, right: Reg },
-    Lt { dest: Reg, left: Reg, right: Reg },
-    Le { dest: Reg, left: Reg, right: Reg },
-    
-    // Logical
-    And { dest: Reg, left: Reg, right: Reg },
-    Or { dest: Reg, left: Reg, right: Reg },
-    Not { dest: Reg, src: Reg },
-    
-    // Control flow
-    Jump { target: Label },
-    JumpIf { cond: Reg, target: Label },
-    JumpIfNot { cond: Reg, target: Label },
-    
-    // Function calls
-    Call { dest: Reg, func: Reg, args: Vec<Reg> },
-    TailCall { func: Reg, args: Vec<Reg> },
-    Return { value: Option<Reg> },
-    
-    // Object operations
-    NewObject { dest: Reg, class: ClassId },
-    GetField { dest: Reg, obj: Reg, field: FieldId },
-    SetField { obj: Reg, field: FieldId, value: Reg },
-    
-    // Method dispatch
-    GetMethod { dest: Reg, obj: Reg, method: MethodId },
-    CallMethod { dest: Reg, obj: Reg, method: MethodId, args: Vec<Reg> },
-    
-    // Array operations
-    NewArray { dest: Reg, size: Reg },
-    GetElement { dest: Reg, arr: Reg, idx: Reg },
-    SetElement { arr: Reg, idx: Reg, value: Reg },
-    ArrayLen { dest: Reg, arr: Reg },
-    
-    // Type operations
-    TypeCheck { dest: Reg, value: Reg, typ: TypeId },
-    Cast { dest: Reg, value: Reg, typ: TypeId },
-    
-    // Memory
-    Move { dest: Reg, src: Reg },
-    
-    // Inline cache support
-    LoadIC { dest: Reg, cache_id: u32 },
-    StoreIC { cache_id: u32, value: Reg },
-}
+    LoadConst: struct { dest: Reg, val: Value },
+    LoadNil: struct { dest: Reg },
 
-type Reg = u16;  // Virtual register
-type Label = u32; // Jump target
+    // Arithmetic
+    Add: struct { dest: Reg, left: Reg, right: Reg },
+    Sub: struct { dest: Reg, left: Reg, right: Reg },
+    Mul: struct { dest: Reg, left: Reg, right: Reg },
+    Div: struct { dest: Reg, left: Reg, right: Reg },
+
+    // Comparison
+    Eq: struct { dest: Reg, left: Reg, right: Reg },
+    Lt: struct { dest: Reg, left: Reg, right: Reg },
+    Le: struct { dest: Reg, left: Reg, right: Reg },
+
+    // Logical
+    And: struct { dest: Reg, left: Reg, right: Reg },
+    Or: struct { dest: Reg, left: Reg, right: Reg },
+    Not: struct { dest: Reg, src: Reg },
+
+    // Control flow
+    Jump: struct { target: Label },
+    JumpIf: struct { cond: Reg, target: Label },
+    JumpIfNot: struct { cond: Reg, target: Label },
+
+    // Function calls
+    Call: struct { dest: Reg, func: Reg, args: []Reg },
+    TailCall: struct { func: Reg, args: []Reg },
+    Return: struct { value: ?Reg },
+
+    // Object operations
+    NewObject: struct { dest: Reg, class: ClassId },
+    GetField: struct { dest: Reg, obj: Reg, field: FieldId },
+    SetField: struct { obj: Reg, field: FieldId, value: Reg },
+
+    // Method dispatch
+    GetMethod: struct { dest: Reg, obj: Reg, method: MethodId },
+    CallMethod: struct { dest: Reg, obj: Reg, method: MethodId, args: []Reg },
+
+    // Array operations
+    NewArray: struct { dest: Reg, size: Reg },
+    GetElement: struct { dest: Reg, arr: Reg, idx: Reg },
+    SetElement: struct { arr: Reg, idx: Reg, value: Reg },
+    ArrayLen: struct { dest: Reg, arr: Reg },
+
+    // Type operations
+    TypeCheck: struct { dest: Reg, value: Reg, type_id: TypeId },
+    Cast: struct { dest: Reg, value: Reg, type_id: TypeId },
+
+    // Memory
+    Move: struct { dest: Reg, src: Reg },
+
+    // Inline cache support
+    LoadIC: struct { dest: Reg, cache_id: u32 },
+    StoreIC: struct { cache_id: u32, value: Reg },
+};
+
+pub const Reg = u16;  // Virtual register
+pub const Label = u32; // Jump target
 ```
 
 ### Register Allocation
 
-```rust
-struct RegisterAllocator {
+```zig
+pub const RegisterAllocator = struct {
     // Infinite virtual registers during LIR generation
     next_vreg: u16,
-    
-    // Physical register assignment
-    phys_regs: Vec<PhysReg>,
-    
-    // Spill slots for registers that don't fit
-    spill_slots: Vec<SpillSlot>,
-}
 
-fn allocate_registers(func: &mut LIRFunction) {
+    // Physical register assignment
+    phys_regs: []PhysReg,
+
+    // Spill slots for registers that don't fit
+    spill_slots: []SpillSlot,
+
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) RegisterAllocator {
+        return .{
+            .next_vreg = 0,
+            .phys_regs = &.{},
+            .spill_slots = &.{},
+            .allocator = allocator,
+        };
+    }
+};
+
+fn allocateRegisters(allocator: std.mem.Allocator, func: *LIRFunction) !void {
     // Build interference graph
-    let graph = build_interference_graph(func);
-    
+    const graph = try buildInterferenceGraph(allocator, func);
+    defer graph.deinit();
+
     // Graph coloring algorithm
-    let coloring = graph_coloring(graph, NUM_PHYSICAL_REGS);
-    
+    const coloring = try graphColoring(allocator, graph, NUM_PHYSICAL_REGS);
+    defer coloring.deinit();
+
     // Rewrite instructions with physical registers
-    rewrite_with_allocation(func, coloring);
+    try rewriteWithAllocation(allocator, func, coloring);
 }
 ```
 
@@ -2741,22 +2913,40 @@ fn allocate_registers(func: &mut LIRFunction) {
 
 ## 17.1 Type System Architecture
 
-```rust
-struct TypeChecker {
+```zig
+pub const TypeChecker = struct {
     // Global type environment
     globals: TypeEnv,
-    
+
     // Type variable generator
     next_tvar: u32,
-    
-    // Constraints for inference
-    constraints: Vec<Constraint>,
-    
-    // Type cache for expressions
-    expr_types: HashMap<ExprId, Type>,
-}
 
-enum Type {
+    // Constraints for inference
+    constraints: std.ArrayList(Constraint),
+
+    // Type cache for expressions
+    expr_types: std.HashMap(ExprId, Type),
+
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) TypeChecker {
+        return .{
+            .globals = TypeEnv.init(allocator),
+            .next_tvar = 0,
+            .constraints = std.ArrayList(Constraint).init(allocator),
+            .expr_types = std.HashMap(ExprId, Type).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *TypeChecker) void {
+        self.globals.deinit();
+        self.constraints.deinit();
+        self.expr_types.deinit();
+    }
+};
+
+pub const InferredType = union(enum) {
     // Primitives
     Any,
     Void,
@@ -2767,273 +2957,349 @@ enum Type {
     Char,
     Str,
     Symbol,
-    
-    // Compounds
-    Array(Box<Type>),
-    Map(Box<Type>, Box<Type>),
-    Set(Box<Type>),
-    Tuple(Vec<Type>),
-    
-    // Functions
-    Fn {
-        params: Vec<Type>,
-        ret: Box<Type>,
-    },
-    
-    // Objects
-    Class(ClassId),
-    Trait(TraitId),
-    
-    // Type variables
-    Var(TypeVar),
-    
-    // Generic types
-    Generic {
-        base: Box<Type>,
-        args: Vec<Type>,
-    },
-    
-    // Union types
-    Union(Vec<Type>),
-    
-    // Intersection types
-    Intersection(Vec<Type>),
-}
 
-enum Constraint {
-    Equal(Type, Type),
-    Subtype(Type, Type),
-    HasField(Type, String, Type),
-    HasMethod(Type, String, Type),
-    Implements(Type, TraitId),
-}
+    // Compounds
+    Array: *InferredType,
+    Map: struct { key: *InferredType, value: *InferredType },
+    Set: *InferredType,
+    Tuple: []InferredType,
+
+    // Functions
+    Fn: struct {
+        params: []InferredType,
+        ret: *InferredType,
+    },
+
+    // Objects
+    Class: ClassId,
+    Trait: TraitId,
+
+    // Type variables
+    Var: TypeVar,
+
+    // Generic types
+    Generic: struct {
+        base: *InferredType,
+        args: []InferredType,
+    },
+
+    // Union types
+    Union: []InferredType,
+
+    // Intersection types
+    Intersection: []InferredType,
+};
+
+pub const Constraint = union(enum) {
+    Equal: struct { t1: InferredType, t2: InferredType },
+    Subtype: struct { sub: InferredType, sup: InferredType },
+    HasField: struct { type: InferredType, field: []const u8, field_type: InferredType },
+    HasMethod: struct { type: InferredType, method: []const u8, method_type: InferredType },
+    Implements: struct { type: InferredType, trait_id: TraitId },
+};
 ```
 
 ## 17.2 Type Inference Algorithm
 
-```rust
-impl TypeChecker {
-    fn infer_expr(&mut self, expr: &HIR) -> Result<Type> {
-        match expr {
-            HIR::Const(val) => Ok(self.type_of_value(val)),
-            
-            HIR::Var(id) => self.lookup_var(*id),
-            
-            HIR::Let { var, init, body, .. } => {
-                let init_type = self.infer_expr(init)?;
-                self.bind_var(*var, init_type);
-                self.infer_expr(body)
-            }
-            
-            HIR::Function { params, body, .. } => {
+```zig
+const TypeInferenceError = error{
+    UndefinedVariable,
+    TypeMismatch,
+    OccursCheck,
+    ArityMismatch,
+    OutOfMemory,
+};
+
+const TypeChecker = struct {
+    // ... previous fields ...
+
+    fn inferExpr(self: *TypeChecker, expr: *const HIR) TypeInferenceError!InferredType {
+        return switch (expr.*) {
+            .Const => |val| self.typeOfValue(val),
+
+            .Var => |id| self.lookupVar(id),
+
+            .Let => |let_expr| {
+                const init_type = try self.inferExpr(let_expr.init);
+                try self.bindVar(let_expr.var_id, init_type);
+                return self.inferExpr(let_expr.body);
+            },
+
+            .Function => |func| {
                 // Create type variables for parameters
-                let param_types: Vec<Type> = params.iter()
-                    .map(|(_, typ)| typ.clone().unwrap_or_else(|| self.fresh_type_var()))
-                    .collect();
-                
+                var param_types = try self.allocator.alloc(InferredType, func.params.len);
+                for (func.params, 0..) |param, i| {
+                    param_types[i] = param.param_type orelse try self.freshTypeVar();
+                }
+
                 // Infer body type
-                let ret_type = self.infer_expr(body)?;
-                
-                Ok(Type::Fn {
-                    params: param_types,
-                    ret: Box::new(ret_type),
-                })
-            }
-            
-            HIR::Call { func, args } => {
-                let func_type = self.infer_expr(func)?;
-                let arg_types: Vec<Type> = args.iter()
-                    .map(|arg| self.infer_expr(arg))
-                    .collect::<Result<_>>()?;
-                
+                const ret_type_ptr = try self.allocator.create(InferredType);
+                ret_type_ptr.* = try self.inferExpr(func.body);
+
+                return InferredType{ .Fn = .{
+                    .params = param_types,
+                    .ret = ret_type_ptr,
+                } };
+            },
+
+            .Call => |call| {
+                const func_type = try self.inferExpr(call.func);
+                var arg_types = try self.allocator.alloc(InferredType, call.args.len);
+                for (call.args, 0..) |arg, i| {
+                    arg_types[i] = try self.inferExpr(arg);
+                }
+
                 // Generate constraints
-                let ret_type = self.fresh_type_var();
-                self.add_constraint(Constraint::Equal(
-                    func_type,
-                    Type::Fn {
-                        params: arg_types,
-                        ret: Box::new(ret_type.clone()),
-                    },
-                ));
-                
-                Ok(ret_type)
-            }
-            
-            HIR::If { cond, then, else_ } => {
-                let cond_type = self.infer_expr(cond)?;
-                self.add_constraint(Constraint::Equal(cond_type, Type::Bool));
-                
-                let then_type = self.infer_expr(then)?;
-                let else_type = self.infer_expr(else_)?;
-                
+                const ret_type = try self.freshTypeVar();
+                const ret_type_ptr = try self.allocator.create(InferredType);
+                ret_type_ptr.* = ret_type;
+
+                try self.addConstraint(Constraint{ .Equal = .{
+                    .t1 = func_type,
+                    .t2 = InferredType{ .Fn = .{
+                        .params = arg_types,
+                        .ret = ret_type_ptr,
+                    } },
+                } });
+
+                return ret_type;
+            },
+
+            .If => |if_expr| {
+                const cond_type = try self.inferExpr(if_expr.cond);
+                try self.addConstraint(Constraint{ .Equal = .{
+                    .t1 = cond_type,
+                    .t2 = InferredType.Bool,
+                } });
+
+                const then_type = try self.inferExpr(if_expr.then_branch);
+                const else_type = try self.inferExpr(if_expr.else_branch);
+
                 // Unify branches
-                self.unify(then_type.clone(), else_type.clone())?;
-                Ok(then_type)
-            }
-            
+                _ = try self.unify(then_type, else_type);
+                return then_type;
+            },
+
             // ... other cases
-        }
+            else => return TypeInferenceError.TypeMismatch,
+        };
     }
-    
-    fn solve_constraints(&mut self) -> Result<Substitution> {
-        let mut subst = Substitution::new();
-        
-        while let Some(constraint) = self.constraints.pop() {
-            match constraint {
-                Constraint::Equal(t1, t2) => {
-                    let s = self.unify(t1, t2)?;
-                    subst = subst.compose(s);
-                }
-                
-                Constraint::Subtype(sub, sup) => {
-                    self.check_subtype(sub, sup)?;
-                }
-                
+
+    fn solveConstraints(self: *TypeChecker) TypeInferenceError!Substitution {
+        var subst = Substitution.init(self.allocator);
+
+        while (self.constraints.popOrNull()) |constraint| {
+            switch (constraint) {
+                .Equal => |eq| {
+                    const s = try self.unify(eq.t1, eq.t2);
+                    subst = try subst.compose(s);
+                },
+
+                .Subtype => |sub| {
+                    try self.checkSubtype(sub.sub, sub.sup);
+                },
+
                 // ... other constraints
+                else => {},
             }
         }
-        
-        Ok(subst)
+
+        return subst;
     }
-    
-    fn unify(&self, t1: Type, t2: Type) -> Result<Substitution> {
-        match (t1, t2) {
-            (Type::Var(v1), Type::Var(v2)) if v1 == v2 => Ok(Substitution::new()),
-            
-            (Type::Var(v), t) | (t, Type::Var(v)) => {
-                if t.contains_var(v) {
-                    return Err(TypeError::OccursCheck);
-                }
-                Ok(Substitution::singleton(v, t))
-            }
-            
-            (Type::Array(t1), Type::Array(t2)) => self.unify(*t1, *t2),
-            
-            (Type::Fn { params: p1, ret: r1 }, Type::Fn { params: p2, ret: r2 }) => {
-                if p1.len() != p2.len() {
-                    return Err(TypeError::ArityMismatch);
-                }
-                
-                let mut subst = Substitution::new();
-                for (t1, t2) in p1.into_iter().zip(p2) {
-                    let s = self.unify(t1, t2)?;
-                    subst = subst.compose(s);
-                }
-                
-                let s = self.unify(*r1, *r2)?;
-                Ok(subst.compose(s))
-            }
-            
-            (t1, t2) if t1 == t2 => Ok(Substitution::new()),
-            
-            _ => Err(TypeError::Mismatch(t1, t2)),
-        }
+
+    fn unify(self: *TypeChecker, t1: InferredType, t2: InferredType) TypeInferenceError!Substitution {
+        return switch (t1) {
+            .Var => |v1| switch (t2) {
+                .Var => |v2| if (v1 == v2)
+                    Substitution.init(self.allocator)
+                else
+                    Substitution.singleton(self.allocator, v1, t2),
+                else => {
+                    if (try t2.containsVar(v1)) {
+                        return TypeInferenceError.OccursCheck;
+                    }
+                    return Substitution.singleton(self.allocator, v1, t2);
+                },
+            },
+            .Array => |arr_t1| switch (t2) {
+                .Array => |arr_t2| self.unify(arr_t1.*, arr_t2.*),
+                else => TypeInferenceError.TypeMismatch,
+            },
+            .Fn => |fn1| switch (t2) {
+                .Fn => |fn2| {
+                    if (fn1.params.len != fn2.params.len) {
+                        return TypeInferenceError.ArityMismatch;
+                    }
+
+                    var subst = Substitution.init(self.allocator);
+                    for (fn1.params, fn2.params) |p1, p2| {
+                        const s = try self.unify(p1, p2);
+                        subst = try subst.compose(s);
+                    }
+
+                    const s = try self.unify(fn1.ret.*, fn2.ret.*);
+                    return subst.compose(s);
+                },
+                else => TypeInferenceError.TypeMismatch,
+            },
+            else => if (std.meta.eql(t1, t2))
+                Substitution.init(self.allocator)
+            else
+                TypeInferenceError.TypeMismatch,
+        };
     }
-}
+};
 ```
 
 ## 17.3 Generic Type Instantiation
 
-```rust
-struct GenericContext {
+```zig
+pub const GenericContext = struct {
     // Type parameters in scope
-    type_params: HashMap<String, TypeParam>,
-    
-    // Instantiation cache
-    cache: HashMap<(TypeId, Vec<Type>), Type>,
-}
+    type_params: std.HashMap([]const u8, TypeParam),
 
-impl TypeChecker {
-    fn instantiate_generic(&mut self, 
-                          base: Type, 
-                          args: Vec<Type>) -> Result<Type> {
-        match base {
-            Type::Generic { params, body } => {
-                if params.len() != args.len() {
-                    return Err(TypeError::WrongNumberOfTypeArgs);
+    // Instantiation cache
+    cache: std.HashMap(InstantiationKey, InferredType),
+
+    allocator: std.mem.Allocator,
+
+    pub const InstantiationKey = struct {
+        type_id: TypeId,
+        args: []InferredType,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) GenericContext {
+        return .{
+            .type_params = std.HashMap([]const u8, TypeParam).init(allocator),
+            .cache = std.HashMap(InstantiationKey, InferredType).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *GenericContext) void {
+        self.type_params.deinit();
+        self.cache.deinit();
+    }
+};
+
+const TypeChecker = struct {
+    // ... previous fields ...
+
+    fn instantiateGeneric(self: *TypeChecker,
+                         base: InferredType,
+                         args: []InferredType) TypeInferenceError!InferredType {
+        return switch (base) {
+            .Generic => |generic| {
+                const params_len = generic.args.len;
+                if (params_len != args.len) {
+                    return TypeInferenceError.ArityMismatch;
                 }
-                
+
                 // Build substitution
-                let subst: Substitution = params.into_iter()
-                    .zip(args)
-                    .collect();
-                
+                var subst = Substitution.init(self.allocator);
+                for (generic.args, args) |param, arg| {
+                    // In a real implementation, params would be type variables
+                    // subst = subst.extend(param, arg);
+                }
+
                 // Apply substitution
-                Ok(body.apply_subst(&subst))
-            }
-            _ => Err(TypeError::NotGeneric),
-        }
+                return try generic.base.applySubst(&subst);
+            },
+            else => TypeInferenceError.TypeMismatch,
+        };
     }
-    
-    fn check_trait_impl(&self, 
-                        class: ClassId, 
-                        trait_id: TraitId) -> Result<()> {
-        let trait_def = self.get_trait(trait_id)?;
-        let class_def = self.get_class(class)?;
-        
+
+    fn checkTraitImpl(self: *TypeChecker,
+                     class: ClassId,
+                     trait_id: TraitId) TypeInferenceError!void {
+        const trait_def = try self.getTrait(trait_id);
+        const class_def = try self.getClass(class);
+
         // Check all required methods
-        for method in &trait_def.methods {
-            let impl_method = class_def.find_method(&method.name)
-                .ok_or(TypeError::MissingMethod(method.name.clone()))?;
-            
+        for (trait_def.methods) |method| {
+            const impl_method = class_def.findMethod(method.name) orelse {
+                return TypeInferenceError.TypeMismatch; // Missing method
+            };
+
             // Check method signature compatibility
-            self.check_method_compat(method, impl_method)?;
+            try self.checkMethodCompat(method, impl_method);
         }
-        
-        Ok(())
     }
-}
+};
 ```
 
 ## 17.4 Gradual Typing
 
-```rust
-impl TypeChecker {
-    fn check_gradual(&self, static_type: Type, dynamic_type: Type) -> Result<()> {
-        match (static_type, dynamic_type) {
-            // Any is compatible with everything
-            (Type::Any, _) | (_, Type::Any) => Ok(()),
-            
-            // Same types are compatible
-            (t1, t2) if t1 == t2 => Ok(()),
-            
-            // Numeric coercion
-            (Type::Float, Type::Int) => Ok(()),
-            
-            // Array covariance
-            (Type::Array(t1), Type::Array(t2)) => self.check_gradual(*t1, *t2),
-            
-            // Function contravariance/covariance
-            (Type::Fn { params: p1, ret: r1 }, 
-             Type::Fn { params: p2, ret: r2 }) => {
-                // Contravariant in parameters
-                for (t1, t2) in p1.into_iter().zip(p2) {
-                    self.check_gradual(t2, t1)?;
-                }
-                // Covariant in return
-                self.check_gradual(*r1, *r2)
-            }
-            
-            _ => Err(TypeError::Incompatible(static_type, dynamic_type)),
+```zig
+const TypeChecker = struct {
+    // ... previous fields ...
+
+    fn checkGradual(self: *TypeChecker, static_type: InferredType, dynamic_type: InferredType) TypeInferenceError!void {
+        switch (static_type) {
+            .Any => return, // Any is compatible with everything
+            else => switch (dynamic_type) {
+                .Any => return, // Any is compatible with everything
+                else => {},
+            },
         }
-    }
-    
-    fn insert_runtime_checks(&mut self, expr: HIR) -> HIR {
-        match expr {
-            HIR::Call { func, args } if self.needs_check(&func) => {
-                // Insert runtime type check
-                HIR::Call {
-                    func: Box::new(HIR::RuntimeCheck {
-                        expr: func,
-                        expected_type: self.get_expected_type(),
-                    }),
-                    args,
-                }
-            }
-            _ => expr,
+
+        // Same types are compatible
+        if (std.meta.eql(static_type, dynamic_type)) {
+            return;
         }
+
+        switch (static_type) {
+            .Float => switch (dynamic_type) {
+                .Int => return, // Numeric coercion
+                else => {},
+            },
+            .Array => |arr1| switch (dynamic_type) {
+                .Array => |arr2| return self.checkGradual(arr1.*, arr2.*), // Array covariance
+                else => {},
+            },
+            .Fn => |fn1| switch (dynamic_type) {
+                .Fn => |fn2| {
+                    // Contravariant in parameters
+                    if (fn1.params.len != fn2.params.len) {
+                        return TypeInferenceError.ArityMismatch;
+                    }
+                    for (fn1.params, fn2.params) |p1, p2| {
+                        try self.checkGradual(p2, p1); // Note: reversed order for contravariance
+                    }
+                    // Covariant in return
+                    return self.checkGradual(fn1.ret.*, fn2.ret.*);
+                },
+                else => {},
+            },
+            else => {},
+        }
+
+        return TypeInferenceError.TypeMismatch;
     }
-}
+
+    fn insertRuntimeChecks(self: *TypeChecker, allocator: std.mem.Allocator, expr: HIR) !HIR {
+        return switch (expr) {
+            .Call => |call| {
+                if (try self.needsCheck(call.func)) {
+                    // Insert runtime type check
+                    const checked_func = try allocator.create(HIR);
+                    checked_func.* = HIR{ .RuntimeCheck = .{
+                        .expr = call.func,
+                        .expected_type = try self.getExpectedType(),
+                    } };
+
+                    return HIR{ .Call = .{
+                        .func = checked_func,
+                        .args = call.args,
+                    } };
+                } else {
+                    return expr;
+                }
+            },
+            else => expr,
+        };
+    }
+};
 ```
 
 ---
@@ -3042,228 +3308,282 @@ impl TypeChecker {
 
 ## 18.1 VM Architecture
 
-```rust
-struct VM {
+```zig
+pub const VM = struct {
     // Registers
-    registers: Vec<Value>,
-    
+    registers: std.ArrayList(Value),
+
     // Call stack
-    frames: Vec<CallFrame>,
-    
+    frames: std.ArrayList(CallFrame),
+
     // Operand stack (for complex operations)
-    stack: Vec<Value>,
-    
+    stack: std.ArrayList(Value),
+
     // Heap
     heap: Heap,
-    
+
     // Global variables
-    globals: HashMap<GlobalId, Value>,
-    
+    globals: std.HashMap(GlobalId, Value),
+
     // Loaded modules
-    modules: HashMap<ModuleId, Module>,
-    
+    modules: std.HashMap(ModuleId, Module),
+
     // Inline caches
-    inline_caches: Vec<InlineCache>,
-    
+    inline_caches: std.ArrayList(InlineCache),
+
     // Runtime type info
     types: TypeRegistry,
-}
 
-struct CallFrame {
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) VM {
+        return .{
+            .registers = std.ArrayList(Value).init(allocator),
+            .frames = std.ArrayList(CallFrame).init(allocator),
+            .stack = std.ArrayList(Value).init(allocator),
+            .heap = Heap.init(allocator),
+            .globals = std.HashMap(GlobalId, Value).init(allocator),
+            .modules = std.HashMap(ModuleId, Module).init(allocator),
+            .inline_caches = std.ArrayList(InlineCache).init(allocator),
+            .types = TypeRegistry.init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *VM) void {
+        self.registers.deinit();
+        self.frames.deinit();
+        self.stack.deinit();
+        self.heap.deinit();
+        self.globals.deinit();
+        self.modules.deinit();
+        self.inline_caches.deinit();
+        self.types.deinit();
+    }
+};
+
+pub const CallFrame = struct {
     // Function being executed
     function: FunctionId,
-    
+
     // Instruction pointer
     ip: usize,
-    
+
     // Base pointer for register window
     bp: usize,
-    
+
     // Return address
     return_ip: usize,
-    
+
     // Number of registers
     register_count: usize,
-}
+};
 
-struct InlineCache {
+pub const InlineCache = struct {
     // Cached type
-    cached_type: Option<TypeId>,
-    
+    cached_type: ?TypeId,
+
     // Cached method/field offset
-    cached_offset: Option<usize>,
-    
+    cached_offset: ?usize,
+
     // Hit count for JIT decisions
     hit_count: u32,
-}
+};
 ```
 
 ## 18.2 Instruction Execution
 
-```rust
-impl VM {
-    fn execute(&mut self) -> Result<Value> {
-        loop {
-            let frame = self.current_frame();
-            let instruction = self.fetch_instruction();
-            
-            match instruction {
-                LIR::LoadConst { dest, val } => {
-                    self.set_register(dest, val);
-                }
-                
-                LIR::Add { dest, left, right } => {
-                    let l = self.get_register(left);
-                    let r = self.get_register(right);
-                    let result = self.add_values(l, r)?;
-                    self.set_register(dest, result);
-                }
-                
-                LIR::Call { dest, func, args } => {
-                    let func_val = self.get_register(func);
-                    let arg_vals: Vec<Value> = args.iter()
-                        .map(|&reg| self.get_register(reg))
-                        .collect();
-                    
-                    let result = self.call_function(func_val, arg_vals)?;
-                    self.set_register(dest, result);
-                }
-                
-                LIR::JumpIf { cond, target } => {
-                    let cond_val = self.get_register(cond);
-                    if self.is_truthy(cond_val) {
-                        frame.ip = target as usize;
+```zig
+const RuntimeError = error{
+    NotCallable,
+    TypeError,
+    OutOfMemory,
+    StackOverflow,
+    UndefinedFunction,
+};
+
+const VM = struct {
+    // ... previous fields ...
+
+    fn execute(self: *VM) RuntimeError!Value {
+        while (true) {
+            const frame = try self.currentFrame();
+            const instruction = try self.fetchInstruction();
+
+            switch (instruction) {
+                .LoadConst => |load| {
+                    try self.setRegister(load.dest, load.val);
+                },
+
+                .Add => |add| {
+                    const l = try self.getRegister(add.left);
+                    const r = try self.getRegister(add.right);
+                    const result = try self.addValues(l, r);
+                    try self.setRegister(add.dest, result);
+                },
+
+                .Call => |call| {
+                    const func_val = try self.getRegister(call.func);
+                    var arg_vals = try self.allocator.alloc(Value, call.args.len);
+                    defer self.allocator.free(arg_vals);
+
+                    for (call.args, 0..) |reg, i| {
+                        arg_vals[i] = try self.getRegister(reg);
+                    }
+
+                    const result = try self.callFunction(func_val, arg_vals);
+                    try self.setRegister(call.dest, result);
+                },
+
+                .JumpIf => |jump| {
+                    const cond_val = try self.getRegister(jump.cond);
+                    if (self.isTruthy(cond_val)) {
+                        var current_frame = &self.frames.items[self.frames.items.len - 1];
+                        current_frame.ip = jump.target;
                         continue;
                     }
-                }
-                
-                LIR::GetField { dest, obj, field } => {
-                    let obj_val = self.get_register(obj);
-                    let result = self.get_field_cached(obj_val, field)?;
-                    self.set_register(dest, result);
-                }
-                
-                LIR::Return { value } => {
-                    let ret_val = value.map(|reg| self.get_register(reg))
-                        .unwrap_or(Value::Nil);
-                    
-                    if self.frames.len() == 1 {
-                        return Ok(ret_val);
+                },
+
+                .GetField => |get_field| {
+                    const obj_val = try self.getRegister(get_field.obj);
+                    const result = try self.getFieldCached(obj_val, get_field.field);
+                    try self.setRegister(get_field.dest, result);
+                },
+
+                .Return => |ret| {
+                    const ret_val = if (ret.value) |reg|
+                        try self.getRegister(reg)
+                    else
+                        Value.Nil;
+
+                    if (self.frames.items.len == 1) {
+                        return ret_val;
                     }
-                    
-                    self.pop_frame();
+
+                    try self.popFrame();
                     // Set return value in caller's register
-                }
-                
+                },
+
                 // ... other instructions
+                else => {},
             }
-            
-            frame.ip += 1;
+
+            var current_frame = &self.frames.items[self.frames.items.len - 1];
+            current_frame.ip += 1;
         }
     }
-    
-    fn call_function(&mut self, func: Value, args: Vec<Value>) -> Result<Value> {
-        match func {
-            Value::Function(id) => {
-                let func_def = self.get_function(id)?;
-                
+
+    fn callFunction(self: *VM, func: Value, args: []Value) RuntimeError!Value {
+        return switch (func) {
+            .Function => |id| {
+                const func_def = try self.getFunction(id);
+
                 // Create new frame
-                let frame = CallFrame {
-                    function: id,
-                    ip: 0,
-                    bp: self.registers.len(),
-                    return_ip: self.current_frame().ip,
-                    register_count: func_def.register_count,
+                const frame = CallFrame{
+                    .function = id,
+                    .ip = 0,
+                    .bp = self.registers.items.len,
+                    .return_ip = self.currentFrame().ip,
+                    .register_count = func_def.register_count,
                 };
-                
+
                 // Allocate registers for new frame
-                self.registers.resize(
-                    self.registers.len() + func_def.register_count,
-                    Value::Nil,
+                try self.registers.resize(
+                    self.registers.items.len + func_def.register_count
                 );
-                
-                // Copy arguments to registers
-                for (i, arg) in args.into_iter().enumerate() {
-                    self.registers[frame.bp + i] = arg;
+
+                // Initialize new registers to Nil
+                for (self.registers.items[frame.bp..]) |*reg| {
+                    reg.* = Value.Nil;
                 }
-                
-                self.frames.push(frame);
-                Ok(Value::Nil) // Execution continues
-            }
-            
-            Value::NativeFunction(native_fn) => {
+
+                // Copy arguments to registers
+                for (args, 0..) |arg, i| {
+                    self.registers.items[frame.bp + i] = arg;
+                }
+
+                try self.frames.append(frame);
+                return Value.Nil; // Execution continues
+            },
+
+            .NativeFunction => |native_fn| {
                 // Call native function directly
-                native_fn.call(self, args)
-            }
-            
-            _ => Err(RuntimeError::NotCallable(func)),
-        }
+                return try native_fn.call(self, args);
+            },
+
+            else => RuntimeError.NotCallable,
+        };
     }
-}
+};
 ```
 
 ## 18.3 Inline Caching
 
-```rust
-impl VM {
-    fn get_field_cached(&mut self, obj: Value, field: FieldId) -> Result<Value> {
-        let cache_id = self.current_cache_id();
-        let cache = &mut self.inline_caches[cache_id];
-        
-        let obj_type = obj.get_type_id();
-        
+```zig
+const JIT_THRESHOLD: u32 = 100;
+
+const VM = struct {
+    // ... previous fields ...
+
+    fn getFieldCached(self: *VM, obj: Value, field: FieldId) RuntimeError!Value {
+        const cache_id = try self.currentCacheId();
+        var cache = &self.inline_caches.items[cache_id];
+
+        const obj_type = obj.getTypeId();
+
         // Check cache hit
-        if cache.cached_type == Some(obj_type) {
-            if let Some(offset) = cache.cached_offset {
-                cache.hit_count += 1;
-                return Ok(self.get_field_at_offset(obj, offset));
+        if (cache.cached_type) |cached_type| {
+            if (cached_type == obj_type) {
+                if (cache.cached_offset) |offset| {
+                    cache.hit_count += 1;
+                    return self.getFieldAtOffset(obj, offset);
+                }
             }
         }
-        
+
         // Cache miss - look up field
-        let offset = self.lookup_field_offset(obj_type, field)?;
-        
+        const offset = try self.lookupFieldOffset(obj_type, field);
+
         // Update cache
-        cache.cached_type = Some(obj_type);
-        cache.cached_offset = Some(offset);
+        cache.cached_type = obj_type;
+        cache.cached_offset = offset;
         cache.hit_count = 1;
-        
+
         // Check if hot enough for JIT
-        if cache.hit_count > JIT_THRESHOLD {
-            self.mark_for_jit(self.current_frame().function);
+        if (cache.hit_count > JIT_THRESHOLD) {
+            const current_frame = try self.currentFrame();
+            try self.markForJit(current_frame.function);
         }
-        
-        Ok(self.get_field_at_offset(obj, offset))
+
+        return self.getFieldAtOffset(obj, offset);
     }
-    
-    fn get_field_at_offset(&self, obj: Value, offset: usize) -> Value {
-        match obj {
-            Value::Object(ptr) => {
-                let obj_data = self.heap.get(ptr);
-                obj_data.fields[offset].clone()
-            }
-            _ => Value::Nil,
-        }
+
+    fn getFieldAtOffset(self: *VM, obj: Value, offset: usize) Value {
+        return switch (obj) {
+            .Object => |ptr| {
+                const obj_data = self.heap.get(ptr);
+                return obj_data.fields[offset];
+            },
+            else => Value.Nil,
+        };
     }
-}
+};
 ```
 
 ## 18.4 Value Representation
 
-```rust
-#[repr(C)]
-union ValueData {
+```zig
+pub const ValueData = extern union {
     float: f64,
     integer: i64,
-    pointer: *mut HeapObject,
+    pointer: *HeapObject,
     immediate: u64,
-}
+};
 
-struct Value {
+pub const Value = struct {
     data: ValueData,
-}
 
-impl Value {
+    // NaN-boxing tags
     const NIL_TAG: u64 = 0xFFF8_0000_0000_0000;
     const TRUE_TAG: u64 = 0xFFF8_0000_0000_0001;
     const FALSE_TAG: u64 = 0xFFF8_0000_0000_0002;
@@ -3271,74 +3591,115 @@ impl Value {
     const CHAR_TAG: u64 = 0xFFFA_0000_0000_0000;
     const SMALL_STR_TAG: u64 = 0xFFFB_0000_0000_0000;
     const PTR_TAG: u64 = 0xFFFC_0000_0000_0000;
-    
-    fn new_nil() -> Self {
-        Value {
-            data: ValueData { immediate: Self::NIL_TAG },
-        }
+
+    pub const Nil = Value{ .data = .{ .immediate = NIL_TAG } };
+
+    pub fn newBool(b: bool) Value {
+        return Value{
+            .data = .{ .immediate = if (b) TRUE_TAG else FALSE_TAG },
+        };
     }
-    
-    fn new_bool(b: bool) -> Self {
-        Value {
-            data: ValueData {
-                immediate: if b { Self::TRUE_TAG } else { Self::FALSE_TAG },
-            },
-        }
-    }
-    
-    fn new_int(i: i64) -> Self {
-        if i >= -(1 << 47) && i < (1 << 47) {
+
+    pub fn newInt(i: i64) Value {
+        if (i >= -(1 << 47) and i < (1 << 47)) {
             // Fits in 48 bits
-            Value {
-                data: ValueData {
-                    immediate: Self::INT_TAG | (i as u64 & 0x0000_FFFF_FFFF_FFFF),
-                },
-            }
+            return Value{
+                .data = .{ .immediate = INT_TAG | (@as(u64, @bitCast(i)) & 0x0000_FFFF_FFFF_FFFF) },
+            };
         } else {
             // Allocate BigInt
-            Self::new_object(HeapObject::BigInt(i))
+            return newObject(HeapObject{ .BigInt = i });
         }
     }
-    
-    fn new_float(f: f64) -> Self {
-        Value {
-            data: ValueData { float: f },
-        }
+
+    pub fn newFloat(f: f64) Value {
+        return Value{
+            .data = .{ .float = f },
+        };
     }
-    
-    fn new_object(obj: HeapObject) -> Self {
-        let ptr = Box::into_raw(Box::new(obj));
-        Value {
-            data: ValueData {
-                immediate: Self::PTR_TAG | (ptr as u64 & 0x0000_FFFF_FFFF_FFFF),
+
+    pub fn newObject(allocator: std.mem.Allocator, obj: HeapObject) !Value {
+        const ptr = try allocator.create(HeapObject);
+        ptr.* = obj;
+        return Value{
+            .data = .{ .immediate = PTR_TAG | (@intFromPtr(ptr) & 0x0000_FFFF_FFFF_FFFF) },
+        };
+    }
+
+    pub fn getType(self: Value) ValueType {
+        const bits = self.data.immediate;
+
+        // Check for float (NaN boxing)
+        if ((bits & 0xFFF8_0000_0000_0000) != 0xFFF8_0000_0000_0000) {
+            return ValueType.Float;
+        }
+
+        return switch (bits & 0xFFFF_0000_0000_0000) {
+            NIL_TAG => ValueType.Nil,
+            TRUE_TAG, FALSE_TAG => ValueType.Bool,
+            INT_TAG => ValueType.Int,
+            CHAR_TAG => ValueType.Char,
+            SMALL_STR_TAG => ValueType.SmallStr,
+            PTR_TAG => {
+                const ptr: *HeapObject = @ptrFromInt(bits & 0x0000_FFFF_FFFF_FFFF);
+                return ptr.getType();
             },
-        }
+            else => unreachable,
+        };
     }
-    
-    fn get_type(&self) -> ValueType {
-        unsafe {
-            let bits = self.data.immediate;
-            
-            // Check for float (NaN boxing)
-            if (bits & 0xFFF8_0000_0000_0000) != 0xFFF8_0000_0000_0000 {
-                return ValueType::Float;
-            }
-            
-            match bits & 0xFFFF_0000_0000_0000 {
-                Self::NIL_TAG => ValueType::Nil,
-                Self::TRUE_TAG | Self::FALSE_TAG => ValueType::Bool,
-                Self::INT_TAG => ValueType::Int,
-                Self::CHAR_TAG => ValueType::Char,
-                Self::SMALL_STR_TAG => ValueType::SmallStr,
-                Self::PTR_TAG => {
-                    let ptr = (bits & 0x0000_FFFF_FFFF_FFFF) as *mut HeapObject;
-                    (*ptr).get_type()
-                }
-                _ => unreachable!(),
+
+    pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
+        if (self.getType() == .Object) {
+            const bits = self.data.immediate;
+            if ((bits & 0xFFFF_0000_0000_0000) == PTR_TAG) {
+                const ptr: *HeapObject = @ptrFromInt(bits & 0x0000_FFFF_FFFF_FFFF);
+                ptr.deinit(allocator);
+                allocator.destroy(ptr);
             }
         }
     }
-}
+};
+
+pub const ValueType = enum {
+    Nil,
+    Bool,
+    Int,
+    Float,
+    Char,
+    SmallStr,
+    Object,
+};
+
+pub const HeapObject = union(enum) {
+    String: []const u8,
+    Array: []Value,
+    Map: std.HashMap(Value, Value),
+    BigInt: i64,
+    Class: ClassObject,
+    Instance: InstanceObject,
+
+    pub fn getType(self: HeapObject) ValueType {
+        return switch (self) {
+            .String => ValueType.Object,
+            .Array => ValueType.Object,
+            .Map => ValueType.Object,
+            .BigInt => ValueType.Int,
+            .Class => ValueType.Object,
+            .Instance => ValueType.Object,
+        };
+    }
+
+    pub fn deinit(self: *HeapObject, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .String => |str| allocator.free(str),
+            .Array => |arr| allocator.free(arr),
+            .Map => |*map| map.deinit(),
+            .BigInt => {},
+            .Class => |*class| class.deinit(allocator),
+            .Instance => |*instance| instance.deinit(allocator),
+        }
+    }
+};
 ```
 
 ---
@@ -3357,7 +3718,7 @@ Gene's garbage collector uses a hybrid approach optimized for both throughput an
 
 ### Memory Layout:
 - **Young Generation**: Small (2-8MB), collected frequently
-- **Old Generation**: Large, collected less frequently  
+- **Old Generation**: Large, collected less frequently
 - **Large Object Space**: Direct allocation for objects > 8KB
 - **Permanent Generation**: For type metadata, compiled code
 
@@ -3374,11 +3735,11 @@ Gene's garbage collector uses a hybrid approach optimized for both throughput an
    - Mark from roots (stack, globals, registers)
    - Process write barrier buffer
    - Mark concurrently while mutator runs
-   
+
 2. **Stop-the-world Remark**:
    - Brief pause to finalize marking
    - Process any remaining gray objects
-   
+
 3. **Concurrent Sweep**:
    - Sweep dead objects back to free lists
    - Compact if fragmentation exceeds threshold
@@ -3717,7 +4078,7 @@ When assumptions fail:
 program = toplevel*
 
 toplevel = namespace
-         | import  
+         | import
          | definition
          | expression
 
@@ -3748,7 +4109,7 @@ property = '^' property-path expression?
 
 array = '[' expression* ']'
 
-map = '{' property* '}'  
+map = '{' property* '}'
 
 set = '#' '[' expression* ']'
 
