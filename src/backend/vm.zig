@@ -1232,8 +1232,8 @@ pub const VM = struct {
                 const class_reg = instruction.src1 orelse return error.InvalidInstruction;
                 
                 // Get the class
-                var class_val = try self.getRegister(class_reg);
-                defer class_val.deinit(self.allocator);
+                const class_val = try self.getRegister(class_reg);
+                // Don't defer deinit for class values as they are shared
                 
                 if (class_val != .Class) {
                     debug.log("New instruction requires a Class, got {}", .{class_val});

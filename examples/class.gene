@@ -1,3 +1,5 @@
+#!/usr/bin/env gene run
+
 (Class Greeter
   (.prop msg String ^^required)
 

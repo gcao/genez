@@ -727,7 +727,9 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                     .default_value = null,
                     .is_public = true,
                 };
-                try class_ptr.fields.put(duped_name, field_def);
+                // Use a separate duped key for the map
+                const key_name = try func.allocator.dupe(u8, field_name);
+                try class_ptr.fields.put(key_name, field_def);
             }
             
             // Copy methods - they've already been converted to bytecode functions

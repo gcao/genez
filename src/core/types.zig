@@ -157,9 +157,9 @@ pub const Value = union(enum) {
             },
             .Variable => {}, // No need to free the name as it's a string literal
             .BuiltinOperator => {},
-            .Class => |class| {
-                class.deinit();
-                allocator.destroy(class);
+            .Class => {
+                // Classes are shared and should be managed by the module/runtime
+                // Don't free them here to avoid double-free
             },
             .Object => |obj| {
                 obj.deinit();

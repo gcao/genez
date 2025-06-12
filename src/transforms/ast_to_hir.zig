@@ -614,6 +614,85 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 }
             };
         },
+        .FieldAccess => |field| {
+            // Convert FieldAccess to HIR
+            const hir_object = if (field.object) |obj| blk: {
+                var hir_obj = try lowerExpression(allocator, obj.*);
+                errdefer hir_obj.deinit(allocator);
+                const obj_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(obj_ptr);
+                obj_ptr.* = hir_obj;
+                break :blk obj_ptr;
+            } else null;
+            
+            return hir.HIR.Expression{
+                .field_access = .{
+                    .object = hir_object,
+                    .field_name = try allocator.dupe(u8, field.field_name),
+                }
+            };
+        },
+        .FieldAssignment => |assign| {
+            // Convert FieldAssignment to HIR
+            const hir_object = if (assign.object) |obj| blk: {
+                var hir_obj = try lowerExpression(allocator, obj.*);
+                errdefer hir_obj.deinit(allocator);
+                const obj_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(obj_ptr);
+                obj_ptr.* = hir_obj;
+                break :blk obj_ptr;
+            } else null;
+            
+            var hir_value = try lowerExpression(allocator, assign.value.*);
+            errdefer hir_value.deinit(allocator);
+            const value_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(value_ptr);
+            value_ptr.* = hir_value;
+            
+            return hir.HIR.Expression{
+                .field_assignment = .{
+                    .object = hir_object,
+                    .field_name = try allocator.dupe(u8, assign.field_name),
+                    .value = value_ptr,
+                }
+            };
+        },
+        .MethodCall => |call| {
+            // Convert MethodCall to HIR
+            var hir_obj = try lowerExpression(allocator, call.object.*);
+            errdefer hir_obj.deinit(allocator);
+            const obj_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(obj_ptr);
+            obj_ptr.* = hir_obj;
+            
+            var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
+            errdefer {
+                for (args.items) |arg| {
+                    arg.deinit(allocator);
+                    allocator.destroy(arg);
+                }
+                args.deinit();
+            }
+            
+            for (call.args.items) |arg| {
+                var hir_arg = try lowerExpression(allocator, arg.*);
+                errdefer hir_arg.deinit(allocator);
+                
+                const hir_arg_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(hir_arg_ptr);
+                hir_arg_ptr.* = hir_arg;
+                
+                try args.append(hir_arg_ptr);
+            }
+            
+            return hir.HIR.Expression{
+                .method_call = .{
+                    .object = obj_ptr,
+                    .method_name = try allocator.dupe(u8, call.method_name),
+                    .args = args,
+                }
+            };
+        },
     };
 }
 
