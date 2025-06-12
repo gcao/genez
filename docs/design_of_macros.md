@@ -25,7 +25,7 @@ pub const PseudoMacroDef = struct {
     name: []const u8,
     params: []FuncParam,  // Reuse existing param structure
     body: *Expression,
-    
+
     pub fn deinit(self: *PseudoMacroDef, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         for (self.params) |*param| {
@@ -35,19 +35,19 @@ pub const PseudoMacroDef = struct {
         self.body.deinit(allocator);
         allocator.destroy(self.body);
     }
-    
+
     pub fn clone(self: PseudoMacroDef, allocator: std.mem.Allocator) !PseudoMacroDef {
         var params = try allocator.alloc(FuncParam, self.params.len);
         errdefer allocator.free(params);
-        
+
         for (self.params, 0..) |param, i| {
             params[i] = try param.clone(allocator);
         }
-        
+
         const body = try allocator.create(Expression);
         errdefer allocator.destroy(body);
         body.* = try self.body.clone(allocator);
-        
+
         return PseudoMacroDef{
             .name = try allocator.dupe(u8, self.name),
             .params = params,
@@ -61,7 +61,7 @@ pub const PseudoMacroCall = struct {
     macro: *Expression,
     args: std.ArrayList(*Expression), // Stored as AST, not evaluated
     call_context: ?CallContext,       // Captures caller's lexical environment
-    
+
     pub fn deinit(self: *PseudoMacroCall, allocator: std.mem.Allocator) void {
         self.macro.deinit(allocator);
         allocator.destroy(self.macro);
@@ -74,12 +74,12 @@ pub const PseudoMacroCall = struct {
             ctx.deinit(allocator);
         }
     }
-    
+
     pub fn clone(self: PseudoMacroCall, allocator: std.mem.Allocator) !PseudoMacroCall {
         const macro = try allocator.create(Expression);
         errdefer allocator.destroy(macro);
         macro.* = try self.macro.clone(allocator);
-        
+
         var args = std.ArrayList(*Expression).init(allocator);
         errdefer {
             for (args.items) |arg| {
@@ -88,14 +88,14 @@ pub const PseudoMacroCall = struct {
             }
             args.deinit();
         }
-        
+
         for (self.args.items) |arg| {
             const new_arg = try allocator.create(Expression);
             errdefer allocator.destroy(new_arg);
             new_arg.* = try arg.clone(allocator);
             try args.append(new_arg);
         }
-        
+
         return PseudoMacroCall{
             .macro = macro,
             .args = args,
@@ -108,7 +108,7 @@ pub const PseudoMacroCall = struct {
 pub const CallContext = struct {
     variables: std.HashMap([]const u8, *Expression),
     parent_scope: ?*CallContext,
-    
+
     pub fn deinit(self: *CallContext, allocator: std.mem.Allocator) void {
         var iterator = self.variables.iterator();
         while (iterator.next()) |entry| {
@@ -118,7 +118,7 @@ pub const CallContext = struct {
         }
         self.variables.deinit();
     }
-    
+
     pub fn clone(self: CallContext, allocator: std.mem.Allocator) !CallContext {
         var new_variables = std.HashMap([]const u8, *Expression).init(allocator);
         var iterator = self.variables.iterator();
@@ -128,7 +128,7 @@ pub const CallContext = struct {
             value.* = try entry.value_ptr.*.clone(allocator);
             try new_variables.put(key, value);
         }
-        
+
         return CallContext{
             .variables = new_variables,
             .parent_scope = self.parent_scope, // Shallow copy of reference
@@ -149,35 +149,35 @@ pub const ClassMethod = struct {
     is_abstract: bool = false,
     is_static: bool = false,
     is_macro: bool = false,        // NEW: Indicates pseudo macro method
-    
+
     pub fn deinit(self: *ClassMethod, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         if (self.return_type) |ret_type| {
             allocator.free(ret_type);
         }
-        
+
         // Free parameters
         for (self.params) |*param| {
             param.deinit(allocator);
         }
         allocator.free(self.params);
-        
+
         self.body.deinit(allocator);
         allocator.destroy(self.body);
     }
-    
+
     pub fn clone(self: ClassMethod, allocator: std.mem.Allocator) !ClassMethod {
         var params = try allocator.alloc(ClassMethodParam, self.params.len);
         errdefer allocator.free(params);
-        
+
         for (self.params, 0..) |param, i| {
             params[i] = try param.clone(allocator);
         }
-        
+
         const body = try allocator.create(Expression);
         errdefer allocator.destroy(body);
         body.* = try self.body.clone(allocator);
-        
+
         return ClassMethod{
             .name = try allocator.dupe(u8, self.name),
             .params = params,
@@ -199,7 +199,7 @@ pub const Expression = union(enum) {
     PseudoMacroDef: PseudoMacroDef,
     PseudoMacroCall: PseudoMacroCall,
     MacroMethodCall: MacroMethodCall,     // NEW: Macro method calls
-    
+
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
             // ... existing cases ...
@@ -208,7 +208,7 @@ pub const Expression = union(enum) {
             .MacroMethodCall => |*macro_method_call| macro_method_call.deinit(allocator),
         }
     }
-    
+
     pub fn clone(self: Expression, allocator: std.mem.Allocator) !Expression {
         return switch (self) {
             // ... existing cases ...
@@ -225,7 +225,7 @@ pub const MacroMethodCall = struct {
     method_name: []const u8,         // Method name
     args: std.ArrayList(*Expression), // Unevaluated arguments
     call_context: ?CallContext,      // Caller's context
-    
+
     pub fn deinit(self: *MacroMethodCall, allocator: std.mem.Allocator) void {
         self.instance.deinit(allocator);
         allocator.destroy(self.instance);
@@ -239,12 +239,12 @@ pub const MacroMethodCall = struct {
             ctx.deinit(allocator);
         }
     }
-    
+
     pub fn clone(self: MacroMethodCall, allocator: std.mem.Allocator) !MacroMethodCall {
         const instance = try allocator.create(Expression);
         errdefer allocator.destroy(instance);
         instance.* = try self.instance.clone(allocator);
-        
+
         var args = std.ArrayList(*Expression).init(allocator);
         errdefer {
             for (args.items) |arg| {
@@ -253,14 +253,14 @@ pub const MacroMethodCall = struct {
             }
             args.deinit();
         }
-        
+
         for (self.args.items) |arg| {
             const new_arg = try allocator.create(Expression);
             errdefer allocator.destroy(new_arg);
             new_arg.* = try arg.clone(allocator);
             try args.append(new_arg);
         }
-        
+
         return MacroMethodCall{
             .instance = instance,
             .method_name = try allocator.dupe(u8, self.method_name),
@@ -282,7 +282,7 @@ pub const HIR = struct {
         params: []FuncParam,
         body: *Expression,
         allocator: std.mem.Allocator,
-        
+
         pub fn deinit(self: *PseudoMacro) void {
             self.allocator.free(self.name);
             for (self.params) |*param| {
@@ -296,13 +296,13 @@ pub const HIR = struct {
             self.allocator.destroy(self.body);
         }
     };
-    
+
     pub const LazyCall = struct {
         macro: *Expression,
         lazy_args: []*LazyArgument,  // Unevaluated argument expressions
         lexical_context: LexicalContext, // Captured caller environment
         allocator: std.mem.Allocator,
-        
+
         pub fn deinit(self: *LazyCall) void {
             self.macro.deinit(self.allocator);
             self.allocator.destroy(self.macro);
@@ -314,12 +314,12 @@ pub const HIR = struct {
             self.lexical_context.deinit();
         }
     };
-    
+
     pub const LazyArgument = struct {
         ast_expr: *Expression,       // Original AST expression
         context_bindings: []Binding, // Variable bindings from call site
         allocator: std.mem.Allocator,
-        
+
         pub fn deinit(self: *LazyArgument) void {
             self.ast_expr.deinit(self.allocator);
             self.allocator.destroy(self.ast_expr);
@@ -329,12 +329,12 @@ pub const HIR = struct {
             self.allocator.free(self.context_bindings);
         }
     };
-    
+
     pub const LexicalContext = struct {
         bindings: []Binding,
         parent: ?*LexicalContext,
         allocator: std.mem.Allocator,
-        
+
         pub fn deinit(self: *LexicalContext) void {
             for (self.bindings) |*binding| {
                 binding.deinit(self.allocator);
@@ -342,18 +342,18 @@ pub const HIR = struct {
             self.allocator.free(self.bindings);
         }
     };
-    
+
     pub const Binding = struct {
         name: []const u8,
         value: *Expression,
-        
+
         pub fn deinit(self: *Binding, allocator: std.mem.Allocator) void {
             allocator.free(self.name);
             self.value.deinit(allocator);
             allocator.destroy(self.value);
         }
     };
-    
+
     // Extend existing ClassMethod to support macro methods
     pub const ClassMethod = struct {
         name: []const u8,
@@ -364,7 +364,7 @@ pub const HIR = struct {
         is_abstract: bool,
         is_static: bool,
         is_macro: bool,               // NEW: Pseudo macro flag
-        
+
         pub fn deinit(self: *ClassMethod) void {
             self.allocator.free(self.name);
             for (self.params) |*param| {
@@ -384,7 +384,7 @@ pub const HIR = struct {
         pseudo_macro_def: *PseudoMacro,
         lazy_call: *LazyCall,
         lazy_method_call: *LazyMethodCall,  // NEW: Lazy method calls
-        
+
         pub fn deinit(self: Expression, allocator: std.mem.Allocator) void {
             switch (self) {
                 // ... existing cases ...
@@ -403,7 +403,7 @@ pub const HIR = struct {
             }
         }
     };
-    
+
     // New HIR node for macro method calls
     pub const LazyMethodCall = struct {
         instance: *Expression,            // Object instance
@@ -411,7 +411,7 @@ pub const HIR = struct {
         lazy_args: []*LazyArgument,       // Unevaluated arguments
         lexical_context: LexicalContext,  // Caller's context
         allocator: std.mem.Allocator,
-        
+
         pub fn deinit(self: *LazyMethodCall) void {
             self.instance.deinit(self.allocator);
             self.allocator.destroy(self.instance);
@@ -437,18 +437,18 @@ pub const MIR = struct {
         macro_ref: BasicBlockRef,
         thunks: []ThunkRef,         // Each argument becomes a thunk
         context_frame: ContextRef,   // Preserved lexical environment
-        
+
         pub fn deinit(self: *LazyEvalCall, allocator: std.mem.Allocator) void {
             allocator.free(self.thunks);
             // context_frame cleanup handled by MIR context management
         }
     };
-    
+
     pub const Thunk = struct {
         expressions: []Expression,  // Unevaluated computation
         captured_vars: []Variable,  // Variables from caller's scope
         thunk_id: u32,
-        
+
         pub fn deinit(self: *Thunk, allocator: std.mem.Allocator) void {
             for (self.expressions) |*expr| {
                 expr.deinit(allocator);
@@ -460,14 +460,14 @@ pub const MIR = struct {
             allocator.free(self.captured_vars);
         }
     };
-    
+
     pub const Expression = union(enum) {
         // ... existing variants ...
         lazy_eval_call: LazyEvalCall,
         lazy_method_call: LazyMethodCall,   // NEW: Lazy method calls
         thunk_creation: Thunk,
         thunk_evaluation: ThunkRef,
-        
+
         pub fn deinit(self: Expression, allocator: std.mem.Allocator) void {
             switch (self) {
                 // ... existing cases ...
@@ -478,14 +478,14 @@ pub const MIR = struct {
             }
         }
     };
-    
-    // New MIR node for lazy method calls  
+
+    // New MIR node for lazy method calls
     pub const LazyMethodCall = struct {
         instance_ref: BasicBlockRef,     // Object instance
         method_ref: MethodRef,           // Method reference
         thunks: []ThunkRef,              // Argument thunks
         context_frame: ContextRef,       // Lexical environment
-        
+
         pub fn deinit(self: *LazyMethodCall, allocator: std.mem.Allocator) void {
             allocator.free(self.thunks);
             // Other refs are managed by MIR context
@@ -502,7 +502,7 @@ New bytecode instructions for lazy evaluation:
 pub const Instruction = struct {
     opcode: Opcode,
     operand: ?Value,
-    
+
     pub const Opcode = enum {
         // ... existing opcodes ...
         CreateThunk,         // Create a lazy evaluation thunk
@@ -520,7 +520,7 @@ pub const ThunkDescriptor = struct {
     instructions: std.ArrayList(Instruction),
     captured_variables: std.HashMap([]const u8, Value),
     thunk_id: u32,
-    
+
     pub fn init(allocator: std.mem.Allocator, thunk_id: u32) ThunkDescriptor {
         return .{
             .instructions = std.ArrayList(Instruction).init(allocator),
@@ -528,7 +528,7 @@ pub const ThunkDescriptor = struct {
             .thunk_id = thunk_id,
         };
     }
-    
+
     pub fn deinit(self: *ThunkDescriptor) void {
         for (self.instructions.items) |*instr| {
             if (instr.operand) |*operand| {
@@ -536,7 +536,7 @@ pub const ThunkDescriptor = struct {
             }
         }
         self.instructions.deinit();
-        
+
         var iterator = self.captured_variables.iterator();
         while (iterator.next()) |entry| {
             self.captured_variables.allocator.free(entry.key_ptr.*);
@@ -557,7 +557,7 @@ pub const VM = struct {
     context_stack: std.ArrayList(LexicalContext),
     thunk_table: std.HashMap(u32, ThunkDescriptor),
     next_thunk_id: u32,
-    
+
     pub fn init(allocator: std.mem.Allocator) VM {
         return .{
             // ... existing initialization ...
@@ -566,24 +566,24 @@ pub const VM = struct {
             .next_thunk_id = 1,
         };
     }
-    
+
     pub fn deinit(self: *VM) void {
         // ... existing cleanup ...
         self.context_stack.deinit();
-        
+
         var thunk_iterator = self.thunk_table.iterator();
         while (thunk_iterator.next()) |entry| {
             entry.value_ptr.deinit();
         }
         self.thunk_table.deinit();
     }
-    
+
     fn executeCreateThunk(self: *VM, thunk_instructions: []const Instruction) !u32 {
         const thunk_id = self.next_thunk_id;
         self.next_thunk_id += 1;
-        
+
         var thunk = ThunkDescriptor.init(self.allocator, thunk_id);
-        
+
         // Copy instructions for the thunk
         for (thunk_instructions) |instr| {
             var new_instr = instr;
@@ -592,21 +592,21 @@ pub const VM = struct {
             }
             try thunk.instructions.append(new_instr);
         }
-        
+
         // Capture current lexical environment
         for (self.variables.items) |variable| {
             const name_copy = try self.allocator.dupe(u8, variable.name);
             const value_copy = try variable.value.clone(self.allocator);
             try thunk.captured_variables.put(name_copy, value_copy);
         }
-        
+
         try self.thunk_table.put(thunk_id, thunk);
         return thunk_id;
     }
-    
+
     fn executeEvalThunk(self: *VM, thunk_id: u32) !Value {
         const thunk = self.thunk_table.get(thunk_id) orelse return error.InvalidThunk;
-        
+
         // Save current execution state
         const saved_ip = self.ip;
         const saved_variables = try self.variables.clone();
@@ -614,7 +614,7 @@ pub const VM = struct {
             self.variables.deinit();
             self.variables = saved_variables;
         }
-        
+
         // Restore thunk's captured context
         self.variables.clearAndFree();
         var thunk_var_iterator = thunk.captured_variables.iterator();
@@ -623,49 +623,49 @@ pub const VM = struct {
             const var_value = try entry.value_ptr.clone(self.allocator);
             try self.variables.put(var_name, var_value);
         }
-        
+
         // Execute thunk instructions
         self.ip = 0;
         const result = try self.executeInstructions(thunk.instructions.items);
-        
+
         // Restore execution state
         self.ip = saved_ip;
-        
+
         return result;
     }
-    
+
     fn executePseudoMacroCall(self: *VM, macro_id: u32, thunk_ids: []const u32) !Value {
         // Push current context
         const current_context = try self.captureCurrentContext();
         try self.context_stack.append(current_context);
         defer _ = self.context_stack.pop();
-        
+
         // Set up macro execution environment
         // Macro parameters get bound to thunk IDs, not values
-        
+
         // Execute macro body
         // When arguments are referenced, evaluate corresponding thunks
         return self.executeMacroBody(macro_id, thunk_ids);
     }
-    
+
     fn executeMacroMethodCall(self: *VM, obj_reg: u16, method_id: u32, thunk_ids: []const u32) !Value {
         // Get object and method
         const obj = self.get_register(obj_reg);
         const method = self.get_macro_method(obj, method_id)?;
-        
+
         // Capture current context including 'self' binding
         var method_context = try self.captureCurrentContext();
         try method_context.bind("self", obj);  // Bind 'self' to the object
         defer method_context.deinit();
-        
+
         // Push method context
         try self.context_stack.append(method_context);
         defer _ = self.context_stack.pop();
-        
+
         // Execute macro method body with lazy arguments
         return self.executeMacroMethodBody(method, thunk_ids);
     }
-    
+
     fn get_macro_method(self: *VM, obj: Value, method_id: u32) !*MacroMethod {
         // Look up macro method in object's class
         const obj_class = obj.get_class();
@@ -676,7 +676,7 @@ pub const VM = struct {
         }
         return error.MethodNotFound;
     }
-    
+
     fn captureCurrentContext(self: *VM) !LexicalContext {
         var context = LexicalContext.init(self.allocator);
         for (self.variables.items) |variable| {
@@ -686,16 +686,16 @@ pub const VM = struct {
         }
         return context;
     }
-    
+
     const LexicalContext = struct {
         variables: std.HashMap([]const u8, Value),
-        
+
         fn init(allocator: std.mem.Allocator) LexicalContext {
             return .{
                 .variables = std.HashMap([]const u8, Value).init(allocator),
             };
         }
-        
+
         fn deinit(self: *LexicalContext) void {
             var iterator = self.variables.iterator();
             while (iterator.next()) |entry| {
@@ -735,19 +735,19 @@ pub const VM = struct {
 (class Component
   (.prop state Map = {})
   (.prop dirty Bool = false)
-  
+
   ;; Regular method
   (.fn update [key value]
     (/state .set key value)
     (/dirty = true))
-  
+
   ;; Pseudo macro method - lazy evaluation with object context
   (.macro when-dirty [condition cleanup-expr]
     (when (and /dirty condition)
       (do
         cleanup-expr               # Evaluated in caller's context
         (/dirty = false))))
-  
+
   ;; Macro method for conditional operations
   (.macro with-state-backup [operation-expr]
     (do
@@ -800,7 +800,7 @@ pub const VM = struct {
         (.update-ui)))))
 
 ;; Override macro method
-(class OptimizedButton extends BaseComponent  
+(class OptimizedButton extends BaseComponent
   (.macro with-timing [operation-expr]   ;; Override with better implementation
     (do
       (var start = (perf/mark))

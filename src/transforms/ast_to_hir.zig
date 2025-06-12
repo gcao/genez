@@ -37,6 +37,34 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
                         // Add function to HIR program
                         try hir_prog.functions.append(hir_func);
                     },
+                    .SimpleFuncDef => |func_def| {
+                        // Create separate HIR function for SimpleFuncDef too
+                        var hir_func = hir.HIR.Function.init(allocator);
+                        errdefer hir_func.deinit();
+
+                        hir_func.name = try allocator.dupe(u8, func_def.getName());
+
+                        // Create parameters based on param_count, but without names/types
+                        hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.param_count);
+                        for (0..func_def.param_count) |i| {
+                            hir_func.params[i] = .{
+                                .name = try allocator.dupe(u8, "arg"), // Placeholder name
+                                .param_type = null,
+                            };
+                        }
+
+                        // Convert body_literal to a HIR literal expression
+                        const body_expr = hir.HIR.Expression{
+                            .literal = .{
+                                .int = func_def.body_literal,
+                            },
+                        };
+
+                        try hir_func.body.append(.{ .Expression = body_expr });
+
+                        // Add function to HIR program
+                        try hir_prog.functions.append(hir_func);
+                    },
                     else => {
                         // Keep other expressions for main function
                         try main_nodes.append(node);

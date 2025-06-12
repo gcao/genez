@@ -40,6 +40,18 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
         try convertStatementWithContext(&entry_block, stmt, func_context);
     }
 
+    // Add a return instruction if not present to ensure valid jump targets
+    var needs_return = true;
+    if (entry_block.instructions.items.len > 0) {
+        const last_instr = entry_block.instructions.items[entry_block.instructions.items.len - 1];
+        if (isReturnInstruction(last_instr)) {
+            needs_return = false;
+        }
+    }
+    if (needs_return) {
+        try entry_block.instructions.append(.Return);
+    }
+
     mir_func.blocks.append(entry_block) catch unreachable;
     return mir_func;
 }
@@ -215,8 +227,9 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try convertExpressionWithContext(block, if_expr.then_branch.*, context);
 
             // If there's an else branch, we need to jump over it after the then branch
-            const jump_over_else_index = if (if_expr.else_branch != null) block.instructions.items.len else 0;
+            var jump_over_else_index: usize = 0;
             if (if_expr.else_branch != null) {
+                jump_over_else_index = block.instructions.items.len;
                 try block.instructions.append(.{ .Jump = 0 });
             }
 
@@ -230,8 +243,10 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             }
 
             // Now we know where the code after the if statement starts, so we can set the Jump target
-            const after_if_index = block.instructions.items.len;
+            // The after_if_index should point to the next instruction that would be added,
+            // which is the current length of the instruction array
             if (if_expr.else_branch != null) {
+                const after_if_index = block.instructions.items.len;
                 block.instructions.items[jump_over_else_index].Jump = after_if_index;
             }
         },
