@@ -224,12 +224,15 @@ pub const VM = struct {
     fn allocateRegisters(self: *VM, count: u16) VMError!u16 {
         const base = self.next_free_register;
 
+        debug.log("Allocating {} registers at base {} (current len {})", .{ count, base, self.registers.items.len });
+
         // Extend register file if needed
         while (self.next_free_register + count > self.registers.items.len) {
             try self.registers.append(.{ .Nil = {} });
         }
 
         self.next_free_register += count;
+        debug.log("New register count: {}", .{self.registers.items.len});
         return base;
     }
 
@@ -343,9 +346,10 @@ pub const VM = struct {
                 debug.log("LoadParam: R{} = param[{}]", .{ dst_reg, param_index });
 
                 // Parameters are stored in the first registers of the current frame
-                const param_reg = self.current_register_base + param_index;
+                const param_reg = param_index;
+                debug.log("Fetching parameter register {} (base {} + index {})", .{ param_reg, self.current_register_base, param_index });
                 const param_value = try self.getRegister(param_reg);
-                debug.log("Loaded parameter from R{}: {any}", .{ param_reg, param_value });
+                debug.log("Loaded parameter from R{}: {any}", .{ self.current_register_base + param_reg, param_value });
 
                 try self.setRegister(dst_reg, param_value);
             },
@@ -963,8 +967,16 @@ pub const VM = struct {
                         const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
                         const arg = try self.getRegister(arg_reg);
                         debug.log("Loading argument {} from R{}: {any}", .{ i, arg_reg, arg });
-                        try self.setRegister(allocated_base + @as(u16, @intCast(i)), arg);
-                        debug.log("Stored argument {} in R{} (base + {})", .{ i, allocated_base + @as(u16, @intCast(i)), i });
+
+                        const dest_reg = allocated_base + @as(u16, @intCast(i));
+                        // Directly store argument into the absolute register of the new frame
+                        while (dest_reg >= self.registers.items.len) {
+                            try self.registers.append(.{ .Nil = {} });
+                        }
+                        self.registers.items[dest_reg].deinit(self.allocator);
+                        self.registers.items[dest_reg] = arg;
+
+                        debug.log("Stored argument {} in R{} (base + {})", .{ i, dest_reg, i });
                     }
                     
                     // Switch to the new function

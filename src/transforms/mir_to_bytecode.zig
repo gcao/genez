@@ -79,6 +79,9 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
         });
     }
 
+    // Record register usage for the main function
+    main_func.register_count = next_reg;
+
     return ConversionResult{
         .main_func = main_func,
         .created_functions = created_functions,
@@ -93,7 +96,8 @@ fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function)
     // Copy function metadata
     bytecode_func.name = try allocator.dupe(u8, mir_func.name);
     bytecode_func.param_count = mir_func.param_count;
-    bytecode_func.register_count = 16; // Start with reasonable default
+    // We'll compute the actual register usage during conversion
+    bytecode_func.register_count = 0;
 
     // Initialize stack tracking for this function
     var next_reg: u16 = @as(u16, @intCast(mir_func.param_count)); // Start after parameters
@@ -124,6 +128,9 @@ fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function)
             .immediate = null,
         });
     }
+
+    // Record the number of registers actually used
+    bytecode_func.register_count = next_reg;
 
     return bytecode_func;
 }
@@ -463,6 +470,17 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
 
             // Now pop the function
             const func_reg = stack.pop();
+
+            // Move arguments to registers immediately following the function register
+            for (arg_regs.items, 0..) |reg, idx| {
+                const target = func_reg + 1 + @as(u16, @intCast(idx));
+                try func.instructions.append(.{
+                    .op = bytecode.OpCode.Move,
+                    .dst = target,
+                    .src1 = reg,
+                });
+                if (target >= next_reg.*) next_reg.* = target + 1;
+            }
 
             const dst_reg = next_reg.*;
             next_reg.* += 1;
