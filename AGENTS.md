@@ -13,6 +13,10 @@ Compilation proceeds through multiple stages, transforming source code to byteco
 - `src/backend/` – bytecode generation and the VM.
 
 ## Building and testing
+Before building, install Zig:
+```
+apt-get install zig
+```
 - Build: `zig build`
 - Tests: `zig build test`
 - Run example: `./zig-out/bin/gene run examples/default.gene`
