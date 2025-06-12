@@ -149,6 +149,10 @@ pub const VM = struct {
         self.current_func = func;
         self.pc = 0;
 
+        // Allocate registers for the main function before execution
+        const base = try self.allocateRegisters(func.register_count);
+        self.current_register_base = base;
+
         // Print all instructions before execution
         debug.log("Instructions:", .{});
         for (func.instructions.items, 0..) |instr, i| {
