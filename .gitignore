@@ -27,4 +27,3 @@ callgrind.out*
 scratch*
 gene.wasm
 *.gbc
-*.genc
