@@ -75,3 +75,37 @@ Gene is a programming language implementation featuring a 4-stage compilation pi
 When modifying the compiler, always run tests and verify examples still work. The debug mode (`--debug` flag) is essential for understanding compilation pipeline behavior.
 
 When creating temporary files, use `tmp/` directory to avoid polluting the main project directory.
+
+## Current Development Status
+
+**Working Features:**
+- Basic compilation pipeline (AST → HIR → MIR → Bytecode)
+- Functions with parameters and recursion
+- Conditionals (if/else) and arithmetic operators
+- Variables and basic types (Int, Float, String, Bool)
+- Register-based VM with proper call frames
+- All example files now execute correctly (including fibonacci.gene)
+
+**Next Development Priorities (Phase 2):**
+1. **Type Checking** - Activate typechecker.zig for basic type validation
+2. **Classes** - Runtime support for OOP (AST already supports it)
+3. **Pattern Matching** - Runtime implementation (AST already parses it)
+4. **Module System** - Basic imports/exports and namespaces
+5. **Error Handling** - try/catch/finally support
+
+See `tmp/development_roadmap.md` for detailed next steps.
+
+## Design Philosophy
+
+Gene follows a pragmatic, phased implementation approach:
+- **Phase 1** (Current): Core interpreter with 4-stage pipeline
+- **Phase 2** (Next): Type system, classes, and core language features
+- **Phase 3** (Future): Optimization, JIT, and advanced features
+- **Phase 4** (Later): Concurrency, GC, and metaprogramming
+
+The current implementation uses:
+- Stack-based MIR (simpler than SSA form planned in design)
+- 4-stage pipeline (skipping LIR until JIT is needed)
+- Manual memory management (GC deferred to Phase 4)
+
+This approach prioritizes getting a working language quickly while maintaining flexibility for future optimization.

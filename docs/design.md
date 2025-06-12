@@ -507,24 +507,84 @@ Properties starting with capital letters in type contexts are generic type param
   (if (> (a .compare b) 0) a b))
 ```
 
-## 3.6 Type Inference
+## 3.6 Gradual Typing Philosophy
 
-Gene performs bidirectional type inference:
+Gene embraces gradual typing, allowing developers to start with dynamic code and incrementally add types for safety and performance:
+
+### 3.6.1 The Gradual Spectrum
 
 ```gene
+# Fully dynamic - no type annotations
+(fn add [x y] (+ x y))
+
+# Partially typed - annotate what matters
+(fn add [x :Number y] (+ x y))  # Only x is typed
+
+# Fully typed - maximum safety
+(fn add [x :Int y :Int => :Int] (+ x y))
+
+# Gradual migration in practice
+(fn process-user [user]           # Start dynamic
+  (do
+    (validate user)
+    (save user)))
+
+(fn process-user [user :User]     # Add types later
+  (do
+    (validate user)               # validate inferred to take User
+    (save user)))                 # save inferred to take User
+```
+
+### 3.6.2 Type Checking Modes
+
+```gene
+# File-level type checking pragmas
+(pragma ^type-check :strict)   # All functions must be typed
+(pragma ^type-check :gradual)  # Default - mix typed/untyped
+(pragma ^type-check :none)     # No type checking
+
+# Function-level overrides
+(fn ^:no-check hacky-function [x]  # Skip type checking
+  (unsafe-operations x))
+
+(fn ^:strict critical-function [x :Data => :Result]
+  (validated-operations x))
+```
+
+### 3.6.3 Runtime Type Safety
+
+```gene
+# Types are checked at runtime when needed
+(fn process [x]
+  (x .validate!)  # Runtime error if x doesn't have validate!
+  (save x))
+
+# Gradual contracts - runtime checks for untyped code
+(fn process [x] ^:contract {:validate! true}
+  (x .validate!)  # Contract ensures method exists
+  (save x))
+```
+
+## 3.7 Type Inference
+
+Gene performs bidirectional type inference with gradual typing support:
+
+```gene
+# Local type inference
 (var x = 10)           # Inferred as Int
 (var y = [1 2 3])      # Inferred as (Array Int)
 
 # Function type inference
-(fn double [x] (* x 2))  # Types inferred from usage
+(fn double [x] (* x 2))  # x:Number inferred from + usage
+
+# Gradual inference - mixing typed and untyped
+(fn process [data]
+  (var typed :Int = (data .count))  # data must have .count returning Int
+  (print typed))                    # print accepts Any
 
 # Generic inference
 (map (fnx [x] (* x 2)) [1 2 3])  # T=Int, U=Int inferred
 ```
-
-## 3.7 Variance
-
-TODO
 
 ## 3.8 Type Aliases
 
@@ -1239,40 +1299,41 @@ Mixins are bundles of functionality that get **copied** into the including class
 
 ## 7.5 Method Types
 
-Gene supports multiple types of methods to provide different execution semantics:
+Gene supports three core method types with visibility modifiers:
+
+### Core Method Types:
+1. **Regular methods** (.fn) - Standard evaluation, instance methods
+2. **Macro methods** (.macro) - Lazy evaluation with pseudo macro semantics
+3. **Static methods** (.static fn) - Class-level methods without instance
+
+### Visibility Modifiers:
+- **Public** (default) - Accessible everywhere
+- **Private** (.-fn) - Only accessible within the class
+- **Protected** (.#fn) - Accessible in class and subclasses
 
 ```gene
 (class Component
   (.prop state Map = {})
-  (.prop listeners Array = [])
-
-  # Regular method - standard evaluation
+  
+  # Regular public method
   (.fn update [key value]
-    (/state .set key value)
-    (.notify-listeners key value))
+    (/state .set key value))
 
-  # Pseudo macro method - lazy evaluation
+  # Private helper method
+  (.-fn validate-key [key]
+    (key is Symbol))
+
+  # Protected method for subclasses
+  (.#fn internal-update [data]
+    (/state = data))
+
+  # Macro method - lazy evaluation
   (.macro when-changed [condition body]
-    (if condition
-      (do
-        (.update :last-change (time/now))
-        body)
-      nil))
+    (if condition body nil))
 
-  # Static method
-  (.static fn create-default []
-    (Component))
-
-  # Virtual method (can be overridden)
-  (.virtual fn render []
-    (print "Base component"))
-
-  # Abstract method (must be implemented by subclasses)
-  (.abstract fn validate [])
-
-  # Private method
-  (.-fn internal-cleanup []
-    (.clear-cache)))
+  # Static factory method
+  (.static fn create []
+    (Component)))
 ```
 
 ### 7.5.1 Pseudo Macro Methods
@@ -2061,16 +2122,39 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 ## 12.3 Error Propagation
 
 ```gene
-# Early return on error
+# Question mark operator for Result types
 (fn process-file [path :Str => :(Result Data Error)]
-  (var file = (open-file? path))  # Returns Result
-  (var data = (read-data? file))  # Returns Result
-  (var parsed = (parse? data))    # Returns Result
+  (var file = (open-file? path))   # ? unwraps Ok or returns Err
+  (var data = (read-data? file))   
+  (var parsed = (parse? data))     
   [:ok parsed])
 
-# Error boundaries
+# Bang operator for exceptions
+(fn process-file-unsafe [path :Str => Data]
+  (var file = (open-file! path))   # ! unwraps Ok or throws
+  (var data = (read-data! file))   
+  (parse! data))
+
+# Error context and stack traces
+(fn process-user [id :Int => :(Result User Error)]
+  (with-context {:user-id id :operation "process"}
+    (var user = (db/find-user? id))
+    (validate-user? user)))
+
+# Async error propagation
+(async fn fetch-and-process [url :Str => :(Result Data Error)]
+  (var response = (await (http/get? url)))
+  (var data = (await (response.json?)))
+  (process-data? data))
+
+# Error boundaries for fault isolation
 (with-error-boundary
-  ^on-error (fnx [e] (log e) default-value)
+  ^on-error (fnx [e] 
+    (log/error "Operation failed" e)
+    (metric/increment :errors)
+    default-value)
+  ^retry 3
+  ^timeout 5000
   (dangerous-computation))
 ```
 
@@ -2098,9 +2182,82 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 
 ---
 
-# Chapter 13: Standard Library
+# Chapter 13: Package Management and Tooling
 
-## 13.1 Core Functions
+## 13.1 Package Manager
+
+Gene includes a built-in package manager for dependency management:
+
+```gene
+# gene.toml
+[package]
+name = "my-app"
+version = "0.1.0"
+authors = ["dev@example.com"]
+
+[dependencies]
+http-client = "2.1.0"
+json = "1.0.0"
+async-std = { version = "1.5.0", features = ["unstable"] }
+
+[dev-dependencies]
+test-framework = "3.0.0"
+```
+
+**Features:**
+- Semantic versioning
+- Lock files for reproducible builds
+- Private registries support
+- Git dependencies
+- Local path dependencies
+
+## 13.2 Development Tools
+
+**Language Server Protocol (LSP):**
+- Auto-completion
+- Go-to-definition
+- Find references
+- Rename refactoring
+- Real-time error checking
+
+**Debugger Support:**
+- Breakpoints in all execution modes
+- Variable inspection
+- Stack trace navigation
+- Hot code reload
+- Time-travel debugging (future)
+
+**Profiling Tools:**
+- CPU profiling
+- Memory profiling
+- Allocation tracking
+- GC statistics
+- Flame graphs
+
+## 13.3 Documentation
+
+Gene supports inline documentation with markdown:
+
+```gene
+#doc """
+# HTTP Client
+
+A simple HTTP client for making web requests.
+
+## Examples
+
+```gene
+(def client (http/client))
+(def response (client.get "https://api.example.com/data"))
+```
+"""
+(module http-client
+  ...)
+```
+
+# Chapter 14: Standard Library
+
+## 14.1 Core Functions
 
 ```gene
 # Identity and composition
@@ -2315,15 +2472,39 @@ Gene will eventually support three execution modes that can coexist seamlessly w
 - **Use Case**: Hot paths identified at runtime
 - **Compilation Time**: ~10-50ms per function
 - **Runtime Performance**: Near-native speed
-- **Trigger**: Functions called > 1000 times
+- **Trigger**: Functions called > 1000 times or marked with `^jit`
 
 ### 14.3.3 AOT Compilation (Maximum Performance)
 - **Use Case**: Core libraries, system functions, deployment
 - **Compilation Time**: ~100-500ms per function
 - **Runtime Performance**: Native C-level speed
-- **Usage**: Standard library, critical paths
+- **Usage**: Standard library, critical paths, functions marked with `^compiled`
 
-## 14.3 Core Components
+### Function Compilation Hints
+
+```gene
+# Default: interpreted, may be JIT compiled if hot
+(fn calculate [x y]
+  (+ x y))
+
+# Force JIT compilation on first call
+(fn process-batch [data]
+  ^jit
+  (map complex-transform data))
+
+# Pre-compile to native code
+(fn matrix-multiply [a b]
+  ^compiled
+  ^inline
+  (heavy-computation a b))
+
+# Never compile (always interpret)
+(fn debug-helper [x]
+  ^interpreted
+  (inspect x))
+```
+
+## 14.4 Core Components
 
 1. **Unified Frontend**
    - Lexer: Token generation
@@ -2397,172 +2578,85 @@ Gene Binary {
 
 ## 15.1 Lexer Design
 
-The lexer converts source text into tokens:
+The lexer converts source text into tokens, recognizing:
 
-```zig
-// src/frontend/token.zig
-pub const Token = union(enum) {
-    // Literals
-    integer: i64,
-    float: f64,
-    string: []const u8,
-    char: u21,  // Unicode codepoint
-    symbol: []const u8,
-    keyword: []const u8,
+**Literal Values:**
+- Integers (64-bit signed)
+- Floating-point numbers (64-bit IEEE 754)
+- Strings with escape sequences
+- Unicode characters
+- Symbols (interned strings starting with `:`)
+- Keywords (language-reserved identifiers)
 
-    // Delimiters
-    left_paren,
-    right_paren,
-    left_bracket,
-    right_bracket,
-    left_brace,
-    right_brace,
+**Delimiters:**
+- Parentheses `()` for S-expressions
+- Brackets `[]` for arrays and parameter lists
+- Braces `{}` for maps and destructuring
 
-    // Special
-    quote,      // :
-    unquote,    // %
-    property,   // ^
-    dot,        // .
-    slash,      // /
+**Special Characters:**
+- Quote `:` for symbols
+- Unquote `%` for template expansion
+- Property `^` for metadata
+- Dot `.` for method calls and paths
+- Slash `/` for namespaces
 
-    // Operators
-    plus, minus, star, slash_op,
-    eq, ne, lt, gt, le, ge,
-    and_op, or_op, not_op,
+**Operators:**
+- Arithmetic: `+`, `-`, `*`, `/`
+- Comparison: `=`, `!=`, `<`, `>`, `<=`, `>=`
+- Logical: `and`, `or`, `not`
 
-    // Keywords
-    if_kw, else_kw, do_kw, fn_kw, var_kw, class_kw,
-    macro_kw, defmacro_kw,
-    // ... etc
+**Keywords:**
+- Control flow: `if`, `else`, `do`
+- Definitions: `fn`, `var`, `class`
+- Macros: `macro`, `defmacro`
 
-    pub fn deinit(self: *Token, allocator: std.mem.Allocator) void {
-        switch (self.*) {
-            .string, .symbol, .keyword => |str| allocator.free(str),
-            else => {},
-        }
-    }
-};
-```
+The lexer maintains source location information for each token to enable precise error reporting.
 
 ## 15.2 Parser Design
 
-The parser builds an AST from tokens:
+The parser builds an Abstract Syntax Tree (AST) from tokens using recursive descent parsing.
 
-```zig
-// src/frontend/ast.zig - Expression types (already implemented)
-pub const Expression = union(enum) {
-    // Atoms
-    Literal: Literal,
-    Variable: Variable,
+**AST Node Types:**
 
-    // Compound expressions
-    If: If,
-    FuncCall: FuncCall,
-    FuncDef: FuncDef,
-    VarDecl: VarDecl,
-    ArrayLiteral: ArrayLiteral,
-    MapLiteral: MapLiteral,
-    DoBlock: DoBlock,
+**Atomic Expressions:**
+- Literals (numbers, strings, booleans, nil)
+- Variables (identifiers)
+- Symbols (quoted identifiers)
 
-    // Object-oriented
-    ClassDef: ClassDef,
-    MatchExpr: MatchExpr,
+**Compound Expressions:**
+- Function calls (S-expressions)
+- Function definitions
+- Variable declarations
+- Conditionals (if/else)
+- Array and map literals
+- Do blocks (sequential evaluation)
 
-    // Module system
-    ModuleDef: ModuleDef,
-    ImportStmt: ImportStmt,
-    ExportStmt: ExportStmt,
+**Advanced Constructs:**
+- Class definitions with inheritance
+- Pattern matching expressions
+- Module definitions and imports
 
-    // Memory management
-    pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
-        switch (self.*) {
-            .Literal => |*lit| lit.deinit(allocator),
-            .Variable => |*var_expr| var_expr.deinit(allocator),
-            .If => |*if_expr| if_expr.deinit(allocator),
-            .FuncCall => |*func_call| func_call.deinit(allocator),
-            // ... other cases
-        }
-    }
+**Parsing Strategy:**
 
-    pub fn clone(self: Expression, allocator: std.mem.Allocator) !Expression {
-        return switch (self) {
-            .Literal => |lit| .{ .Literal = try lit.clone(allocator) },
-            .Variable => |var_expr| .{ .Variable = try var_expr.clone(allocator) },
-            // ... other cases
-        };
-    }
-};
-```
+The parser uses a simple recursive descent algorithm:
+1. Peek at the current token to determine expression type
+2. Dispatch to appropriate parsing method
+3. Recursively parse sub-expressions
+4. Build AST nodes with proper parent-child relationships
 
-## 15.3 Parsing Algorithm
+**Key Design Decisions:**
+- S-expressions make parsing trivial - no precedence rules needed
+- Every form starts with an identifying token or keyword
+- Uniform syntax reduces parser complexity
+- Memory management uses arena allocation for efficiency
 
-```zig
-// src/frontend/parser.zig
-pub const Parser = struct {
-    allocator: std.mem.Allocator,
-    tokens: TokenStream,
-    current: usize,
+## 15.3 Error Recovery
 
-    pub fn parseExpression(self: *Parser) !Expression {
-        const token = self.peek();
-        return switch (token) {
-            .left_paren => self.parseGene(),
-            .left_bracket => self.parseArrayLiteral(),
-            .left_brace => self.parseMapLiteral(),
-            .quote => self.parseQuotedExpr(),
-            .integer => |n| Expression{ .Literal = .{ .value = .{ .Int = n } } },
-            .symbol => |s| self.parseSymbolOrPath(s),
-            else => error.UnexpectedToken,
-        };
-    }
-
-    fn parseGene(self: *Parser) !Expression {
-        try self.expect(.left_paren);
-
-        // Parse head expression
-        const head = try self.allocator.create(Expression);
-        errdefer self.allocator.destroy(head);
-        head.* = try self.parseExpression();
-
-        // Parse arguments
-        var args = std.ArrayList(*Expression).init(self.allocator);
-        errdefer {
-            for (args.items) |arg| {
-                arg.deinit(self.allocator);
-                self.allocator.destroy(arg);
-            }
-            args.deinit();
-        }
-
-        while (!self.checkToken(.right_paren)) {
-            const arg = try self.allocator.create(Expression);
-            errdefer self.allocator.destroy(arg);
-            arg.* = try self.parseExpression();
-            try args.append(arg);
-        }
-
-        try self.expect(.right_paren);
-
-        return Expression{
-            .FuncCall = .{
-                .func = head,
-                .args = args,
-            }
-        };
-    }
-
-    fn peek(self: *Parser) Token {
-        return self.tokens.items[self.current];
-    }
-
-    fn expect(self: *Parser, expected: Token) !void {
-        const token = self.advance();
-        if (!std.meta.eql(token, expected)) {
-            return error.UnexpectedToken;
-        }
-    }
-};
-```
+The parser implements error recovery strategies:
+- Skip to next balanced delimiter on syntax errors
+- Provide context-aware error messages
+- Track source locations for all AST nodes
+- Support partial parsing for IDE features
 
 ---
 
@@ -2587,165 +2681,77 @@ The current 4-stage pipeline (AST→HIR→MIR→Bytecode) provides a working int
 
 ## 16.2 HIR (High-level Intermediate Representation)
 
-HIR preserves high-level constructs while desugaring syntax:
+HIR preserves high-level language constructs while normalizing syntax variations.
 
-```zig
-pub const HIR = union(enum) {
-    // Values
-    Const: Value,
-    Var: VarId,
+**Key Characteristics:**
+- Close to source semantics
+- Type annotations preserved
+- Desugars syntax extensions
+- Maintains lexical scope information
 
-    // Bindings
-    Let: struct {
-        var_id: VarId,
-        type_hint: ?Type,
-        init: *HIR,
-        body: *HIR,
-    },
+**HIR Elements:**
 
-    // Functions
-    Function: struct {
-        id: FnId,
-        params: []FnParam,
-        body: *HIR,
-        captures: []VarId,
-    },
+**Values and Variables:**
+- Constants with known types
+- Variable references with unique IDs
+- Captured variables tracked explicitly
 
-    Call: struct {
-        func: *HIR,
-        args: []*HIR,
-    },
+**Bindings and Scope:**
+- Let bindings with optional type hints
+- Lexical scope tracking
+- Closure capture analysis
 
-    // Control flow
-    If: struct {
-        cond: *HIR,
-        then_branch: *HIR,
-        else_branch: *HIR,
-    },
+**Functions:**
+- Named and anonymous functions
+- Parameter type annotations
+- Captured variable lists
+- Return type inference points
 
-    Match: struct {
-        expr: *HIR,
-        arms: []MatchArm,
-    },
+**Control Flow:**
+- If-then-else with typed branches
+- Pattern matching with exhaustiveness
+- Loops with break/continue
 
-    // Object-oriented
-    Class: struct {
-        id: ClassId,
-        parent: ?ClassId,
-        traits: []TraitId,
-        fields: []Field,
-        methods: []Method,
-    },
+**Object-Oriented Features:**
+- Class definitions with inheritance chains
+- Trait implementations
+- Method dispatch information
+- Field access with type tracking
 
-    New: struct {
-        class: ClassId,
-        args: []*HIR,
-    },
+**HIR Transformations:**
+- Desugar syntax extensions
+- Resolve lexical scopes
+- Assign unique IDs to all bindings
+- Prepare for type checking
 
-    FieldAccess: struct {
-        obj: *HIR,
-        field: FieldId,
-    },
-
-    MethodCall: struct {
-        obj: *HIR,
-        method: MethodId,
-        args: []*HIR,
-    },
-
-    // Blocks
-    Block: []*HIR,
-
-    // Loops
-    Loop: struct {
-        body: *HIR,
-    },
-
-    Break: ?*HIR,
-    Continue,
-
-    pub const FnParam = struct {
-        var_id: VarId,
-        param_type: Type,
-    };
-
-    pub const MatchArm = struct {
-        pattern: Pattern,
-        body: *HIR,
-    };
-};
-```
-
-### HIR Generation Example
-
-```gene
-# Source
-(fn add [x :Int y :Int => :Int]
-  (+ x y))
-
-# HIR
-Function {
-    id: FnId(1),
-    params: [(VarId(1), Int), (VarId(2), Int)],
-    body: Call {
-        func: Var(BuiltinId(Add)),
-        args: [Var(VarId(1)), Var(VarId(2))],
-    },
-    captures: [],
-}
-```
+The HIR serves as the input to both the type checker and the MIR generator, maintaining enough information for accurate error reporting while simplifying subsequent analysis.
 
 ## 16.3 MIR (Mid-level Intermediate Representation)
 
 ### Current Implementation (Phase 1)
-The current MIR implementation uses a stack-based approach for simplicity:
+The current MIR uses a stack-based approach for simplicity:
 
-```zig
-pub const MIR = struct {
-    functions: std.ArrayList(Function),
-    
-    pub const Function = struct {
-        name: []const u8,
-        param_count: usize,
-        blocks: std.ArrayList(BasicBlock),
-    };
-    
-    pub const BasicBlock = struct {
-        instructions: std.ArrayList(Instruction),
-    };
-    
-    pub const Instruction = union(enum) {
-        // Stack operations
-        LoadInt: i64,
-        LoadFloat: f64,
-        LoadBool: bool,
-        LoadString: []const u8,
-        LoadNil,
-        LoadVariable: []const u8,
-        LoadParameter: usize,
-        StoreVariable: []const u8,
-        
-        // Arithmetic (pop 2, push 1)
-        Add, Sub, Mul, Div,
-        
-        // Comparison (pop 2, push 1)
-        LessThan, GreaterThan, Equal,
-        
-        // Control flow
-        Jump: usize,
-        JumpIfFalse: usize,
-        
-        // Function operations
-        Call: usize,  // arg count
-        Return,
-        
-        // Other
-        Print,
-    };
-};
-```
+**Design Principles:**
+- Virtual stack machine model
+- Simple instruction set
+- Direct mapping from HIR
+- Minimal optimization
 
-This stack-based design simplifies code generation from HIR and is sufficient for the interpreter.
+**Instruction Categories:**
+- **Load Operations**: Push constants, variables, and parameters onto stack
+- **Arithmetic**: Pop operands, compute, push result (Add, Sub, Mul, Div)
+- **Comparison**: Pop operands, compare, push boolean (LT, GT, EQ)
+- **Control Flow**: Conditional and unconditional jumps
+- **Function Calls**: Manage arguments and return values on stack
+- **I/O**: Print instruction for basic output
+
+**Benefits of Stack-Based MIR:**
+- Trivial code generation from tree-structured HIR
+- No register allocation complexity
+- Simple to implement and debug
+- Sufficient performance for interpreter
+
+This approach prioritizes correctness and simplicity over optimization, which is appropriate for the initial implementation phase.
 
 ### Future Design (Phase 3)
 MIR will eventually use SSA (Static Single Assignment) form for optimization:
@@ -2963,42 +2969,32 @@ pub const Label = u32; // Jump target
 
 ### Register Allocation
 
-```zig
-pub const RegisterAllocator = struct {
-    // Infinite virtual registers during LIR generation
-    next_vreg: u16,
+Future LIR implementation will include sophisticated register allocation:
 
-    // Physical register assignment
-    phys_regs: []PhysReg,
+**Allocation Strategy:**
+- Start with unlimited virtual registers
+- Build interference graph from liveness analysis
+- Apply graph coloring algorithm
+- Spill to memory when necessary
 
-    // Spill slots for registers that don't fit
-    spill_slots: []SpillSlot,
+**Key Components:**
+- **Virtual Registers**: Unlimited during code generation
+- **Physical Registers**: Target architecture constraints
+- **Spill Slots**: Memory locations for excess values
+- **Live Ranges**: Track variable lifetimes
 
-    allocator: std.mem.Allocator,
+**Allocation Process:**
+1. **Liveness Analysis**: Determine when values are needed
+2. **Interference Graph**: Find which values conflict
+3. **Graph Coloring**: Assign colors (registers) to nodes
+4. **Spilling**: Move excess values to memory
+5. **Code Rewriting**: Replace virtual with physical registers
 
-    pub fn init(allocator: std.mem.Allocator) RegisterAllocator {
-        return .{
-            .next_vreg = 0,
-            .phys_regs = &.{},
-            .spill_slots = &.{},
-            .allocator = allocator,
-        };
-    }
-};
-
-fn allocateRegisters(allocator: std.mem.Allocator, func: *LIRFunction) !void {
-    // Build interference graph
-    const graph = try buildInterferenceGraph(allocator, func);
-    defer graph.deinit();
-
-    // Graph coloring algorithm
-    const coloring = try graphColoring(allocator, graph, NUM_PHYSICAL_REGS);
-    defer coloring.deinit();
-
-    // Rewrite instructions with physical registers
-    try rewriteWithAllocation(allocator, func, coloring);
-}
-```
+**Optimizations:**
+- Coalescing to eliminate moves
+- Splitting live ranges
+- Rematerialization instead of spilling
+- Callee-saved register usage
 
 ---
 
@@ -3006,394 +3002,192 @@ fn allocateRegisters(allocator: std.mem.Allocator, func: *LIRFunction) !void {
 
 ## 17.1 Type System Architecture
 
-```zig
-pub const TypeChecker = struct {
-    // Global type environment
-    globals: TypeEnv,
+Gene implements gradual typing with Hindley-Milner style type inference.
 
-    // Type variable generator
-    next_tvar: u32,
+**Core Components:**
+- **Type Environment**: Maps variables to types in each scope
+- **Type Variables**: Placeholders for unknown types during inference
+- **Constraint System**: Equations between types to be solved
+- **Type Cache**: Memoization of inferred expression types
 
-    // Constraints for inference
-    constraints: std.ArrayList(Constraint),
+**Type Representation:**
 
-    // Type cache for expressions
-    expr_types: std.HashMap(ExprId, Type),
+**Primitive Types:**
+- Any (top type for gradual typing)
+- Void, Nil, Bool
+- Numeric: Int, Float
+- Text: Char, Str, Symbol
 
-    allocator: std.mem.Allocator,
+**Compound Types:**
+- Arrays with element type
+- Maps with key and value types
+- Sets with element type
+- Tuples with fixed element types
 
-    pub fn init(allocator: std.mem.Allocator) TypeChecker {
-        return .{
-            .globals = TypeEnv.init(allocator),
-            .next_tvar = 0,
-            .constraints = std.ArrayList(Constraint).init(allocator),
-            .expr_types = std.HashMap(ExprId, Type).init(allocator),
-            .allocator = allocator,
-        };
-    }
+**Function Types:**
+- Parameter types (possibly inferred)
+- Return type (possibly inferred)
+- Effect annotations (future)
 
-    pub fn deinit(self: *TypeChecker) void {
-        self.globals.deinit();
-        self.constraints.deinit();
-        self.expr_types.deinit();
-    }
-};
+**Advanced Types:**
+- Type variables for inference
+- Generic types with parameters
+- Union types for alternatives
+- Intersection types for constraints
+- Class and trait types
 
-pub const InferredType = union(enum) {
-    // Primitives
-    Any,
-    Void,
-    Nil,
-    Bool,
-    Int,
-    Float,
-    Char,
-    Str,
-    Symbol,
-
-    // Compounds
-    Array: *InferredType,
-    Map: struct { key: *InferredType, value: *InferredType },
-    Set: *InferredType,
-    Tuple: []InferredType,
-
-    // Functions
-    Fn: struct {
-        params: []InferredType,
-        ret: *InferredType,
-    },
-
-    // Objects
-    Class: ClassId,
-    Trait: TraitId,
-
-    // Type variables
-    Var: TypeVar,
-
-    // Generic types
-    Generic: struct {
-        base: *InferredType,
-        args: []InferredType,
-    },
-
-    // Union types
-    Union: []InferredType,
-
-    // Intersection types
-    Intersection: []InferredType,
-};
-
-pub const Constraint = union(enum) {
-    Equal: struct { t1: InferredType, t2: InferredType },
-    Subtype: struct { sub: InferredType, sup: InferredType },
-    HasField: struct { type: InferredType, field: []const u8, field_type: InferredType },
-    HasMethod: struct { type: InferredType, method: []const u8, method_type: InferredType },
-    Implements: struct { type: InferredType, trait_id: TraitId },
-};
-```
+**Constraint Types:**
+- Equality constraints (type unification)
+- Subtype constraints (inheritance)
+- Structural constraints (fields/methods)
+- Trait implementation constraints
 
 ## 17.2 Type Inference Algorithm
 
-```zig
-const TypeInferenceError = error{
-    UndefinedVariable,
-    TypeMismatch,
-    OccursCheck,
-    ArityMismatch,
-    OutOfMemory,
-};
+Gene uses Hindley-Milner type inference extended with gradual typing.
 
-const TypeChecker = struct {
-    // ... previous fields ...
+**Inference Process:**
 
-    fn inferExpr(self: *TypeChecker, expr: *const HIR) TypeInferenceError!InferredType {
-        return switch (expr.*) {
-            .Const => |val| self.typeOfValue(val),
+**1. Type Variable Generation:**
+- Fresh variables for unknown types
+- Unique identifiers prevent conflicts
+- Scope tracking for generalization
 
-            .Var => |id| self.lookupVar(id),
+**2. Constraint Generation:**
+- Walk AST/HIR collecting constraints
+- Function calls generate equality constraints
+- Operators impose type requirements
+- Control flow unifies branches
 
-            .Let => |let_expr| {
-                const init_type = try self.inferExpr(let_expr.init);
-                try self.bindVar(let_expr.var_id, init_type);
-                return self.inferExpr(let_expr.body);
-            },
+**3. Constraint Solving:**
+- Unification algorithm finds solutions
+- Occurs check prevents infinite types
+- Substitution builds type mappings
 
-            .Function => |func| {
-                // Create type variables for parameters
-                var param_types = try self.allocator.alloc(InferredType, func.params.len);
-                for (func.params, 0..) |param, i| {
-                    param_types[i] = param.param_type orelse try self.freshTypeVar();
-                }
+**4. Type Reconstruction:**
+- Apply substitutions to get final types
+- Generalize free variables
+- Insert runtime checks for gradual types
 
-                // Infer body type
-                const ret_type_ptr = try self.allocator.create(InferredType);
-                ret_type_ptr.* = try self.inferExpr(func.body);
+**Key Algorithms:**
 
-                return InferredType{ .Fn = .{
-                    .params = param_types,
-                    .ret = ret_type_ptr,
-                } };
-            },
+**Expression Type Inference:**
+- **Literals**: Direct type from value
+- **Variables**: Lookup in environment
+- **Functions**: Infer parameter and return types
+- **Applications**: Match function type with arguments
+- **Conditionals**: Unify branch types
 
-            .Call => |call| {
-                const func_type = try self.inferExpr(call.func);
-                var arg_types = try self.allocator.alloc(InferredType, call.args.len);
-                for (call.args, 0..) |arg, i| {
-                    arg_types[i] = try self.inferExpr(arg);
-                }
+**Unification Process:**
+1. Compare type structures
+2. Bind type variables consistently
+3. Check recursive constraints
+4. Build substitution mapping
 
-                // Generate constraints
-                const ret_type = try self.freshTypeVar();
-                const ret_type_ptr = try self.allocator.create(InferredType);
-                ret_type_ptr.* = ret_type;
+**Gradual Typing Integration:**
+- `Any` type unifies with everything
+- Runtime checks at boundaries
+- Blame tracking for errors
+- Optimization opportunities
 
-                try self.addConstraint(Constraint{ .Equal = .{
-                    .t1 = func_type,
-                    .t2 = InferredType{ .Fn = .{
-                        .params = arg_types,
-                        .ret = ret_type_ptr,
-                    } },
-                } });
+**Type Inference Features:**
+- Local type inference (no annotations needed)
+- Polymorphic functions
+- Row polymorphism for records
+- Principal types guarantee
 
-                return ret_type;
-            },
-
-            .If => |if_expr| {
-                const cond_type = try self.inferExpr(if_expr.cond);
-                try self.addConstraint(Constraint{ .Equal = .{
-                    .t1 = cond_type,
-                    .t2 = InferredType.Bool,
-                } });
-
-                const then_type = try self.inferExpr(if_expr.then_branch);
-                const else_type = try self.inferExpr(if_expr.else_branch);
-
-                // Unify branches
-                _ = try self.unify(then_type, else_type);
-                return then_type;
-            },
-
-            // ... other cases
-            else => return TypeInferenceError.TypeMismatch,
-        };
-    }
-
-    fn solveConstraints(self: *TypeChecker) TypeInferenceError!Substitution {
-        var subst = Substitution.init(self.allocator);
-
-        while (self.constraints.popOrNull()) |constraint| {
-            switch (constraint) {
-                .Equal => |eq| {
-                    const s = try self.unify(eq.t1, eq.t2);
-                    subst = try subst.compose(s);
-                },
-
-                .Subtype => |sub| {
-                    try self.checkSubtype(sub.sub, sub.sup);
-                },
-
-                // ... other constraints
-                else => {},
-            }
-        }
-
-        return subst;
-    }
-
-    fn unify(self: *TypeChecker, t1: InferredType, t2: InferredType) TypeInferenceError!Substitution {
-        return switch (t1) {
-            .Var => |v1| switch (t2) {
-                .Var => |v2| if (v1 == v2)
-                    Substitution.init(self.allocator)
-                else
-                    Substitution.singleton(self.allocator, v1, t2),
-                else => {
-                    if (try t2.containsVar(v1)) {
-                        return TypeInferenceError.OccursCheck;
-                    }
-                    return Substitution.singleton(self.allocator, v1, t2);
-                },
-            },
-            .Array => |arr_t1| switch (t2) {
-                .Array => |arr_t2| self.unify(arr_t1.*, arr_t2.*),
-                else => TypeInferenceError.TypeMismatch,
-            },
-            .Fn => |fn1| switch (t2) {
-                .Fn => |fn2| {
-                    if (fn1.params.len != fn2.params.len) {
-                        return TypeInferenceError.ArityMismatch;
-                    }
-
-                    var subst = Substitution.init(self.allocator);
-                    for (fn1.params, fn2.params) |p1, p2| {
-                        const s = try self.unify(p1, p2);
-                        subst = try subst.compose(s);
-                    }
-
-                    const s = try self.unify(fn1.ret.*, fn2.ret.*);
-                    return subst.compose(s);
-                },
-                else => TypeInferenceError.TypeMismatch,
-            },
-            else => if (std.meta.eql(t1, t2))
-                Substitution.init(self.allocator)
-            else
-                TypeInferenceError.TypeMismatch,
-        };
-    }
-};
-```
+**Error Recovery:**
+- Partial type information preserved
+- Error nodes in type tree
+- Continue inference after errors
+- Useful error messages with context
 
 ## 17.3 Generic Type Instantiation
 
-```zig
-pub const GenericContext = struct {
-    // Type parameters in scope
-    type_params: std.HashMap([]const u8, TypeParam),
+Gene supports parametric polymorphism with type parameters.
 
-    // Instantiation cache
-    cache: std.HashMap(InstantiationKey, InferredType),
+**Generic Type System:**
 
-    allocator: std.mem.Allocator,
+**Type Parameters:**
+- Named type variables in function/class definitions
+- Constraints on type parameters
+- Variance annotations (co/contra/invariant)
+- Higher-kinded types (future)
 
-    pub const InstantiationKey = struct {
-        type_id: TypeId,
-        args: []InferredType,
-    };
+**Instantiation Process:**
+1. **Type Application**: Apply concrete types to parameters
+2. **Constraint Checking**: Verify type arguments satisfy bounds
+3. **Monomorphization**: Generate specialized code per instantiation
+4. **Caching**: Reuse previously instantiated types
 
-    pub fn init(allocator: std.mem.Allocator) GenericContext {
-        return .{
-            .type_params = std.HashMap([]const u8, TypeParam).init(allocator),
-            .cache = std.HashMap(InstantiationKey, InferredType).init(allocator),
-            .allocator = allocator,
-        };
-    }
+**Generic Contexts:**
+- Type parameter scope management
+- Nested generic contexts
+- Type parameter capture in closures
+- Associated type projections
 
-    pub fn deinit(self: *GenericContext) void {
-        self.type_params.deinit();
-        self.cache.deinit();
-    }
-};
+**Instantiation Cache:**
+- Memoize instantiated types
+- Share common instantiations
+- Reduce compilation time
+- Enable separate compilation
 
-const TypeChecker = struct {
-    // ... previous fields ...
+**Trait Implementation:**
+- Check method signatures match
+- Verify all required methods present
+- Handle default implementations
+- Support extension methods
 
-    fn instantiateGeneric(self: *TypeChecker,
-                         base: InferredType,
-                         args: []InferredType) TypeInferenceError!InferredType {
-        return switch (base) {
-            .Generic => |generic| {
-                const params_len = generic.args.len;
-                if (params_len != args.len) {
-                    return TypeInferenceError.ArityMismatch;
-                }
-
-                // Build substitution
-                var subst = Substitution.init(self.allocator);
-                for (generic.args, args) |param, arg| {
-                    // In a real implementation, params would be type variables
-                    // subst = subst.extend(param, arg);
-                }
-
-                // Apply substitution
-                return try generic.base.applySubst(&subst);
-            },
-            else => TypeInferenceError.TypeMismatch,
-        };
-    }
-
-    fn checkTraitImpl(self: *TypeChecker,
-                     class: ClassId,
-                     trait_id: TraitId) TypeInferenceError!void {
-        const trait_def = try self.getTrait(trait_id);
-        const class_def = try self.getClass(class);
-
-        // Check all required methods
-        for (trait_def.methods) |method| {
-            const impl_method = class_def.findMethod(method.name) orelse {
-                return TypeInferenceError.TypeMismatch; // Missing method
-            };
-
-            // Check method signature compatibility
-            try self.checkMethodCompat(method, impl_method);
-        }
-    }
-};
-```
+**Type Parameter Inference:**
+- Deduce type arguments from usage
+- Bidirectional type flow
+- Constraint propagation
+- Ambiguity resolution
 
 ## 17.4 Gradual Typing
 
-```zig
-const TypeChecker = struct {
-    // ... previous fields ...
+Gene seamlessly integrates static and dynamic typing.
 
-    fn checkGradual(self: *TypeChecker, static_type: InferredType, dynamic_type: InferredType) TypeInferenceError!void {
-        switch (static_type) {
-            .Any => return, // Any is compatible with everything
-            else => switch (dynamic_type) {
-                .Any => return, // Any is compatible with everything
-                else => {},
-            },
-        }
+**Core Principles:**
+- **Any Type**: Universal dynamic type
+- **Consistent Subtyping**: Any relates to all types
+- **Runtime Checks**: Inserted at static/dynamic boundaries
+- **Blame Tracking**: Precise error attribution
 
-        // Same types are compatible
-        if (std.meta.eql(static_type, dynamic_type)) {
-            return;
-        }
+**Type Compatibility Rules:**
 
-        switch (static_type) {
-            .Float => switch (dynamic_type) {
-                .Int => return, // Numeric coercion
-                else => {},
-            },
-            .Array => |arr1| switch (dynamic_type) {
-                .Array => |arr2| return self.checkGradual(arr1.*, arr2.*), // Array covariance
-                else => {},
-            },
-            .Fn => |fn1| switch (dynamic_type) {
-                .Fn => |fn2| {
-                    // Contravariant in parameters
-                    if (fn1.params.len != fn2.params.len) {
-                        return TypeInferenceError.ArityMismatch;
-                    }
-                    for (fn1.params, fn2.params) |p1, p2| {
-                        try self.checkGradual(p2, p1); // Note: reversed order for contravariance
-                    }
-                    // Covariant in return
-                    return self.checkGradual(fn1.ret.*, fn2.ret.*);
-                },
-                else => {},
-            },
-            else => {},
-        }
+**Static to Dynamic:**
+- Implicit conversion to Any
+- No runtime checks needed
+- Preserves type information
 
-        return TypeInferenceError.TypeMismatch;
-    }
+**Dynamic to Static:**
+- Runtime type check required
+- Cast may fail at runtime
+- Blame assigned to cast location
 
-    fn insertRuntimeChecks(self: *TypeChecker, allocator: std.mem.Allocator, expr: HIR) !HIR {
-        return switch (expr) {
-            .Call => |call| {
-                if (try self.needsCheck(call.func)) {
-                    // Insert runtime type check
-                    const checked_func = try allocator.create(HIR);
-                    checked_func.* = HIR{ .RuntimeCheck = .{
-                        .expr = call.func,
-                        .expected_type = try self.getExpectedType(),
-                    } };
+**Function Types:**
+- Contravariant parameters
+- Covariant returns
+- Higher-order gradual types
 
-                    return HIR{ .Call = .{
-                        .func = checked_func,
-                        .args = call.args,
-                    } };
-                } else {
-                    return expr;
-                }
-            },
-            else => expr,
-        };
-    }
-};
-```
+**Optimization Opportunities:**
+- Eliminate redundant checks
+- Type flow analysis
+- JIT specialization on types
+- Profile-guided optimization
+
+**Runtime Check Insertion:**
+- Minimal check placement
+- Flow-sensitive analysis
+- Check coalescing
+- Fast path generation
+
+**Error Handling:**
+- Type errors as exceptions
+- Detailed error messages
+- Stack trace preservation
+- Recovery strategies
 
 ---
 
@@ -3415,267 +3209,176 @@ Missing features (planned for later phases):
 
 ## 18.1 VM Architecture
 
-```zig
-pub const VM = struct {
-    // Registers
-    registers: std.ArrayList(Value),
+The Gene VM is a register-based virtual machine optimized for dynamic language execution.
 
-    // Call stack
-    frames: std.ArrayList(CallFrame),
+**Core Components:**
 
-    // Operand stack (for complex operations)
-    stack: std.ArrayList(Value),
+**Register File:**
+- Unlimited virtual registers per function
+- Register windows for function calls
+- Efficient parameter passing via register mapping
+- No register spilling in interpreted mode
 
-    // Heap
-    heap: Heap,
+**Call Stack Management:**
+- Function activation frames
+- Instruction pointer tracking
+- Base pointer for register windows
+- Return address handling
+- Local variable storage
 
-    // Global variables
-    globals: std.HashMap(GlobalId, Value),
+**Memory Subsystems:**
+- **Heap**: Dynamic object allocation
+- **Stack**: Auxiliary operand stack for complex expressions
+- **Globals**: Module-level variable storage
+- **Modules**: Namespace isolation and management
 
-    // Loaded modules
-    modules: std.HashMap(ModuleId, Module),
+**Optimization Infrastructure:**
+- **Inline Caches**: Fast property/method lookup
+- **Type Feedback**: Runtime type profiling
+- **Hot Path Detection**: JIT compilation triggers
+- **Profile Data**: Optimization decisions
 
-    // Inline caches
-    inline_caches: std.ArrayList(InlineCache),
+**Runtime Type System:**
+- Type registry for dynamic dispatch
+- Method lookup tables
+- Trait implementation tracking
+- Generic instantiation cache
 
-    // Runtime type info
-    types: TypeRegistry,
+**Call Frame Structure:**
+- Function reference
+- Instruction pointer (current position)
+- Base pointer (register window start)
+- Return address (caller's IP)
+- Register count (frame size)
 
-    allocator: std.mem.Allocator,
-
-    pub fn init(allocator: std.mem.Allocator) VM {
-        return .{
-            .registers = std.ArrayList(Value).init(allocator),
-            .frames = std.ArrayList(CallFrame).init(allocator),
-            .stack = std.ArrayList(Value).init(allocator),
-            .heap = Heap.init(allocator),
-            .globals = std.HashMap(GlobalId, Value).init(allocator),
-            .modules = std.HashMap(ModuleId, Module).init(allocator),
-            .inline_caches = std.ArrayList(InlineCache).init(allocator),
-            .types = TypeRegistry.init(allocator),
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *VM) void {
-        self.registers.deinit();
-        self.frames.deinit();
-        self.stack.deinit();
-        self.heap.deinit();
-        self.globals.deinit();
-        self.modules.deinit();
-        self.inline_caches.deinit();
-        self.types.deinit();
-    }
-};
-
-pub const CallFrame = struct {
-    // Function being executed
-    function: FunctionId,
-
-    // Instruction pointer
-    ip: usize,
-
-    // Base pointer for register window
-    bp: usize,
-
-    // Return address
-    return_ip: usize,
-
-    // Number of registers
-    register_count: usize,
-};
-
-pub const InlineCache = struct {
-    // Cached type
-    cached_type: ?TypeId,
-
-    // Cached method/field offset
-    cached_offset: ?usize,
-
-    // Hit count for JIT decisions
-    hit_count: u32,
-};
-```
+**Inline Cache Design:**
+- Polymorphic inline caches (PIC)
+- Type-specialized fast paths
+- Hit counting for optimization
+- Automatic invalidation on type changes
 
 ## 18.2 Instruction Execution
 
-```zig
-const RuntimeError = error{
-    NotCallable,
-    TypeError,
-    OutOfMemory,
-    StackOverflow,
-    UndefinedFunction,
-};
+The VM executes bytecode instructions in a tight loop with efficient dispatch.
 
-const VM = struct {
-    // ... previous fields ...
+**Execution Model:**
+- Fetch-decode-execute cycle
+- Direct threaded dispatch (future optimization)
+- Register-based operands
+- Minimal memory allocation
 
-    fn execute(self: *VM) RuntimeError!Value {
-        while (true) {
-            const frame = try self.currentFrame();
-            const instruction = try self.fetchInstruction();
+**Core Execution Loop:**
+1. Fetch current instruction from bytecode
+2. Decode instruction type and operands
+3. Execute operation on registers
+4. Update instruction pointer
+5. Handle control flow changes
 
-            switch (instruction) {
-                .LoadConst => |load| {
-                    try self.setRegister(load.dest, load.val);
-                },
+**Instruction Categories:**
 
-                .Add => |add| {
-                    const l = try self.getRegister(add.left);
-                    const r = try self.getRegister(add.right);
-                    const result = try self.addValues(l, r);
-                    try self.setRegister(add.dest, result);
-                },
+**Data Movement:**
+- **LoadConst**: Load constant into register
+- **Move**: Copy between registers
+- **LoadVar/StoreVar**: Variable access
 
-                .Call => |call| {
-                    const func_val = try self.getRegister(call.func);
-                    var arg_vals = try self.allocator.alloc(Value, call.args.len);
-                    defer self.allocator.free(arg_vals);
+**Arithmetic Operations:**
+- Read operands from source registers
+- Perform type-appropriate operation
+- Store result in destination register
+- Handle type coercion and overflow
 
-                    for (call.args, 0..) |reg, i| {
-                        arg_vals[i] = try self.getRegister(reg);
-                    }
+**Control Flow:**
+- **Jump**: Unconditional branch
+- **JumpIf/JumpIfNot**: Conditional branches
+- **Call**: Function invocation
+- **Return**: Function exit
 
-                    const result = try self.callFunction(func_val, arg_vals);
-                    try self.setRegister(call.dest, result);
-                },
+**Function Calls:**
+1. **Setup Phase:**
+   - Validate callable value
+   - Allocate new register window
+   - Create activation frame
+   
+2. **Parameter Passing:**
+   - Copy arguments to parameter registers
+   - Handle default parameters
+   - Support variadic functions
+   
+3. **Execution Transfer:**
+   - Push call frame
+   - Set instruction pointer to function start
+   - Continue execution in new context
 
-                .JumpIf => |jump| {
-                    const cond_val = try self.getRegister(jump.cond);
-                    if (self.isTruthy(cond_val)) {
-                        var current_frame = &self.frames.items[self.frames.items.len - 1];
-                        current_frame.ip = jump.target;
-                        continue;
-                    }
-                },
+4. **Return Handling:**
+   - Pop call frame
+   - Restore caller's context
+   - Place return value in destination register
 
-                .GetField => |get_field| {
-                    const obj_val = try self.getRegister(get_field.obj);
-                    const result = try self.getFieldCached(obj_val, get_field.field);
-                    try self.setRegister(get_field.dest, result);
-                },
+**Error Handling:**
+- Type mismatches
+- Stack overflow detection
+- Undefined variable access
+- Invalid operations
 
-                .Return => |ret| {
-                    const ret_val = if (ret.value) |reg|
-                        try self.getRegister(reg)
-                    else
-                        Value.Nil;
-
-                    if (self.frames.items.len == 1) {
-                        return ret_val;
-                    }
-
-                    try self.popFrame();
-                    // Set return value in caller's register
-                },
-
-                // ... other instructions
-                else => {},
-            }
-
-            var current_frame = &self.frames.items[self.frames.items.len - 1];
-            current_frame.ip += 1;
-        }
-    }
-
-    fn callFunction(self: *VM, func: Value, args: []Value) RuntimeError!Value {
-        return switch (func) {
-            .Function => |id| {
-                const func_def = try self.getFunction(id);
-
-                // Create new frame
-                const frame = CallFrame{
-                    .function = id,
-                    .ip = 0,
-                    .bp = self.registers.items.len,
-                    .return_ip = self.currentFrame().ip,
-                    .register_count = func_def.register_count,
-                };
-
-                // Allocate registers for new frame
-                try self.registers.resize(
-                    self.registers.items.len + func_def.register_count
-                );
-
-                // Initialize new registers to Nil
-                for (self.registers.items[frame.bp..]) |*reg| {
-                    reg.* = Value.Nil;
-                }
-
-                // Copy arguments to registers
-                for (args, 0..) |arg, i| {
-                    self.registers.items[frame.bp + i] = arg;
-                }
-
-                try self.frames.append(frame);
-                return Value.Nil; // Execution continues
-            },
-
-            .NativeFunction => |native_fn| {
-                // Call native function directly
-                return try native_fn.call(self, args);
-            },
-
-            else => RuntimeError.NotCallable,
-        };
-    }
-};
-```
+**Optimization Opportunities:**
+- Instruction fusion
+- Superinstructions for common patterns
+- Inline caching for property access
+- Call site optimization
 
 ## 18.3 Inline Caching
 
-```zig
-const JIT_THRESHOLD: u32 = 100;
+Inline caching accelerates property access and method dispatch in dynamic languages.
 
-const VM = struct {
-    // ... previous fields ...
+**Cache Architecture:**
+- Per-callsite caches
+- Type-specialized fast paths
+- Polymorphic inline caches (PIC)
+- Megamorphic handling
 
-    fn getFieldCached(self: *VM, obj: Value, field: FieldId) RuntimeError!Value {
-        const cache_id = try self.currentCacheId();
-        var cache = &self.inline_caches.items[cache_id];
+**Cache Entry Structure:**
+- Cached type ID
+- Property/method offset
+- Hit counter
+- Guard conditions
 
-        const obj_type = obj.getTypeId();
+**Cache Operations:**
 
-        // Check cache hit
-        if (cache.cached_type) |cached_type| {
-            if (cached_type == obj_type) {
-                if (cache.cached_offset) |offset| {
-                    cache.hit_count += 1;
-                    return self.getFieldAtOffset(obj, offset);
-                }
-            }
-        }
+**Monomorphic Cache (Single Type):**
+1. Check if object type matches cached type
+2. If hit: use cached offset directly
+3. If miss: look up property, update cache
+4. Track hit rate for optimization
 
-        // Cache miss - look up field
-        const offset = try self.lookupFieldOffset(obj_type, field);
+**Polymorphic Cache (Multiple Types):**
+- Chain of type checks
+- Up to 4-8 entries typically
+- Fall back to generic lookup
+- Reorder by frequency
 
-        // Update cache
-        cache.cached_type = obj_type;
-        cache.cached_offset = offset;
-        cache.hit_count = 1;
+**Cache Invalidation:**
+- Type shape changes
+- Method redefinition
+- Class hierarchy modifications
+- Module reloading
 
-        // Check if hot enough for JIT
-        if (cache.hit_count > JIT_THRESHOLD) {
-            const current_frame = try self.currentFrame();
-            try self.markForJit(current_frame.function);
-        }
+**JIT Integration:**
+- Hot cache sites trigger compilation
+- Type feedback guides optimization
+- Speculative optimization with guards
+- Deoptimization on assumption violation
 
-        return self.getFieldAtOffset(obj, offset);
-    }
+**Performance Benefits:**
+- Property access: 10-100x speedup
+- Method dispatch: 5-50x speedup
+- Enables type specialization
+- Reduces hash table lookups
 
-    fn getFieldAtOffset(self: *VM, obj: Value, offset: usize) Value {
-        return switch (obj) {
-            .Object => |ptr| {
-                const obj_data = self.heap.get(ptr);
-                return obj_data.fields[offset];
-            },
-            else => Value.Nil,
-        };
-    }
-};
-```
+**Implementation Strategies:**
+- Direct offset caching
+- Hidden class transitions
+- Method table caching
+- Inline cache trees for complex patterns
 
 ## 18.4 Value Representation
 
