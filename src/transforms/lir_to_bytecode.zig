@@ -15,7 +15,7 @@ pub const ConversionResult = struct {
             self.created_functions.allocator.destroy(func);
         }
         self.created_functions.deinit();
-        
+
         // Note: main_func should be cleaned up by the caller
     }
 };
@@ -32,10 +32,10 @@ pub fn convert(allocator: std.mem.Allocator, lir_program: *lir.LIR) !ConversionR
 
     // Find the main function
     var main_func: ?bytecode.Function = null;
-    
+
     for (lir_program.functions.items) |*lir_func| {
         const bytecode_func = try convertFunction(allocator, lir_func);
-        
+
         if (std.mem.eql(u8, lir_func.name, "main")) {
             main_func = bytecode_func;
         } else {
@@ -72,13 +72,13 @@ fn convertInstruction(allocator: std.mem.Allocator, lir_instr: lir.LIR.Instructi
             const operand = try valueToOperand(allocator, load_const.val);
             try bytecode_func.instructions.append(.{
                 .op = .LoadConst,
-                .operand = operand,
+                .immediate = operand,
             });
         },
         .LoadNil => {
             try bytecode_func.instructions.append(.{
                 .op = .LoadConst,
-                .operand = bytecode.Value{ .Nil = {} },
+                .immediate = bytecode.Value{ .Nil = {} },
             });
         },
         .LoadVariable => |load_var| {
@@ -86,7 +86,7 @@ fn convertInstruction(allocator: std.mem.Allocator, lir_instr: lir.LIR.Instructi
             const name_value = try valueToOperand(allocator, load_var.name);
             try bytecode_func.instructions.append(.{
                 .op = .LoadVar,
-                .operand = name_value,
+                .immediate = name_value,
             });
         },
         .StoreVariable => |store_var| {
@@ -94,73 +94,73 @@ fn convertInstruction(allocator: std.mem.Allocator, lir_instr: lir.LIR.Instructi
             const name_value = try valueToOperand(allocator, store_var.name);
             try bytecode_func.instructions.append(.{
                 .op = .StoreVar,
-                .operand = name_value,
+                .immediate = name_value,
             });
         },
         .Add => {
             try bytecode_func.instructions.append(.{
                 .op = .Add,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Sub => {
             try bytecode_func.instructions.append(.{
                 .op = .Sub,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Mul => {
             try bytecode_func.instructions.append(.{
                 .op = .Mul,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Div => {
             try bytecode_func.instructions.append(.{
                 .op = .Div,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Eq => {
             try bytecode_func.instructions.append(.{
                 .op = .Eq,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Lt => {
             try bytecode_func.instructions.append(.{
                 .op = .Lt,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Gt => {
             try bytecode_func.instructions.append(.{
                 .op = .Gt,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Call => |call| {
             // For now, convert to simple call instruction
             // In a full implementation, we'd handle the register-based calling convention
             const arg_count_operand = bytecode.Value{ .Int = @intCast(call.args.items.len) };
-            
+
             try bytecode_func.instructions.append(.{
                 .op = .Call,
-                .operand = arg_count_operand,
+                .immediate = arg_count_operand,
             });
         },
         .Return => {
             try bytecode_func.instructions.append(.{
                 .op = .Return,
-                .operand = null,
+                .immediate = null,
             });
         },
         .Jump => |jump| {
             const label_operand = bytecode.Value{ .Int = @intCast(jump.target) };
-            
+
             try bytecode_func.instructions.append(.{
                 .op = .Jump,
-                .operand = label_operand,
+                .immediate = label_operand,
             });
         },
         .JumpIf => |jump_if| {
@@ -169,10 +169,10 @@ fn convertInstruction(allocator: std.mem.Allocator, lir_instr: lir.LIR.Instructi
         },
         .JumpIfNot => |jump_if_not| {
             const label_operand = bytecode.Value{ .Int = @intCast(jump_if_not.target) };
-            
+
             try bytecode_func.instructions.append(.{
                 .op = .JumpIfFalse,
-                .operand = label_operand,
+                .immediate = label_operand,
             });
         },
         .Move => {

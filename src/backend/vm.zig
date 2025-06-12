@@ -149,6 +149,10 @@ pub const VM = struct {
         self.current_func = func;
         self.pc = 0;
 
+        // Allocate registers for the main function before execution
+        const base = try self.allocateRegisters(func.register_count);
+        self.current_register_base = base;
+
         // Print all instructions before execution
         debug.log("Instructions:", .{});
         for (func.instructions.items, 0..) |instr, i| {
@@ -170,9 +174,9 @@ pub const VM = struct {
             const executing_func = self.current_func orelse func;
 
             // Check if we're done with the current function
-            debug.log("VM loop: pc={}, instruction_count={}", .{self.pc, executing_func.instructions.items.len});
+            debug.log("VM loop: pc={}, instruction_count={}", .{ self.pc, executing_func.instructions.items.len });
             if (self.pc >= executing_func.instructions.items.len) {
-                debug.log("VM: PC {} >= instruction count {}, checking call frames", .{self.pc, executing_func.instructions.items.len});
+                debug.log("VM: PC {} >= instruction count {}, checking call frames", .{ self.pc, executing_func.instructions.items.len });
                 // If we have no call frames, we're done with the program
                 if (self.call_frames.items.len == 0) {
                     break;
@@ -224,12 +228,15 @@ pub const VM = struct {
     fn allocateRegisters(self: *VM, count: u16) VMError!u16 {
         const base = self.next_free_register;
 
+        debug.log("Allocating {} registers at base {} (current len {})", .{ count, base, self.registers.items.len });
+
         // Extend register file if needed
         while (self.next_free_register + count > self.registers.items.len) {
             try self.registers.append(.{ .Nil = {} });
         }
 
         self.next_free_register += count;
+        debug.log("New register count: {}", .{self.registers.items.len});
         return base;
     }
 
@@ -343,9 +350,10 @@ pub const VM = struct {
                 debug.log("LoadParam: R{} = param[{}]", .{ dst_reg, param_index });
 
                 // Parameters are stored in the first registers of the current frame
-                const param_reg = self.current_register_base + param_index;
+                const param_reg = param_index;
+                debug.log("Fetching parameter register {} (base {} + index {})", .{ param_reg, self.current_register_base, param_index });
                 const param_value = try self.getRegister(param_reg);
-                debug.log("Loaded parameter from R{}: {any}", .{ param_reg, param_value });
+                debug.log("Loaded parameter from R{}: {any}", .{ self.current_register_base + param_reg, param_value });
 
                 try self.setRegister(dst_reg, param_value);
             },
@@ -715,16 +723,16 @@ pub const VM = struct {
                 // Handle built-in functions first
                 if (func_val == .BuiltinOperator) {
                     const builtin_op = func_val.BuiltinOperator;
-                    
+
                     // Handle print function
                     if (builtin_op == .Print) {
                         // Print can take any number of arguments
                         for (0..arg_count) |i| {
                             // For single argument calls, the argument might be in the previous register
                             // (result of a previous operation)
-                            const arg_reg = if (arg_count == 1) 
-                                dst_reg - 1  // Previous register (result of previous call)
-                            else 
+                            const arg_reg = if (arg_count == 1)
+                                dst_reg - 1 // Previous register (result of previous call)
+                            else
                                 func_reg + 1 + @as(u16, @intCast(i)); // Arguments follow function register
                             var arg = try self.getRegister(arg_reg);
                             defer arg.deinit(self.allocator);
@@ -758,20 +766,20 @@ pub const VM = struct {
                         try self.setRegister(dst_reg, .{ .Nil = {} });
                         return;
                     }
-                    
+
                     // Handle add operator
                     if (builtin_op == .Add) {
                         if (arg_count != 2) {
                             debug.log("Add operator requires exactly 2 arguments, got {}", .{arg_count});
                             return error.ArgumentCountMismatch;
                         }
-                        
+
                         // Get the two arguments
                         var left = try self.getRegister(func_reg + 1);
                         defer left.deinit(self.allocator);
                         var right = try self.getRegister(func_reg + 2);
                         defer right.deinit(self.allocator);
-                        
+
                         // Perform addition based on types
                         const result = switch (left) {
                             .Int => |left_val| switch (right) {
@@ -805,24 +813,24 @@ pub const VM = struct {
                                 return error.TypeMismatch;
                             },
                         };
-                        
+
                         try self.setRegister(dst_reg, result);
                         return;
                     }
-                    
+
                     // Handle subtract operator
                     if (builtin_op == .Sub) {
                         if (arg_count != 2) {
                             debug.log("Sub operator requires exactly 2 arguments, got {}", .{arg_count});
                             return error.ArgumentCountMismatch;
                         }
-                        
+
                         // Get the two arguments
                         var left = try self.getRegister(func_reg + 1);
                         defer left.deinit(self.allocator);
                         var right = try self.getRegister(func_reg + 2);
                         defer right.deinit(self.allocator);
-                        
+
                         // Perform subtraction based on types
                         const result = switch (left) {
                             .Int => |left_val| switch (right) {
@@ -846,24 +854,24 @@ pub const VM = struct {
                                 return error.TypeMismatch;
                             },
                         };
-                        
+
                         try self.setRegister(dst_reg, result);
                         return;
                     }
-                    
+
                     // Handle less than operator
                     if (builtin_op == .LessThan) {
                         if (arg_count != 2) {
                             debug.log("LessThan operator requires exactly 2 arguments, got {}", .{arg_count});
                             return error.ArgumentCountMismatch;
                         }
-                        
+
                         // Get the two arguments
                         var left = try self.getRegister(func_reg + 1);
                         defer left.deinit(self.allocator);
                         var right = try self.getRegister(func_reg + 2);
                         defer right.deinit(self.allocator);
-                        
+
                         // Perform comparison based on types
                         const result = switch (left) {
                             .Int => |left_val| switch (right) {
@@ -887,7 +895,7 @@ pub const VM = struct {
                                 return error.TypeMismatch;
                             },
                         };
-                        
+
                         try self.setRegister(dst_reg, .{ .Bool = result });
                         return;
                     }
@@ -896,7 +904,7 @@ pub const VM = struct {
                     debug.log("Unsupported built-in operator: {any}", .{builtin_op});
                     return error.UnsupportedFunction;
                 }
-                
+
                 if (func_val == .Variable) {
                     const func_name = func_val.Variable.name;
 
@@ -923,21 +931,21 @@ pub const VM = struct {
                                 .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
                                 .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}", .{op}),
                             }
-                            
+
                             // Add space between arguments except for the last one
                             if (i < arg_count - 1) {
                                 try self.stdout.print(" ", .{});
                             }
                         }
-                        
+
                         // Add newline after all arguments
                         try self.stdout.print("\n", .{});
-                        
+
                         // Print function returns nil
                         try self.setRegister(dst_reg, .{ .Nil = {} });
                         return;
                     }
-                    
+
                     // Handle other built-in functions here...
                     debug.log("Unsupported built-in function: {s}", .{func_name});
                     return error.UnsupportedFunction;
@@ -947,35 +955,43 @@ pub const VM = struct {
                 if (func_val == .Function) {
                     const user_func = func_val.Function;
                     debug.log("Calling user-defined function: {s}", .{user_func.name});
-                    
+
                     // Set up new call frame for the function
                     const new_register_base = self.next_free_register;
                     const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
                     try self.call_frames.append(frame);
-                    
+
                     // Allocate registers for the function (parameters + locals)
                     const needed_regs = @as(u16, @intCast(user_func.param_count + user_func.register_count));
                     const allocated_base = try self.allocateRegisters(needed_regs);
-                    
+
                     // Copy arguments to parameter registers
                     for (0..arg_count) |i| {
                         // Arguments should be in registers following the function register
                         const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
                         const arg = try self.getRegister(arg_reg);
                         debug.log("Loading argument {} from R{}: {any}", .{ i, arg_reg, arg });
-                        try self.setRegister(allocated_base + @as(u16, @intCast(i)), arg);
-                        debug.log("Stored argument {} in R{} (base + {})", .{ i, allocated_base + @as(u16, @intCast(i)), i });
+
+                        const dest_reg = allocated_base + @as(u16, @intCast(i));
+                        // Directly store argument into the absolute register of the new frame
+                        while (dest_reg >= self.registers.items.len) {
+                            try self.registers.append(.{ .Nil = {} });
+                        }
+                        self.registers.items[dest_reg].deinit(self.allocator);
+                        self.registers.items[dest_reg] = arg;
+
+                        debug.log("Stored argument {} in R{} (base + {})", .{ i, dest_reg, i });
                     }
-                    
+
                     // Switch to the new function
                     self.current_func = user_func;
-                    self.pc = 0;  // Start at beginning of function
+                    self.pc = 0; // Start at beginning of function
                     self.current_register_base = allocated_base;
-                    self.function_called = true;  // Don't increment PC
-                    
+                    self.function_called = true; // Don't increment PC
+
                     return;
                 }
-                
+
                 debug.log("User-defined function calls not yet implemented for this function type", .{});
                 return error.NotImplemented;
             },
@@ -989,36 +1005,58 @@ pub const VM = struct {
                 if (instruction.src1) |return_reg| {
                     return_value = try self.getRegister(return_reg);
                     debug.log("Return value from R{}: {any}", .{ return_reg, return_value.? });
+                    
+                    // If the specified register contains Nil, try to find a non-Nil register
+                    // This handles cases where control flow skipped some instructions
+                    if (return_value.? == .Nil) {
+                        debug.log("Return register R{} contains Nil, searching for non-Nil value", .{return_reg});
+                        // Search backwards from the specified register to find a non-Nil value
+                        var search_reg = return_reg;
+                        while (search_reg > 0) {
+                            search_reg -= 1;
+                            var candidate_value = try self.getRegister(search_reg);
+                            if (candidate_value != .Nil) {
+                                debug.log("Found non-Nil value in R{}: {any}", .{ search_reg, candidate_value });
+                                candidate_value.deinit(self.allocator);
+                                return_value = try self.getRegister(search_reg); // Get a fresh copy
+                                break;
+                            }
+                            candidate_value.deinit(self.allocator);
+                        }
+                    }
                 } else {
                     debug.log("Return with no value", .{});
                     return_value = .{ .Nil = {} };
                 }
-                
+
                 // If we have call frames, restore the previous one
                 debug.log("Return: call_frames.len = {}", .{self.call_frames.items.len});
                 if (self.call_frames.items.len > 0) {
                     const frame = self.call_frames.items[self.call_frames.items.len - 1];
                     _ = self.call_frames.pop();
-                    
+
                     // Restore the previous function context first
                     self.current_func = frame.caller_func;
                     self.pc = frame.return_addr;
                     self.current_register_base = frame.prev_register_base;
-                    
+
                     // Store return value in the destination register of the calling context
                     if (return_value) |ret_val| {
                         debug.log("Storing return value in R{}: {any}", .{ frame.return_reg, ret_val });
                         try self.setRegister(frame.return_reg, ret_val);
                     }
-                    
+
                     debug.log("Restored call frame: pc={}, base={}", .{ self.pc, self.current_register_base });
+                    
+                    // Set flag to prevent PC increment after return
+                    self.function_called = true;
                 } else {
                     // No call frames - this is the main function returning
                     debug.log("Main function returning", .{});
                     if (return_value) |*ret_val| {
                         ret_val.deinit(self.allocator);
                     }
-                    return;  // Exit the VM
+                    return; // Exit the VM
                 }
             },
             .Jump => {
@@ -1027,9 +1065,9 @@ pub const VM = struct {
                     .Int => @as(usize, @intCast(imm.Int)),
                     else => return error.TypeMismatch,
                 } else return error.UnsupportedInstruction;
-                
+
                 debug.log("Jump instruction: jump to {}", .{target});
-                
+
                 // Set PC to target address (minus 1 because it will be incremented)
                 self.pc = target - 1;
             },
@@ -1040,12 +1078,12 @@ pub const VM = struct {
                     .Int => @as(usize, @intCast(imm.Int)),
                     else => return error.TypeMismatch,
                 } else return error.UnsupportedInstruction;
-                
+
                 debug.log("JumpIfFalse instruction: if !R{} then jump to {}", .{ condition_reg, target });
-                
+
                 var condition_value = try self.getRegister(condition_reg);
                 defer condition_value.deinit(self.allocator);
-                
+
                 // Check if condition is false
                 const should_jump = switch (condition_value) {
                     .Bool => |b| !b,
@@ -1053,7 +1091,7 @@ pub const VM = struct {
                     .Int => |i| i == 0, // 0 is considered false
                     else => false, // other values are considered true
                 };
-                
+
                 if (should_jump) {
                     // Set PC to target address (minus 1 because it will be incremented)
                     self.pc = target - 1;
@@ -1062,23 +1100,23 @@ pub const VM = struct {
             .Array => {
                 // Register-based array creation: Array Rs1, Rs2, ... -> Rd
                 debug.log("Array instruction: create array", .{});
-                
+
                 // For now, just create an empty array slice
                 // TODO: Implement proper array creation with elements from registers
                 const empty_array = try self.allocator.alloc(types.Value, 0);
                 const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
-                
+
                 try self.setRegister(dst_reg, .{ .Array = empty_array });
             },
             .Map => {
                 // Register-based map creation: Map Rs1, Rs2, ... -> Rd
                 debug.log("Map instruction: create map", .{});
-                
+
                 // For now, just create an empty map
                 // TODO: Implement proper map creation with key-value pairs from registers
                 const empty_map = std.StringHashMap(types.Value).init(self.allocator);
                 const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
-                
+
                 try self.setRegister(dst_reg, .{ .Map = empty_map });
             },
         }

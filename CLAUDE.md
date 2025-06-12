@@ -73,3 +73,5 @@ Gene is a programming language implementation featuring a 4-stage compilation pi
 - VM manages its own stack and execution state
 
 When modifying the compiler, always run tests and verify examples still work. The debug mode (`--debug` flag) is essential for understanding compilation pipeline behavior.
+
+When creating temporary files, use `tmp/` directory to avoid polluting the main project directory.
