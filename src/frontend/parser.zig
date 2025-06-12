@@ -19,6 +19,10 @@ pub const ParserError = error{
     EmptyExpression,
     InvalidExpression,
     OutOfMemory,
+    ExpectedClassName,
+    ExpectedPropertyName,
+    ExpectedMethodName,
+    ExpectedMethodBody,
 };
 
 // --- Tokenizer (Mostly unchanged, minor fixes) ---
@@ -362,36 +366,8 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .If => return parseIf(alloc, toks, depth + 1),
                 .Var => return parseVar(alloc, toks, depth + 1),
                 .Do => return parseDoBlock(alloc, toks, depth + 1),
-                .Class => {
-                    // TODO: Implement proper class parsing
-                    // For now, skip until matching RParen and return nil literal
-                    var paren_count: i32 = 1; // We've seen the opening LParen
-                    var pos: usize = 2; // Start after LParen Class
-                    while (pos < toks.len and paren_count > 0) {
-                        switch (toks[pos].kind) {
-                            .LParen => paren_count += 1,
-                            .RParen => paren_count -= 1,
-                            else => {},
-                        }
-                        pos += 1;
-                    }
-                    return .{ .node = .{ .Expression = .{ .Literal = .{ .value = .Nil } } }, .consumed = pos };
-                },
-                .New => {
-                    // TODO: Implement proper new object instantiation parsing
-                    // For now, skip until matching RParen and return nil literal
-                    var paren_count: i32 = 1; // We've seen the opening LParen
-                    var pos: usize = 2; // Start after LParen New
-                    while (pos < toks.len and paren_count > 0) {
-                        switch (toks[pos].kind) {
-                            .LParen => paren_count += 1,
-                            .RParen => paren_count -= 1,
-                            else => {},
-                        }
-                        pos += 1;
-                    }
-                    return .{ .node = .{ .Expression = .{ .Literal = .{ .value = .Nil } } }, .consumed = pos };
-                },
+                .Class => return parseClass(alloc, toks, depth + 1),
+                .New => return parseNew(alloc, toks, depth + 1),
                 .Ident => {
                     // Per instructions, assume (Ident ...) is a call for now.
                     // parseList would handle (Ident op Expr) if it were to receive it.
@@ -953,5 +929,304 @@ fn parseCall(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
     return ParseResult{
         .node = .{ .Expression = .{ .FuncCall = .{ .func = func_expr_ptr, .args = args_list } } },
         .consumed = current_pos, // Total consumed tokens
+    };
+}
+
+fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (class ClassName (field1 field2 ...) (method1 ...) (method2 ...))
+    // Minimum: (class Name) -> LParen, Class, Ident, RParen (4 tokens)
+    if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .Class) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Class
+
+    // Get class name
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedClassName;
+    const class_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    current_pos += 1;
+
+    var fields = std.ArrayList(ast.ClassDef.ClassField).init(alloc);
+    errdefer fields.deinit();
+    
+    var methods = std.ArrayList(ast.ClassDef.ClassMethod).init(alloc);
+    errdefer methods.deinit();
+
+    // Parse class body - looking for field and method definitions
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        if (toks[current_pos].kind == .LParen) {
+            // Check what kind of definition this is
+            if (current_pos + 1 < toks.len) {
+                if (toks[current_pos + 1].kind == .Ident and 
+                    toks[current_pos + 1].kind.Ident.len > 0 and 
+                    toks[current_pos + 1].kind.Ident[0] == '^') {
+                    // Field definition like (^x ^y) or (.prop x Int)
+                    const field_result = try parseClassFields(alloc, toks[current_pos..], depth + 1);
+                    for (field_result.fields) |field| {
+                        try fields.append(field);
+                    }
+                    current_pos += field_result.consumed;
+                } else if (toks[current_pos + 1].kind == .Ident) {
+                    const ident = toks[current_pos + 1].kind.Ident;
+                    if (std.mem.eql(u8, ident, ".fn") or std.mem.eql(u8, ident, "fn")) {
+                        // Method definition
+                        const method_result = try parseClassMethod(alloc, toks[current_pos..], depth + 1);
+                        try methods.append(method_result.method);
+                        current_pos += method_result.consumed;
+                    } else if (std.mem.eql(u8, ident, ".prop")) {
+                        // Property definition with type
+                        const field_result = try parseClassProperty(alloc, toks[current_pos..], depth + 1);
+                        try fields.append(field_result.field);
+                        current_pos += field_result.consumed;
+                    } else {
+                        // Unknown construct, skip it
+                        var paren_count: i32 = 1;
+                        var skip_pos: usize = current_pos + 1;
+                        while (skip_pos < toks.len and paren_count > 0) {
+                            switch (toks[skip_pos].kind) {
+                                .LParen => paren_count += 1,
+                                .RParen => paren_count -= 1,
+                                else => {},
+                            }
+                            skip_pos += 1;
+                        }
+                        current_pos = skip_pos;
+                    }
+                } else {
+                    // Skip unknown construct
+                    var paren_count: i32 = 1;
+                    var skip_pos: usize = current_pos + 1;
+                    while (skip_pos < toks.len and paren_count > 0) {
+                        switch (toks[skip_pos].kind) {
+                            .LParen => paren_count += 1,
+                            .RParen => paren_count -= 1,
+                            else => {},
+                        }
+                        skip_pos += 1;
+                    }
+                    current_pos = skip_pos;
+                }
+            }
+        } else {
+            // Skip non-paren tokens
+            current_pos += 1;
+        }
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+
+    const fields_slice = try fields.toOwnedSlice();
+    const methods_slice = try methods.toOwnedSlice();
+
+    return ParseResult{
+        .node = .{ 
+            .Expression = .{ 
+                .ClassDef = .{
+                    .name = class_name,
+                    .fields = fields_slice,
+                    .methods = methods_slice,
+                    .parent_class = null,
+                    .traits = &[_][]const u8{},
+                }
+            }
+        },
+        .consumed = current_pos,
+    };
+}
+
+const FieldParseResult = struct {
+    fields: []ast.ClassDef.ClassField,
+    consumed: usize,
+};
+
+fn parseClassFields(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !FieldParseResult {
+    // Parse (^field1 ^field2 ...) format
+    if (toks.len < 3 or toks[0].kind != .LParen) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    
+    var fields = std.ArrayList(ast.ClassDef.ClassField).init(alloc);
+    errdefer fields.deinit();
+    
+    var current_pos: usize = 1; // Skip LParen
+    
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        if (toks[current_pos].kind == .Ident and 
+            toks[current_pos].kind.Ident.len > 0 and 
+            toks[current_pos].kind.Ident[0] == '^') {
+            // Skip the ^ prefix
+            const field_name = try alloc.dupe(u8, toks[current_pos].kind.Ident[1..]);
+            try fields.append(.{
+                .name = field_name,
+                .type_annotation = null,
+                .default_value = null,
+                .is_public = true,
+            });
+            current_pos += 1;
+        } else {
+            // Skip unexpected tokens
+            current_pos += 1;
+        }
+    }
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+    
+    return FieldParseResult{
+        .fields = try fields.toOwnedSlice(),
+        .consumed = current_pos,
+    };
+}
+
+const PropertyParseResult = struct {
+    field: ast.ClassDef.ClassField,
+    consumed: usize,
+};
+
+fn parseClassProperty(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !PropertyParseResult {
+    // Parse (.prop name Type) format
+    if (toks.len < 5 or toks[0].kind != .LParen) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    
+    var current_pos: usize = 2; // Skip LParen and .prop
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedPropertyName;
+    const prop_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    current_pos += 1;
+    
+    var type_annotation: ?[]const u8 = null;
+    if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+        type_annotation = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+        current_pos += 1;
+    }
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+    
+    return PropertyParseResult{
+        .field = .{
+            .name = prop_name,
+            .type_annotation = type_annotation,
+            .default_value = null,
+            .is_public = true,
+        },
+        .consumed = current_pos,
+    };
+}
+
+const MethodParseResult = struct {
+    method: ast.ClassDef.ClassMethod,
+    consumed: usize,
+};
+
+fn parseClassMethod(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !MethodParseResult {
+    // Parse (.fn name [params] body) format
+    if (toks.len < 5 or toks[0].kind != .LParen) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    
+    var current_pos: usize = 2; // Skip LParen and .fn
+    
+    // Get method name
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedMethodName;
+    const method_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    current_pos += 1;
+    
+    // Parse parameters
+    var params = std.ArrayList(ast.ClassDef.Parameter).init(alloc);
+    errdefer params.deinit();
+    
+    if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
+        current_pos += 1; // Skip '['
+        while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+            if (toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
+            const param_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+            current_pos += 1;
+            
+            var param_type: ?[]const u8 = null;
+            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+                // Check if it looks like a type
+                const potential_type = toks[current_pos].kind.Ident;
+                if (std.mem.eql(u8, potential_type, "Int") or 
+                    std.mem.eql(u8, potential_type, "Float") or 
+                    std.mem.eql(u8, potential_type, "String") or 
+                    std.mem.eql(u8, potential_type, "Bool")) {
+                    param_type = try alloc.dupe(u8, potential_type);
+                    current_pos += 1;
+                }
+            }
+            
+            try params.append(.{
+                .name = param_name,
+                .type_annotation = param_type,
+                .default_value = null,
+            });
+        }
+        if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
+        current_pos += 1; // Skip ']'
+    }
+    
+    // Parse body
+    if (current_pos >= toks.len) return error.ExpectedMethodBody;
+    const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    current_pos += body_result.consumed;
+    
+    const body_ptr = try alloc.create(ast.Expression);
+    body_ptr.* = try body_result.node.Expression.clone(alloc);
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+    
+    return MethodParseResult{
+        .method = .{
+            .name = method_name,
+            .params = try params.toOwnedSlice(),
+            .return_type = null,
+            .body = body_ptr,
+            .is_public = true,
+            .is_virtual = false,
+            .is_abstract = false,
+            .is_static = false,
+        },
+        .consumed = current_pos,
+    };
+}
+
+fn parseNew(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (new ClassName arg1 arg2 ...)
+    // Minimum: (new ClassName) -> LParen, New, Ident, RParen (4 tokens)
+    if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .New) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and New
+
+    // Get class name
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedClassName;
+    const class_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    current_pos += 1;
+
+    // Parse constructor arguments
+    var args = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer args.deinit();
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const arg_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        const arg_ptr = try alloc.create(ast.Expression);
+        arg_ptr.* = try arg_result.node.Expression.clone(alloc);
+        try args.append(arg_ptr);
+        current_pos += arg_result.consumed;
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+
+    return ParseResult{
+        .node = .{
+            .Expression = .{
+                .InstanceCreation = .{
+                    .class_name = class_name,
+                    .args = args,
+                },
+            },
+        },
+        .consumed = current_pos,
     };
 }

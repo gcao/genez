@@ -179,6 +179,17 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             
             try writer.writeAll(")");
         },
+        .InstanceCreation => |inst| {
+            try writer.print("(new \"{s}\"", .{inst.class_name});
+            
+            // Add constructor arguments
+            for (inst.args.items) |arg| {
+                try writer.writeAll(" ");
+                try serializeExpression(writer, arg.*, indent + 1);
+            }
+            
+            try writer.writeAll(")");
+        },
         .MatchExpr => |match_expr| {
             try writer.writeAll("(match ");
             try serializeExpression(writer, match_expr.scrutinee.*, indent + 1);

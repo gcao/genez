@@ -783,6 +783,38 @@ pub const MatchExpr = struct {
     }
 };
 
+pub const InstanceCreation = struct {
+    class_name: []const u8,
+    args: std.ArrayList(*Expression),
+    
+    pub fn deinit(self: *InstanceCreation, allocator: std.mem.Allocator) void {
+        allocator.free(self.class_name);
+        for (self.args.items) |arg| {
+            arg.deinit(allocator);
+            allocator.destroy(arg);
+        }
+        self.args.deinit();
+    }
+    
+    pub fn clone(self: InstanceCreation, allocator: std.mem.Allocator) !InstanceCreation {
+        const new_class_name = try allocator.dupe(u8, self.class_name);
+        
+        var new_args = std.ArrayList(*Expression).init(allocator);
+        errdefer new_args.deinit();
+        
+        for (self.args.items) |arg| {
+            const new_arg = try allocator.create(Expression);
+            new_arg.* = try arg.clone(allocator);
+            try new_args.append(new_arg);
+        }
+        
+        return InstanceCreation{
+            .class_name = new_class_name,
+            .args = new_args,
+        };
+    }
+};
+
 pub const ModuleDef = struct {
     name: []const u8, // Module name
     body: *Expression, // Module body (usually a DoBlock)
@@ -961,6 +993,7 @@ pub const Expression = union(enum) {
     MapLiteral: MapLiteral, // New
     DoBlock: DoBlock, // New
     ClassDef: ClassDef, // New - Class definitions for OOP
+    InstanceCreation: InstanceCreation, // New - Object instantiation
     MatchExpr: MatchExpr, // New - Pattern matching expressions
     ModuleDef: ModuleDef, // New - Module definitions
     ImportStmt: ImportStmt, // New - Import statements
@@ -980,6 +1013,7 @@ pub const Expression = union(enum) {
             .MapLiteral => |*map_lit| map_lit.deinit(allocator), // New
             .DoBlock => |*do_block| do_block.deinit(allocator), // New
             .ClassDef => |*class_def| class_def.deinit(allocator), // New
+            .InstanceCreation => |*inst| inst.deinit(allocator), // New
             .MatchExpr => |*match_expr| match_expr.deinit(allocator), // New
             .ModuleDef => |*module_def| module_def.deinit(allocator), // New
             .ImportStmt => |*import_stmt| import_stmt.deinit(allocator), // New
@@ -1001,6 +1035,7 @@ pub const Expression = union(enum) {
             .MapLiteral => |map_lit| Expression{ .MapLiteral = try map_lit.clone(allocator) }, // New
             .DoBlock => |do_block| Expression{ .DoBlock = try do_block.clone(allocator) }, // New
             .ClassDef => |class_def| Expression{ .ClassDef = try class_def.clone(allocator) }, // New
+            .InstanceCreation => |inst| Expression{ .InstanceCreation = try inst.clone(allocator) }, // New
             .MatchExpr => |match_expr| Expression{ .MatchExpr = try match_expr.clone(allocator) }, // New
             .ModuleDef => |module_def| Expression{ .ModuleDef = try module_def.clone(allocator) }, // New
             .ImportStmt => |import_stmt| Expression{ .ImportStmt = try import_stmt.clone(allocator) }, // New

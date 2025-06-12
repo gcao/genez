@@ -585,6 +585,35 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 .literal = .{ .nil = {} }
             };
         },
+        .InstanceCreation => |inst| {
+            // Convert InstanceCreation to HIR
+            var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
+            errdefer {
+                for (args.items) |arg| {
+                    arg.deinit(allocator);
+                    allocator.destroy(arg);
+                }
+                args.deinit();
+            }
+            
+            for (inst.args.items) |arg| {
+                var hir_arg = try lowerExpression(allocator, arg.*);
+                errdefer hir_arg.deinit(allocator);
+                
+                const hir_arg_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(hir_arg_ptr);
+                hir_arg_ptr.* = hir_arg;
+                
+                try args.append(hir_arg_ptr);
+            }
+            
+            return hir.HIR.Expression{
+                .instance_creation = .{
+                    .class_name = try allocator.dupe(u8, inst.class_name),
+                    .args = args,
+                }
+            };
+        },
     };
 }
 

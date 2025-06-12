@@ -14,7 +14,8 @@
       "Bash(find:*)",
       "Bash(./zig-out/bin/gene:*)",
       "Bash(sed:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(awk:*)"
     ],
     "deny": []
   },
