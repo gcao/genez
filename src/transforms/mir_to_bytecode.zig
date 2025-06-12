@@ -95,7 +95,7 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
     };
 }
 
-fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function) !bytecode.Function {
+fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function) anyerror!bytecode.Function {
     var bytecode_func = bytecode.Function.init(allocator);
     errdefer bytecode_func.deinit();
 
@@ -286,6 +286,11 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
         .Return => std.debug.print("Return", .{}),
         .LoadFunction => |f| std.debug.print("LoadFunction({s})", .{f.name}),
         .StoreVariable => |name| std.debug.print("StoreVariable({s})", .{name}),
+        .DefineClass => |class_def| std.debug.print("DefineClass({s})", .{class_def.name}),
+        .CreateInstance => |class_name| std.debug.print("CreateInstance({s})", .{class_name}),
+        .GetField => |field_name| std.debug.print("GetField({s})", .{field_name}),
+        .SetField => |field_name| std.debug.print("SetField({s})", .{field_name}),
+        .CallMethod => |method_call| std.debug.print("CallMethod({s}, {} args)", .{method_call.method_name, method_call.arg_count}),
     }
     std.debug.print(" | Bytecode pos: {} | Stack depth: {} | Next reg: {}\n", .{ func.instructions.items.len, stack.len(), next_reg.* });
     
@@ -668,7 +673,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
 
             if (func_index == null) {
                 std.debug.print("ERROR: Function '{s}' not found in created functions\n", .{mir_func_ptr.name});
-                return error.FunctionNotFound;
+                @panic("Function not found"); // Use panic instead of error for now
             }
 
             // Load the function by index
@@ -702,6 +707,145 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             });
             // No need to clear MIR instr if we're duplicating
             // instr.* = .LoadNil; // REMOVED
+        },
+        .DefineClass => |class_def| {
+            // Create a class definition value
+            const class_ptr = try func.allocator.create(types.ClassDefinition);
+            class_ptr.* = types.ClassDefinition.init(func.allocator, try func.allocator.dupe(u8, class_def.name));
+            
+            // Copy parent name if present
+            if (class_def.parent_name) |_| {
+                class_ptr.parent = null; // TODO: Look up parent class
+            }
+            
+            // Copy fields
+            for (class_def.fields) |field_name| {
+                const field_def = types.ClassDefinition.FieldDefinition{
+                    .name = try func.allocator.dupe(u8, field_name),
+                    .type_name = null, // TODO: Add type information
+                    .default_value = null,
+                    .is_public = true,
+                };
+                try class_ptr.fields.put(field_name, field_def);
+            }
+            
+            // Copy methods - they've already been converted to bytecode functions
+            var method_iter = class_def.methods.iterator();
+            while (method_iter.next()) |entry| {
+                const method_name = entry.key_ptr.*;
+                const mir_method = entry.value_ptr.*;
+                
+                // Convert MIR function to bytecode function
+                const method_bytecode = try convertMirFunction(func.allocator, mir_method);
+                const method_func_ptr = try func.allocator.create(bytecode.Function);
+                method_func_ptr.* = method_bytecode;
+                
+                // Store the method in the class
+                try class_ptr.methods.put(try func.allocator.dupe(u8, method_name), method_func_ptr);
+            }
+            
+            // Load the class as a constant
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.LoadConst,
+                .dst = dst_reg,
+                .immediate = types.Value{ .Class = class_ptr },
+            });
+            std.debug.print("  -> Generated: LoadConst r{} = Class({s})\n", .{ dst_reg, class_def.name });
+        },
+        .CreateInstance => |_| {
+            // Pop the class from stack
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: CreateInstance needs a class but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            const class_reg = stack.pop();
+            
+            // Use the New opcode
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.New,
+                .dst = dst_reg,
+                .src1 = class_reg,
+                .immediate = types.Value{ .Int = 0 }, // Number of constructor args (for now)
+            });
+            std.debug.print("  -> Generated: New r{} = new r{}()\n", .{ dst_reg, class_reg });
+        },
+        .GetField => |field_name| {
+            // Pop the instance from stack
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: GetField needs an instance but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            const instance_reg = stack.pop();
+            
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.GetField,
+                .dst = dst_reg,
+                .src1 = instance_reg,
+                .var_name = try func.allocator.dupe(u8, field_name),
+            });
+            std.debug.print("  -> Generated: GetField r{} = r{}.{s}\n", .{ dst_reg, instance_reg, field_name });
+        },
+        .SetField => |field_name| {
+            // Pop value and instance from stack
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: SetField needs instance and value but stack has {} items\n", .{stack.len()});
+                return error.StackUnderflow;
+            }
+            const value_reg = stack.pop();
+            const instance_reg = stack.pop();
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.SetField,
+                .src1 = instance_reg,
+                .src2 = value_reg,
+                .var_name = try func.allocator.dupe(u8, field_name),
+            });
+            std.debug.print("  -> Generated: SetField r{}.{s} = r{}\n", .{ instance_reg, field_name, value_reg });
+        },
+        .CallMethod => |method_call| {
+            // Pop arguments and instance from stack
+            const total_args = method_call.arg_count + 1; // +1 for instance
+            if (stack.len() < total_args) {
+                std.debug.print("ERROR: CallMethod needs {} items but stack has {}\n", .{ total_args, stack.len() });
+                return error.StackUnderflow;
+            }
+            
+            // Pop arguments
+            var arg_regs = try func.allocator.alloc(u16, method_call.arg_count);
+            defer func.allocator.free(arg_regs);
+            
+            var i: usize = method_call.arg_count;
+            while (i > 0) : (i -= 1) {
+                arg_regs[i - 1] = stack.pop();
+            }
+            
+            // Pop instance
+            const instance_reg = stack.pop();
+            
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.CallMethod,
+                .dst = dst_reg,
+                .src1 = instance_reg,
+                .var_name = try func.allocator.dupe(u8, method_call.method_name),
+                .immediate = types.Value{ .Int = @intCast(method_call.arg_count) },
+            });
+            std.debug.print("  -> Generated: CallMethod r{} = r{}.{s}({} args)\n", .{ dst_reg, instance_reg, method_call.method_name, method_call.arg_count });
         },
     }
 }

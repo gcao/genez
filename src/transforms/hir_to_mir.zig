@@ -460,47 +460,115 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             }
         },
         .class_def => |class_def| {
-            // For now, class definitions will be stored as a special value
-            // TODO: Implement full class runtime support
-            const class_name_copy = try block.allocator.dupe(u8, class_def.name);
+            // Create a MIR class definition
+            var mir_class_def = mir.MIR.ClassDefinition{
+                .name = try block.allocator.dupe(u8, class_def.name),
+                .parent_name = if (class_def.parent_class) |parent|
+                    try block.allocator.dupe(u8, parent)
+                else
+                    null,
+                .fields = try block.allocator.alloc([]const u8, class_def.fields.len),
+                .methods = std.StringHashMap(*mir.MIR.Function).init(block.allocator),
+            };
             
-            // Store a placeholder class object for now
-            try block.instructions.append(.{ .LoadString = class_name_copy });
+            // Copy field names
+            for (class_def.fields, 0..) |field, i| {
+                mir_class_def.fields[i] = try block.allocator.dupe(u8, field.name);
+            }
+            
+            // Convert methods to MIR functions
+            for (class_def.methods) |method| {
+                // Create a MIR function for the method
+                var method_func = mir.MIR.Function.init(block.allocator);
+                method_func.name = try block.allocator.dupe(u8, method.name);
+                method_func.param_count = method.params.len + 1; // +1 for 'self' parameter
+                
+                // Add 'self' as first parameter
+                try method_func.param_names.append(try block.allocator.dupe(u8, "self"));
+                
+                // Add method parameters
+                for (method.params) |param| {
+                    try method_func.param_names.append(try block.allocator.dupe(u8, param.name));
+                }
+                
+                // Create a block for the method body
+                var method_block = mir.MIR.Block.init(block.allocator);
+                
+                // Create context with method parameters
+                const method_context = ConversionContext{ .param_names = method_func.param_names.items };
+                
+                // Convert method body
+                try convertExpressionWithContext(&method_block, method.body.*, method_context);
+                
+                // Add return if needed
+                var needs_return = true;
+                if (method_block.instructions.items.len > 0) {
+                    const last_instr = method_block.instructions.items[method_block.instructions.items.len - 1];
+                    if (isReturnInstruction(last_instr)) {
+                        needs_return = false;
+                    }
+                }
+                if (needs_return) {
+                    try method_block.instructions.append(.Return);
+                }
+                
+                // Add block to method function
+                try method_func.blocks.append(method_block);
+                
+                // Store method function
+                const method_func_ptr = try block.allocator.create(mir.MIR.Function);
+                method_func_ptr.* = method_func;
+                try mir_class_def.methods.put(method.name, method_func_ptr);
+            }
+            
+            // Emit the DefineClass instruction
+            try block.instructions.append(.{ .DefineClass = mir_class_def });
+            
+            // Store the class in a variable with its name
             try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, class_def.name) });
         },
         .instance_creation => |inst_creation| {
-            // TODO: Implement instance creation
-            // For now, load the class name and push nil
-            const class_name_copy = try block.allocator.dupe(u8, inst_creation.class_name);
-            try block.instructions.append(.{ .LoadString = class_name_copy });
+            // Load the class (it should be stored as a variable)
+            try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, inst_creation.class_name) });
             
             // Evaluate constructor arguments
             for (inst_creation.args.items) |arg| {
                 try convertExpressionWithContext(block, arg.*, context);
             }
             
-            // For now, just push nil as the instance placeholder
-            try block.instructions.append(.LoadNil);
+            // Create the instance
+            try block.instructions.append(.{ .CreateInstance = try block.allocator.dupe(u8, inst_creation.class_name) });
+            
+            // If there's an init method, call it
+            // The init method will be called with the instance and constructor args
+            if (inst_creation.args.items.len > 0) {
+                try block.instructions.append(.{ .CallMethod = .{
+                    .method_name = try block.allocator.dupe(u8, "init"),
+                    .arg_count = inst_creation.args.items.len,
+                }});
+            }
         },
         .method_call => |method_call| {
-            // TODO: Implement method calls
-            // For now, treat as regular function calls
+            // Evaluate the instance
             try convertExpressionWithContext(block, method_call.instance.*, context);
             
+            // Evaluate method arguments
             for (method_call.args.items) |arg| {
                 try convertExpressionWithContext(block, arg.*, context);
             }
             
-            // Push method name as a function to call
-            const method_name_copy = try block.allocator.dupe(u8, method_call.method_name);
-            try block.instructions.append(.{ .LoadVariable = method_name_copy });
-            try block.instructions.append(.{ .Call = method_call.args.items.len + 1 }); // +1 for instance
+            // Call the method
+            try block.instructions.append(.{ .CallMethod = .{
+                .method_name = try block.allocator.dupe(u8, method_call.method_name),
+                .arg_count = method_call.args.items.len,
+            }});
         },
         .field_access => |field_access| {
-            // TODO: Implement field access
-            // For now, just evaluate the instance and push nil
+            // Evaluate the instance
             try convertExpressionWithContext(block, field_access.instance.*, context);
-            try block.instructions.append(.LoadNil);
+            
+            // Get the field value
+            try block.instructions.append(.{ .GetField = try block.allocator.dupe(u8, field_access.field_name) });
         },
         .match_expr => |match_expr| {
             // Pattern matching compilation to MIR

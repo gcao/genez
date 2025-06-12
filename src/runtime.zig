@@ -31,6 +31,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
+            .type_check = false,  // Disable type checking for now
         };
 
         // Use pipeline to compile source
@@ -68,6 +69,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
+            .type_check = false,  // Disable type checking for now
         };
 
         // Use pipeline to compile file
@@ -107,6 +109,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
+            .type_check = false,  // Disable type checking for now
         };
 
         // Use pipeline to compile file

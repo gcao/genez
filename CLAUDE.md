@@ -86,12 +86,18 @@ When creating temporary files, use `tmp/` directory to avoid polluting the main 
 - Register-based VM with proper call frames
 - All example files now execute correctly (including fibonacci.gene)
 
+**Recent Updates:**
+- Basic type checking implemented in HIR (can be disabled via CompilerOptions.type_check)
+- Runtime support for classes added (Class and Object types in Value enum)
+- VM instructions for class operations (DefineClass, New, GetField, SetField, CallMethod)
+- Type checking currently disabled by default in runtime.zig to allow testing
+
 **Next Development Priorities (Phase 2):**
-1. **Type Checking** - Activate typechecker.zig for basic type validation
-2. **Classes** - Runtime support for OOP (AST already supports it)
-3. **Pattern Matching** - Runtime implementation (AST already parses it)
-4. **Module System** - Basic imports/exports and namespaces
-5. **Error Handling** - try/catch/finally support
+1. **Parser Support for Classes** - Complete class syntax parsing
+2. **Pattern Matching** - Runtime implementation (AST already parses it)
+3. **Module System** - Basic imports/exports and namespaces
+4. **Error Handling** - try/catch/finally support
+5. **Type Checker Improvements** - Handle built-in functions and more types
 
 See `tmp/development_roadmap.md` for detailed next steps.
 

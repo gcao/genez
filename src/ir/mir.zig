@@ -90,6 +90,30 @@ pub const MIR = struct {
                         func_ptr.deinit();
                         self.allocator.destroy(func_ptr);
                     },
+                    .DefineClass => |*class_def| {
+                        self.allocator.free(class_def.name);
+                        if (class_def.parent_name) |parent| {
+                            self.allocator.free(parent);
+                        }
+                        for (class_def.fields) |field| {
+                            self.allocator.free(field);
+                        }
+                        self.allocator.free(class_def.fields);
+                        
+                        var method_iter = class_def.methods.iterator();
+                        while (method_iter.next()) |entry| {
+                            self.allocator.free(entry.key_ptr.*);
+                            entry.value_ptr.*.deinit();
+                            self.allocator.destroy(entry.value_ptr.*);
+                        }
+                        class_def.methods.deinit();
+                    },
+                    .CreateInstance => |class_name| self.allocator.free(class_name),
+                    .GetField => |field_name| self.allocator.free(field_name),
+                    .SetField => |field_name| self.allocator.free(field_name),
+                    .CallMethod => |*method_call| {
+                        self.allocator.free(method_call.method_name);
+                    },
                     else => {},
                 }
             }
@@ -122,5 +146,23 @@ pub const MIR = struct {
         Call: usize,
         Print,
         Return,
+        // Class-related instructions
+        DefineClass: ClassDefinition,
+        CreateInstance: []const u8, // Class name
+        GetField: []const u8, // Field name
+        SetField: []const u8, // Field name
+        CallMethod: MethodCall,
+    };
+    
+    pub const ClassDefinition = struct {
+        name: []const u8,
+        parent_name: ?[]const u8,
+        fields: [][]const u8,
+        methods: std.StringHashMap(*Function),
+    };
+    
+    pub const MethodCall = struct {
+        method_name: []const u8,
+        arg_count: usize,
     };
 };

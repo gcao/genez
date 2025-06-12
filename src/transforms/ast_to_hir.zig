@@ -111,6 +111,8 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .Function => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Function
             .Variable => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Variable
             .BuiltinOperator => |_| .{ .literal = .{ .nil = {} } }, // Fallback for BuiltinOperator
+            .Class => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Class
+            .Object => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Object
             .Array => |_| unreachable, // Should be handled by ast.Expression.ArrayLiteral
             .Map => |_| unreachable, // Should be handled by ast.Expression.MapLiteral
         },

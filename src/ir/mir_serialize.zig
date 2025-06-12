@@ -120,6 +120,21 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .Return => {
             try writer.writeAll("return");
         },
+        .DefineClass => |class_def| {
+            try writer.print("define-class \"{s}\"", .{class_def.name});
+        },
+        .CreateInstance => |class_name| {
+            try writer.print("create-instance \"{s}\"", .{class_name});
+        },
+        .GetField => |field_name| {
+            try writer.print("get-field \"{s}\"", .{field_name});
+        },
+        .SetField => |field_name| {
+            try writer.print("set-field \"{s}\"", .{field_name});
+        },
+        .CallMethod => |method_call| {
+            try writer.print("call-method \"{s}\" {d}", .{ method_call.method_name, method_call.arg_count });
+        },
     }
 }
 

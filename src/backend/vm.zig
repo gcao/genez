@@ -17,6 +17,9 @@ pub const VMError = error{
     UnsupportedFunction,
     NotImplemented,
     DivisionByZero,
+    InvalidInstruction,
+    FieldNotFound,
+    MethodNotFound,
 } || std.mem.Allocator.Error || std.fs.File.WriteError;
 
 pub const CallFrame = struct {
@@ -701,6 +704,8 @@ pub const VM = struct {
                     .Function => |func| try self.stdout.print("Function: {any}\n", .{func}),
                     .Variable => |var_val| try self.stdout.print("Variable: {s}\n", .{var_val.name}),
                     .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}\n", .{op}),
+                    .Class => |class| try self.stdout.print("Class: {s}\n", .{class.name}),
+                    .Object => |obj| try self.stdout.print("Object of {s}\n", .{obj.class.name}),
                 }
             },
             .Call => {
@@ -751,6 +756,8 @@ pub const VM = struct {
                                 .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
                                 .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
                                 .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}", .{op}),
+                                .Class => |class| try self.stdout.print("Class: {s}", .{class.name}),
+                                .Object => |obj| try self.stdout.print("Object of {s}", .{obj.class.name}),
                             }
 
                             // Add space between arguments except for the last one
@@ -900,6 +907,99 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Handle multiplication operator
+                    if (builtin_op == .Mul) {
+                        if (arg_count != 2) {
+                            debug.log("Multiply operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        // Perform multiplication based on types
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| types.Value{ .Int = left_val * right_val },
+                                .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) * right_val },
+                                else => {
+                                    debug.log("TypeMismatch in Multiply: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| types.Value{ .Float = left_val * @as(f64, @floatFromInt(right_val)) },
+                                .Float => |right_val| types.Value{ .Float = left_val * right_val },
+                                else => {
+                                    debug.log("TypeMismatch in Multiply: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in Multiply: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+
+                        try self.setRegister(dst_reg, result);
+                        return;
+                    }
+
+                    // Handle division operator
+                    if (builtin_op == .Div) {
+                        if (arg_count != 2) {
+                            debug.log("Divide operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        // Check for division by zero
+                        const is_zero = switch (right) {
+                            .Int => |val| val == 0,
+                            .Float => |val| val == 0.0,
+                            else => false,
+                        };
+                        if (is_zero) {
+                            debug.log("Division by zero", .{});
+                            return error.DivisionByZero;
+                        }
+
+                        // Perform division based on types
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| types.Value{ .Int = @divTrunc(left_val, right_val) },
+                                .Float => |right_val| types.Value{ .Float = @as(f64, @floatFromInt(left_val)) / right_val },
+                                else => {
+                                    debug.log("TypeMismatch in Divide: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| types.Value{ .Float = left_val / @as(f64, @floatFromInt(right_val)) },
+                                .Float => |right_val| types.Value{ .Float = left_val / right_val },
+                                else => {
+                                    debug.log("TypeMismatch in Divide: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in Divide: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+
+                        try self.setRegister(dst_reg, result);
+                        return;
+                    }
+
                     // Handle other built-in operators here...
                     debug.log("Unsupported built-in operator: {any}", .{builtin_op});
                     return error.UnsupportedFunction;
@@ -930,6 +1030,8 @@ pub const VM = struct {
                                 .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
                                 .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
                                 .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}", .{op}),
+                                .Class => |class| try self.stdout.print("Class: {s}", .{class.name}),
+                                .Object => |obj| try self.stdout.print("Object of {s}", .{obj.class.name}),
                             }
 
                             // Add space between arguments except for the last one
@@ -1118,6 +1220,161 @@ pub const VM = struct {
                 const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
 
                 try self.setRegister(dst_reg, .{ .Map = empty_map });
+            },
+            .DefineClass => {
+                // DefineClass is handled at compile time, classes are loaded as constants
+                debug.log("DefineClass instruction should not appear at runtime", .{});
+                return error.InvalidInstruction;
+            },
+            .New => {
+                // Create object instance: New Rd, class_reg, [arg1, arg2, ...]
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const class_reg = instruction.src1 orelse return error.InvalidInstruction;
+                
+                // Get the class
+                var class_val = try self.getRegister(class_reg);
+                defer class_val.deinit(self.allocator);
+                
+                if (class_val != .Class) {
+                    debug.log("New instruction requires a Class, got {}", .{class_val});
+                    return error.TypeMismatch;
+                }
+                
+                const class = class_val.Class;
+                
+                // Create the object instance
+                var obj = try self.allocator.create(types.ObjectInstance);
+                obj.* = types.ObjectInstance.init(self.allocator, class);
+                
+                // Initialize fields with default values
+                var field_iter = class.fields.iterator();
+                while (field_iter.next()) |entry| {
+                    const field_def = entry.value_ptr.*;
+                    if (field_def.default_value) |default| {
+                        try obj.fields.put(entry.key_ptr.*, try default.clone(self.allocator));
+                    } else {
+                        try obj.fields.put(entry.key_ptr.*, .{ .Nil = {} });
+                    }
+                }
+                
+                try self.setRegister(dst_reg, .{ .Object = obj });
+                debug.log("Created instance of class {s} in R{}", .{ class.name, dst_reg });
+            },
+            .GetField => {
+                // Get object field: GetField Rd, obj_reg, field_name
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const field_name = instruction.var_name orelse return error.InvalidInstruction;
+                
+                var obj_val = try self.getRegister(obj_reg);
+                defer obj_val.deinit(self.allocator);
+                
+                if (obj_val != .Object) {
+                    debug.log("GetField requires an Object, got {}", .{obj_val});
+                    return error.TypeMismatch;
+                }
+                
+                const obj = obj_val.Object;
+                
+                if (obj.fields.get(field_name)) |field_value| {
+                    try self.setRegister(dst_reg, try field_value.clone(self.allocator));
+                    debug.log("Got field {s} from object in R{}", .{ field_name, dst_reg });
+                } else {
+                    debug.log("Field {s} not found in object", .{field_name});
+                    return error.FieldNotFound;
+                }
+            },
+            .SetField => {
+                // Set object field: SetField obj_reg, field_name, value_reg
+                const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const value_reg = instruction.src2 orelse return error.InvalidInstruction;
+                const field_name = instruction.var_name orelse return error.InvalidInstruction;
+                
+                var obj_val = try self.getRegister(obj_reg);
+                defer obj_val.deinit(self.allocator);
+                
+                if (obj_val != .Object) {
+                    debug.log("SetField requires an Object, got {}", .{obj_val});
+                    return error.TypeMismatch;
+                }
+                
+                const obj = obj_val.Object;
+                
+                var value = try self.getRegister(value_reg);
+                defer value.deinit(self.allocator);
+                
+                // Remove old value if exists
+                if (obj.fields.get(field_name)) |old_value| {
+                    var old_value_copy = old_value;
+                    old_value_copy.deinit(self.allocator);
+                }
+                
+                try obj.fields.put(try self.allocator.dupe(u8, field_name), try value.clone(self.allocator));
+                debug.log("Set field {s} on object", .{field_name});
+            },
+            .CallMethod => {
+                // Call method: CallMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const method_name = instruction.var_name orelse return error.InvalidInstruction;
+                const arg_count = if (instruction.immediate) |imm| 
+                    if (imm == .Int) @as(usize, @intCast(imm.Int)) else 0
+                else 0;
+                
+                var obj_val = try self.getRegister(obj_reg);
+                defer obj_val.deinit(self.allocator);
+                
+                if (obj_val != .Object) {
+                    debug.log("CallMethod requires an Object, got {}", .{obj_val});
+                    return error.TypeMismatch;
+                }
+                
+                const obj = obj_val.Object;
+                
+                // Look up the method in the class
+                if (obj.class.methods.get(method_name)) |method| {
+                    debug.log("Calling method {s} on object of class {s}", .{ method_name, obj.class.name });
+                    
+                    // Set up new call frame for the method
+                    const new_register_base = self.next_free_register;
+                    const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
+                    try self.call_frames.append(frame);
+                    
+                    // Allocate registers for the method (self + parameters + locals)
+                    const needed_regs = @as(u16, @intCast(method.param_count + method.register_count));
+                    const allocated_base = try self.allocateRegisters(needed_regs);
+                    
+                    // Set 'self' as first parameter
+                    const self_value = try obj_val.clone(self.allocator);
+                    // Directly store 'self' into the absolute register of the new frame
+                    while (allocated_base >= self.registers.items.len) {
+                        try self.registers.append(.{ .Nil = {} });
+                    }
+                    self.registers.items[allocated_base].deinit(self.allocator);
+                    self.registers.items[allocated_base] = self_value;
+                    
+                    // Copy arguments to parameter registers (after 'self')
+                    for (0..arg_count) |i| {
+                        const arg_reg = obj_reg + 1 + @as(u16, @intCast(i));
+                        const arg = try self.getRegister(arg_reg);
+                        const dest_reg = allocated_base + 1 + @as(u16, @intCast(i));
+                        // Directly store argument into the absolute register of the new frame
+                        while (dest_reg >= self.registers.items.len) {
+                            try self.registers.append(.{ .Nil = {} });
+                        }
+                        self.registers.items[dest_reg].deinit(self.allocator);
+                        self.registers.items[dest_reg] = arg;
+                    }
+                    
+                    // Switch to the method
+                    self.current_func = method;
+                    self.pc = 0;
+                    self.current_register_base = allocated_base;
+                    self.function_called = true;
+                } else {
+                    debug.log("Method {s} not found on class {s}", .{ method_name, obj.class.name });
+                    return error.MethodNotFound;
+                }
             },
         }
     }

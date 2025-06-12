@@ -9,10 +9,12 @@ const hir_to_mir = @import("transforms/hir_to_mir.zig");
 const mir_to_lir = @import("transforms/mir_to_lir.zig");
 const lir_to_bytecode = @import("transforms/lir_to_bytecode.zig");
 const mir_to_bytecode = @import("transforms/mir_to_bytecode.zig");
+const hir_typechecker = @import("core/hir_typechecker.zig");
 
 pub const CompilerOptions = struct {
     debug_mode: bool = false,
     optimize: bool = false,
+    type_check: bool = true,
 };
 
 pub const CompilationContext = struct {
@@ -41,6 +43,27 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
 
     // Display HIR
     try debug.writeHIR(hir_prog, "HIR");
+
+    // Type checking (if enabled)
+    if (ctx.options.type_check) {
+        debug.writeMessage("\n=== Type Checking ===\n", .{});
+        var type_checker = hir_typechecker.HIRTypeChecker.init(ctx.allocator);
+        defer type_checker.deinit();
+        
+        type_checker.checkProgram(hir_prog) catch |err| {
+            if (type_checker.hasErrors()) {
+                type_checker.printErrors();
+            }
+            return err;
+        };
+        
+        if (type_checker.hasErrors()) {
+            type_checker.printErrors();
+            return error.TypeCheckFailed;
+        }
+        
+        debug.writeMessage("Type checking passed\n", .{});
+    }
 
     // HIR -> MIR
     debug.writeMessage("\n=== HIR to MIR ===\n", .{});

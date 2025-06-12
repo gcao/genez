@@ -37,6 +37,13 @@ pub const OpCode = enum {
     // Collection operations
     Array, // Create array: Array Rd, [Rs1, Rs2, ...]
     Map, // Create map: Map Rd, [Rkey1, Rval1, ...]
+    
+    // Class operations
+    DefineClass, // Define a class: DefineClass Rd, class_name, parent_reg (optional)
+    New, // Create object instance: New Rd, class_reg, [arg1, arg2, ...]
+    GetField, // Get object field: GetField Rd, obj_reg, field_name
+    SetField, // Set object field: SetField obj_reg, field_name, value_reg
+    CallMethod, // Call method: CallMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
 };
 
 // Register identifier - u16 allows for 65,536 virtual registers
@@ -308,8 +315,8 @@ pub const Module = struct {
                 std.mem.writeInt(usize, &usize_buf, addr.arg_count, .little);
                 try writer.writeAll(&usize_buf);
             },
-            .Array, .Map => {
-                // For now, we don't support serializing complex types like arrays and maps
+            .Array, .Map, .Class, .Object => {
+                // For now, we don't support serializing complex types like arrays, maps, classes, and objects
                 // This would require more sophisticated serialization
                 return error.UnsupportedComplexType;
             },

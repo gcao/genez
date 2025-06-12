@@ -2,6 +2,74 @@ const std = @import("std");
 const bytecode = @import("../backend/bytecode.zig");
 const debug = @import("debug.zig");
 
+// Forward declarations
+pub const ClassDefinition = struct {
+    name: []const u8,
+    parent: ?*ClassDefinition,
+    fields: std.StringHashMap(FieldDefinition),
+    methods: std.StringHashMap(*bytecode.Function),
+    allocator: std.mem.Allocator,
+    
+    pub const FieldDefinition = struct {
+        name: []const u8,
+        type_name: ?[]const u8,
+        default_value: ?Value,
+        is_public: bool,
+    };
+    
+    pub fn init(allocator: std.mem.Allocator, name: []const u8) ClassDefinition {
+        return .{
+            .name = name,
+            .parent = null,
+            .fields = std.StringHashMap(FieldDefinition).init(allocator),
+            .methods = std.StringHashMap(*bytecode.Function).init(allocator),
+            .allocator = allocator,
+        };
+    }
+    
+    pub fn deinit(self: *ClassDefinition) void {
+        self.allocator.free(self.name);
+        
+        var field_iter = self.fields.iterator();
+        while (field_iter.next()) |entry| {
+            self.allocator.free(entry.value_ptr.name);
+            if (entry.value_ptr.type_name) |type_name| {
+                self.allocator.free(type_name);
+            }
+            if (entry.value_ptr.default_value) |*default| {
+                var val = default;
+                val.deinit(self.allocator);
+            }
+        }
+        self.fields.deinit();
+        
+        self.methods.deinit();
+    }
+};
+
+pub const ObjectInstance = struct {
+    class: *ClassDefinition,
+    fields: std.StringHashMap(Value),
+    allocator: std.mem.Allocator,
+    
+    pub fn init(allocator: std.mem.Allocator, class: *ClassDefinition) ObjectInstance {
+        return .{
+            .class = class,
+            .fields = std.StringHashMap(Value).init(allocator),
+            .allocator = allocator,
+        };
+    }
+    
+    pub fn deinit(self: *ObjectInstance) void {
+        var iter = self.fields.iterator();
+        while (iter.next()) |entry| {
+            var value = entry.value_ptr.*;
+            value.deinit(self.allocator);
+        }
+        self.fields.deinit();
+    }
+};
+
 pub const BuiltinOperatorType = enum {
     // Arithmetic operators
     Add,
@@ -59,6 +127,8 @@ pub const Value = union(enum) {
         name: []const u8,
     },
     BuiltinOperator: BuiltinOperatorType,
+    Class: *ClassDefinition,
+    Object: *ObjectInstance,
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -87,6 +157,14 @@ pub const Value = union(enum) {
             },
             .Variable => {}, // No need to free the name as it's a string literal
             .BuiltinOperator => {},
+            .Class => |class| {
+                class.deinit();
+                allocator.destroy(class);
+            },
+            .Object => |obj| {
+                obj.deinit();
+                allocator.destroy(obj);
+            },
             else => {},
         }
     }
@@ -141,6 +219,22 @@ pub const Value = union(enum) {
             },
             .Variable => |var_val| Value{ .Variable = .{ .name = var_val.name } },
             .BuiltinOperator => |op| Value{ .BuiltinOperator = op },
+            .Class => |class| Value{ .Class = class }, // Classes are immutable, shallow copy
+            .Object => |obj| {
+                // Deep copy object instance
+                var new_obj = try allocator.create(ObjectInstance);
+                new_obj.* = ObjectInstance.init(allocator, obj.class);
+                
+                // Copy all fields
+                var iter = obj.fields.iterator();
+                while (iter.next()) |entry| {
+                    const key = try allocator.dupe(u8, entry.key_ptr.*);
+                    const value = try entry.value_ptr.clone(allocator);
+                    try new_obj.fields.put(key, value);
+                }
+                
+                return Value{ .Object = new_obj };
+            },
         };
     }
 };
