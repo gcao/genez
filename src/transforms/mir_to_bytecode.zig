@@ -720,13 +720,14 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             
             // Copy fields
             for (class_def.fields) |field_name| {
+                const duped_name = try func.allocator.dupe(u8, field_name);
                 const field_def = types.ClassDefinition.FieldDefinition{
-                    .name = try func.allocator.dupe(u8, field_name),
+                    .name = duped_name,
                     .type_name = null, // TODO: Add type information
                     .default_value = null,
                     .is_public = true,
                 };
-                try class_ptr.fields.put(field_name, field_def);
+                try class_ptr.fields.put(duped_name, field_def);
             }
             
             // Copy methods - they've already been converted to bytecode functions
