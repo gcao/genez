@@ -6,15 +6,53 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
     var hir_prog = hir.HIR.init(allocator);
     errdefer hir_prog.deinit();
 
-    // Create main function for top-level code
+    // First pass: Extract all top-level function definitions as separate HIR functions
+    var main_nodes = std.ArrayList(ast.AstNode).init(allocator);
+    defer main_nodes.deinit();
+
+    for (nodes) |node| {
+        switch (node) {
+            .Expression => |expr| {
+                switch (expr) {
+                    .FuncDef => |func_def| {
+                        // Create separate HIR function
+                        var hir_func = hir.HIR.Function.init(allocator);
+                        errdefer hir_func.deinit();
+
+                        hir_func.name = try allocator.dupe(u8, func_def.name);
+
+                        // Convert parameters
+                        hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
+                        for (func_def.params, 0..) |param, i| {
+                            hir_func.params[i] = .{
+                                .name = try allocator.dupe(u8, param.name),
+                                .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
+                            };
+                        }
+
+                        // Convert function body
+                        const body_expr = try lowerExpression(allocator, func_def.body.*);
+                        try hir_func.body.append(.{ .Expression = body_expr });
+
+                        // Add function to HIR program
+                        try hir_prog.functions.append(hir_func);
+                    },
+                    else => {
+                        // Keep other expressions for main function
+                        try main_nodes.append(node);
+                    },
+                }
+            },
+        }
+    }
+
+    // Create main function for remaining top-level code
     var main_func = hir.HIR.Function.init(allocator);
-    // Duplicate the name string to avoid freeing a literal
     main_func.name = try allocator.dupe(u8, "main");
-    // Add errdefer *after* successful initialization and name allocation
     errdefer main_func.deinit();
 
-    // Convert each AST node to HIR statements
-    for (nodes) |node| {
+    // Convert remaining nodes to HIR statements
+    for (main_nodes.items) |node| {
         try lowerNode(&main_func.body, node);
     }
 

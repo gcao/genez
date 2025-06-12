@@ -76,12 +76,16 @@ pub const Runtime = struct {
 
         debug.log("Compilation completed, starting execution...", .{});
 
-        try self.execute(@constCast(&result.main_func));
+        try self.executeWithFunctions(@constCast(&result.main_func), result.created_functions.items);
 
         debug.log("File execution completed successfully!", .{});
     }
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {
+        try self.executeWithFunctions(func, &[_]*bytecode.Function{});
+    }
+
+    fn executeWithFunctions(self: *Runtime, func: *bytecode.Function, created_functions: []*bytecode.Function) !void {
         // Use debug output for bytecode display
         const debug_out = debug_output.DebugOutput.init(self.stdout, self.debug_mode);
         debug_out.writeBytecodeInstructions(func);
@@ -89,6 +93,12 @@ pub const Runtime = struct {
         // Create VM and execute bytecode
         var gene_vm = vm.VM.init(self.allocator, self.stdout);
         defer gene_vm.deinit();
+
+        // Register user-defined functions as global variables
+        for (created_functions) |user_func| {
+            const func_value = types.Value{ .Function = user_func };
+            try gene_vm.setVariable(user_func.name, func_value);
+        }
 
         try gene_vm.execute(func);
     }

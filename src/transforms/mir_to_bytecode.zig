@@ -34,23 +34,35 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
         created_functions.deinit();
     }
 
-    // The main function should only contain top-level statements
-    // For now, we'll assume all MIR functions are function definitions that should be
-    // loaded and stored as variables in the main function
+    // Convert all MIR functions except the last one to separate bytecode functions
+    // The last MIR function becomes the main function
 
-    // Convert each MIR function to bytecode with proper stack tracking
+    const num_functions = mir_prog.functions.items.len;
+    if (num_functions == 0) {
+        return ConversionResult{
+            .main_func = main_func,
+            .created_functions = created_functions,
+            .allocator = allocator,
+        };
+    }
+
+    // Convert user-defined functions (all except the last one)
+    for (mir_prog.functions.items[0 .. num_functions - 1]) |*mir_func| {
+        const bytecode_func = try convertMirFunction(allocator, mir_func);
+        const func_ptr = try allocator.create(bytecode.Function);
+        func_ptr.* = bytecode_func;
+        try created_functions.append(func_ptr);
+    }
+
+    // Convert the main function (last MIR function)
     var next_reg: u16 = 0;
     var stack = StackTracker.init(allocator);
     defer stack.deinit();
-    
-    for (mir_prog.functions.items) |*mir_func| {
-        // Each MIR function's blocks contain the main program code
-        // (This is because the parser currently puts everything in functions)
-        for (mir_func.blocks.items) |*block| {
-            // Convert each instruction to bytecode
-            for (block.instructions.items) |*instr| {
-                try convertInstructionWithStack(&main_func, instr, &created_functions, &next_reg, &stack);
-            }
+
+    const main_mir_func = &mir_prog.functions.items[num_functions - 1];
+    for (main_mir_func.blocks.items) |*block| {
+        for (block.instructions.items) |*instr| {
+            try convertInstructionWithStack(&main_func, instr, &created_functions, &next_reg, &stack);
         }
     }
 
@@ -74,35 +86,77 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
     };
 }
 
+fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function) !bytecode.Function {
+    var bytecode_func = bytecode.Function.init(allocator);
+    errdefer bytecode_func.deinit();
+
+    // Copy function metadata
+    bytecode_func.name = try allocator.dupe(u8, mir_func.name);
+    bytecode_func.param_count = mir_func.param_count;
+    bytecode_func.register_count = 16; // Start with reasonable default
+
+    // Initialize stack tracking for this function
+    var next_reg: u16 = @as(u16, @intCast(mir_func.param_count)); // Start after parameters
+    var stack = StackTracker.init(allocator);
+    defer stack.deinit();
+
+    // Since this is a user-defined function, we don't have access to created_functions here
+    // We'll pass an empty list (user-defined functions shouldn't create more functions)
+    var empty_functions = std.ArrayList(*bytecode.Function).init(allocator);
+    defer empty_functions.deinit();
+
+    // Convert all blocks
+    for (mir_func.blocks.items) |*block| {
+        for (block.instructions.items) |*instr| {
+            try convertInstructionWithStack(&bytecode_func, instr, &empty_functions, &next_reg, &stack);
+        }
+    }
+
+    // Add a return instruction if not present
+    const needs_return = if (bytecode_func.instructions.items.len == 0) true else switch (bytecode_func.instructions.items[bytecode_func.instructions.items.len - 1].op) {
+        .Return => false,
+        else => true,
+    };
+
+    if (needs_return) {
+        try bytecode_func.instructions.append(.{
+            .op = bytecode.OpCode.Return,
+            .immediate = null,
+        });
+    }
+
+    return bytecode_func;
+}
+
 // Simple stack tracker to map MIR stack positions to registers
 const StackTracker = struct {
     registers: std.ArrayList(u16),
     allocator: std.mem.Allocator,
-    
+
     fn init(allocator: std.mem.Allocator) StackTracker {
         return StackTracker{
             .registers = std.ArrayList(u16).init(allocator),
             .allocator = allocator,
         };
     }
-    
+
     fn deinit(self: *StackTracker) void {
         self.registers.deinit();
     }
-    
+
     fn push(self: *StackTracker, reg: u16) !void {
         try self.registers.append(reg);
     }
-    
+
     fn pop(self: *StackTracker) u16 {
         return self.registers.pop() orelse 0;
     }
-    
+
     fn peek(self: *StackTracker, offset: usize) u16 {
         const idx = self.registers.items.len - 1 - offset;
         return self.registers.items[idx];
     }
-    
+
     fn len(self: *StackTracker) usize {
         return self.registers.items.len;
     }
@@ -113,7 +167,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
         .LoadInt => |val| {
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -123,7 +177,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
         .LoadFloat => |val| {
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -133,7 +187,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
         .LoadBool => |val| {
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -146,7 +200,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             errdefer func.allocator.free(str_copy); // Free if append fails
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -158,7 +212,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
         .LoadNil => {
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -171,7 +225,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             errdefer func.allocator.free(sym_copy); // Free if append fails
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -184,7 +238,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             // Take ownership of the array
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -197,7 +251,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             // Take ownership of the map
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
@@ -212,7 +266,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             errdefer func.allocator.free(name_copy); // Free if append fails
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadVar,
                 .dst = dst_reg,
@@ -225,7 +279,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             // Load parameter from the stack frame
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadParam,
                 .dst = dst_reg,
@@ -240,7 +294,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             // Load the operator
             const op_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(op_reg);  // Push operator onto stack
+            try stack.push(op_reg); // Push operator onto stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadVar,
                 .dst = op_reg,
@@ -254,23 +308,23 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: Add with {} args but only {} items on stack\n", .{ arg_count, stack.len() });
                 return error.OutOfMemory;
             }
-            
+
             // Pop arguments from stack
             var arg_regs = std.ArrayList(u16).init(func.allocator);
             defer arg_regs.deinit();
-            
+
             var i: usize = 0;
             while (i < arg_count) : (i += 1) {
                 try arg_regs.insert(0, stack.pop());
             }
-            
+
             // Pop the function
             const func_reg = stack.pop();
-            
+
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Push result onto stack
-            
+            try stack.push(dst_reg); // Push result onto stack
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Call,
                 .src1 = func_reg,
@@ -285,7 +339,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             // Load the operator
             const op_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(op_reg);  // Push operator onto stack
+            try stack.push(op_reg); // Push operator onto stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadVar,
                 .dst = op_reg,
@@ -298,23 +352,23 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: Sub with {} args but only {} items on stack\n", .{ arg_count, stack.len() });
                 return error.OutOfMemory;
             }
-            
+
             // Pop arguments from stack
             var arg_regs = std.ArrayList(u16).init(func.allocator);
             defer arg_regs.deinit();
-            
+
             var i: usize = 0;
             while (i < arg_count) : (i += 1) {
                 try arg_regs.insert(0, stack.pop());
             }
-            
+
             // Pop the function
             const func_reg = stack.pop();
-            
+
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Push result onto stack
-            
+            try stack.push(dst_reg); // Push result onto stack
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Call,
                 .src1 = func_reg,
@@ -328,13 +382,13 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: Mul needs 2 operands but only {} on stack\n", .{stack.len()});
                 return error.OutOfMemory;
             }
-            
+
             const right_reg = stack.pop();
             const left_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Mul,
                 .src1 = left_reg,
@@ -348,13 +402,13 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: Div needs 2 operands but only {} on stack\n", .{stack.len()});
                 return error.OutOfMemory;
             }
-            
+
             const right_reg = stack.pop();
             const left_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Div,
                 .src1 = left_reg,
@@ -368,13 +422,13 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: LessThan needs 2 operands but only {} on stack\n", .{stack.len()});
                 return error.OutOfMemory;
             }
-            
+
             const right_reg = stack.pop();
             const left_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Lt,
                 .src1 = left_reg,
@@ -388,13 +442,13 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: GreaterThan needs 2 operands but only {} on stack\n", .{stack.len()});
                 return error.OutOfMemory;
             }
-            
+
             const right_reg = stack.pop();
             const left_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Gt,
                 .src1 = left_reg,
@@ -408,13 +462,13 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: Equal needs 2 operands but only {} on stack\n", .{stack.len()});
                 return error.OutOfMemory;
             }
-            
+
             const right_reg = stack.pop();
             const left_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Eq,
                 .src1 = left_reg,
@@ -431,9 +485,9 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: JumpIfFalse needs a condition but stack is empty\n", .{});
                 return error.OutOfMemory;
             }
-            
+
             const condition_reg = stack.pop();
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.JumpIfFalse,
                 .src1 = condition_reg,
@@ -441,35 +495,31 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             });
         },
         .Call => |arg_count| {
-            // Use stack tracker to find function and arguments  
+            // Use stack tracker to find function and arguments
             // In MIR stack: [other, function, arg1, arg2, ..., argN] before call
             // We need to pop N args and then the function
-            
+
             if (stack.len() < arg_count + 1) {
                 std.debug.print("ERROR: Call with {} args but only {} items on stack\n", .{ arg_count, stack.len() });
                 return error.OutOfMemory;
             }
-            
+
             // Pop arguments from stack (they are on top)
             var arg_regs = std.ArrayList(u16).init(func.allocator);
             defer arg_regs.deinit();
-            
+
             var i: usize = 0;
             while (i < arg_count) : (i += 1) {
-                try arg_regs.insert(0, stack.pop());  // Insert at front to preserve order
+                try arg_regs.insert(0, stack.pop()); // Insert at front to preserve order
             }
-            
-            // Now pop the function 
+
+            // Now pop the function
             const func_reg = stack.pop();
-            
+
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Push result onto stack
-            
-            std.debug.print("DEBUG: Stack-based call - func_reg={}, args={any}, dst_reg={}\n", .{ 
-                func_reg, arg_regs.items, dst_reg 
-            });
-            
+            try stack.push(dst_reg); // Push result onto stack
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Call,
                 .src1 = func_reg,
@@ -483,9 +533,9 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: Print needs 1 operand but stack is empty\n", .{});
                 return error.OutOfMemory;
             }
-            
+
             const src_reg = stack.pop();
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Print,
                 .src1 = src_reg,
@@ -497,42 +547,51 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             if (stack.len() > 0) {
                 return_reg = stack.pop();
             }
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Return,
                 .src1 = return_reg,
             });
         },
-        .LoadFunction => |func_ptr| {
-            // TEMPORARY: Skip LoadFunction entirely to test other instructions
-            // TODO: Implement proper user-defined function support
-            _ = created_functions; // Suppress unused parameter warning
-            
-            // Just load a nil value as a placeholder for now
+        .LoadFunction => |mir_func_ptr| {
+            // Find the function by name in the already-created functions
+            var func_index: ?usize = null;
+            for (created_functions.items, 0..) |bytecode_func_ptr, i| {
+                if (std.mem.eql(u8, bytecode_func_ptr.name, mir_func_ptr.name)) {
+                    func_index = i;
+                    break;
+                }
+            }
+
+            if (func_index == null) {
+                std.debug.print("ERROR: Function '{s}' not found in created functions\n", .{mir_func_ptr.name});
+                return error.FunctionNotFound;
+            }
+
+            // Load the function by index
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg);  // Track this value on the stack
+            try stack.push(dst_reg); // Track this value on the stack
             try func.instructions.append(.{
                 .op = bytecode.OpCode.LoadConst,
                 .dst = dst_reg,
-                .immediate = types.Value{ .Nil = {} },
+                .immediate = types.Value{ .Function = created_functions.items[func_index.?] },
             });
-            
-            // Print info about skipped function for debugging
-            std.debug.print("INFO: Temporarily skipping function '{s}' - user-defined functions not yet fully implemented\n", .{func_ptr.name});
+
+            std.debug.print("INFO: Loading function '{s}' (index {}) with {} parameters\n", .{ mir_func_ptr.name, func_index.?, mir_func_ptr.param_count });
         },
         .StoreVariable => |name| {
             // Duplicate the variable name (string) for the bytecode operand
             const name_copy = try func.allocator.dupe(u8, name);
             errdefer func.allocator.free(name_copy); // Free if append fails
-            
+
             if (stack.len() < 1) {
                 std.debug.print("ERROR: StoreVariable needs a value but stack is empty\n", .{});
                 return error.OutOfMemory;
             }
-            
+
             const src_reg = stack.pop();
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.StoreVar,
                 .src1 = src_reg,

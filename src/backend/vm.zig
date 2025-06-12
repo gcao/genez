@@ -20,19 +20,21 @@ pub const VMError = error{
 } || std.mem.Allocator.Error || std.fs.File.WriteError;
 
 pub const CallFrame = struct {
-    func: *const bytecode.Function, // Function being executed
+    caller_func: ?*const bytecode.Function, // Calling function to restore to
     pc: usize, // Program counter within the function
     register_base: u16, // Base register index for this frame
     prev_register_base: u16, // Previous frame's register base
     return_addr: usize, // Return address (instruction index to return to)
+    return_reg: u16, // Register where the return value should be stored
 
-    pub fn init(func: *const bytecode.Function, register_base: u16, prev_register_base: u16, return_addr: usize) CallFrame {
+    pub fn init(caller_func: ?*const bytecode.Function, register_base: u16, prev_register_base: u16, return_addr: usize, return_reg: u16) CallFrame {
         return CallFrame{
-            .func = func,
+            .caller_func = caller_func,
             .pc = 0,
             .register_base = register_base,
             .prev_register_base = prev_register_base,
             .return_addr = return_addr,
+            .return_reg = return_reg,
         };
     }
 };
@@ -138,6 +140,10 @@ pub const VM = struct {
         self.current_func = null;
     }
 
+    pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
+        try self.variables.put(name, value);
+    }
+
     pub fn execute(self: *VM, func: *const bytecode.Function) VMError!void {
         debug.log("Executing function: {s}", .{func.name});
         self.current_func = func;
@@ -164,7 +170,9 @@ pub const VM = struct {
             const executing_func = self.current_func orelse func;
 
             // Check if we're done with the current function
+            debug.log("VM loop: pc={}, instruction_count={}", .{self.pc, executing_func.instructions.items.len});
             if (self.pc >= executing_func.instructions.items.len) {
+                debug.log("VM: PC {} >= instruction count {}, checking call frames", .{self.pc, executing_func.instructions.items.len});
                 // If we have no call frames, we're done with the program
                 if (self.call_frames.items.len == 0) {
                     break;
@@ -173,7 +181,7 @@ pub const VM = struct {
                 // Otherwise, return to the caller
                 const frame = self.call_frames.items[self.call_frames.items.len - 1];
                 _ = self.call_frames.pop();
-                self.current_func = frame.func;
+                self.current_func = frame.caller_func;
                 self.pc = frame.return_addr;
                 self.current_register_base = frame.prev_register_base;
                 continue;
@@ -335,7 +343,7 @@ pub const VM = struct {
                 debug.log("LoadParam: R{} = param[{}]", .{ dst_reg, param_index });
 
                 // Parameters are stored in the first registers of the current frame
-                const param_reg = param_index;
+                const param_reg = self.current_register_base + param_index;
                 const param_value = try self.getRegister(param_reg);
                 debug.log("Loaded parameter from R{}: {any}", .{ param_reg, param_value });
 
@@ -942,7 +950,7 @@ pub const VM = struct {
                     
                     // Set up new call frame for the function
                     const new_register_base = self.next_free_register;
-                    const frame = CallFrame.init(user_func, new_register_base, self.current_register_base, self.pc + 1);
+                    const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
                     try self.call_frames.append(frame);
                     
                     // Allocate registers for the function (parameters + locals)
@@ -951,12 +959,12 @@ pub const VM = struct {
                     
                     // Copy arguments to parameter registers
                     for (0..arg_count) |i| {
-                        const arg_reg = if (arg_count == 1) 
-                            dst_reg - 1  // Previous register for single arg calls
-                        else 
-                            func_reg + 1 + @as(u16, @intCast(i));
+                        // Arguments should be in registers following the function register
+                        const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
                         const arg = try self.getRegister(arg_reg);
+                        debug.log("Loading argument {} from R{}: {any}", .{ i, arg_reg, arg });
                         try self.setRegister(allocated_base + @as(u16, @intCast(i)), arg);
+                        debug.log("Stored argument {} in R{} (base + {})", .{ i, allocated_base + @as(u16, @intCast(i)), i });
                     }
                     
                     // Switch to the new function
@@ -987,20 +995,21 @@ pub const VM = struct {
                 }
                 
                 // If we have call frames, restore the previous one
+                debug.log("Return: call_frames.len = {}", .{self.call_frames.items.len});
                 if (self.call_frames.items.len > 0) {
                     const frame = self.call_frames.items[self.call_frames.items.len - 1];
                     _ = self.call_frames.pop();
                     
-                    // Store return value in the destination register of the calling context
-                    if (return_value) |ret_val| {
-                        // For simplicity, put return value where the caller expects it
-                        try self.setRegister(self.current_register_base, ret_val);
-                    }
-                    
-                    // Restore the previous function context
-                    self.current_func = frame.func;
+                    // Restore the previous function context first
+                    self.current_func = frame.caller_func;
                     self.pc = frame.return_addr;
                     self.current_register_base = frame.prev_register_base;
+                    
+                    // Store return value in the destination register of the calling context
+                    if (return_value) |ret_val| {
+                        debug.log("Storing return value in R{}: {any}", .{ frame.return_reg, ret_val });
+                        try self.setRegister(frame.return_reg, ret_val);
+                    }
                     
                     debug.log("Restored call frame: pc={}, base={}", .{ self.pc, self.current_register_base });
                 } else {
