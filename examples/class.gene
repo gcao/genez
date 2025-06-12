@@ -1,9 +1,13 @@
 (Class Greeter
-  (.prop msg :String ^^required)
+  (.prop msg String ^^required)
+
+  (.ctor [msg]
+    (/msg = msg)
+  )
 )
 
 (fn greet [g :Greeter]
   (print g/msg))
 
-(var g = (Greeter ^msg "Hello Gene!"))
+(var g = (new Greeter "Hello Gene!"))
 (greet g)

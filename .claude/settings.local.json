@@ -15,7 +15,8 @@
       "Bash(./zig-out/bin/gene:*)",
       "Bash(sed:*)",
       "Bash(cp:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   },

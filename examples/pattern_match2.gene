@@ -1,0 +1,26 @@
+(fn test_simple_match [x]
+  (match x
+    (1 "one")
+    (2 "two")
+    (_ "other")))
+
+(print (test_simple_match 1))
+(print (test_simple_match 2))
+(print (test_simple_match 3))
+
+(fn test_variable_match [x]
+  (match x
+    (1 "exactly one")
+    (n (+ "number: " n))))
+
+(print (test_variable_match 1))
+(print (test_variable_match 42))
+
+(fn test_array_match [arr]
+  (match arr
+    ([1 2] "one two")
+    ([a b] (+ "array with " a " and " b))
+    (_ "something else")))
+
+(print (test_array_match [1 2]))
+(print (test_array_match [3 4]))
