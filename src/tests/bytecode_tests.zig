@@ -43,15 +43,15 @@ test "compile simple expression to bytecode" {
 
     // First instruction should be LoadVar for "print"
     try std.testing.expectEqual(bytecode.OpCode.LoadVar, main_func.instructions.items[0].op);
-    try std.testing.expectEqualStrings("print", main_func.instructions.items[0].operand.?.String);
+    try std.testing.expectEqualStrings("print", main_func.instructions.items[0].var_name.?);
 
     // Second instruction should be LoadConst for the string
     try std.testing.expectEqual(bytecode.OpCode.LoadConst, main_func.instructions.items[1].op);
-    try std.testing.expectEqualStrings("Hello, world!", main_func.instructions.items[1].operand.?.String);
+    try std.testing.expectEqualStrings("Hello, world!", main_func.instructions.items[1].immediate.?.String);
 
     // Third instruction should be Call with 1 argument
     try std.testing.expectEqual(bytecode.OpCode.Call, main_func.instructions.items[2].op);
-    try std.testing.expectEqual(@as(i64, 1), main_func.instructions.items[2].operand.?.Int);
+    try std.testing.expectEqual(@as(i64, 1), main_func.instructions.items[2].immediate.?.Int);
 
     // Fourth instruction should be Return
     try std.testing.expectEqual(bytecode.OpCode.Return, main_func.instructions.items[3].op);
@@ -91,19 +91,19 @@ test "compile binary operation to bytecode" {
 
     // First instruction should be LoadVar for "+"
     try std.testing.expectEqual(bytecode.OpCode.LoadVar, main_func.instructions.items[0].op);
-    try std.testing.expectEqualStrings("+", main_func.instructions.items[0].operand.?.String);
+    try std.testing.expectEqualStrings("+", main_func.instructions.items[0].var_name.?);
 
     // Second instruction should be LoadConst for 1
     try std.testing.expectEqual(bytecode.OpCode.LoadConst, main_func.instructions.items[1].op);
-    try std.testing.expectEqual(@as(i64, 1), main_func.instructions.items[1].operand.?.Int);
+    try std.testing.expectEqual(@as(i64, 1), main_func.instructions.items[1].immediate.?.Int);
 
     // Third instruction should be LoadConst for 2
     try std.testing.expectEqual(bytecode.OpCode.LoadConst, main_func.instructions.items[2].op);
-    try std.testing.expectEqual(@as(i64, 2), main_func.instructions.items[2].operand.?.Int);
+    try std.testing.expectEqual(@as(i64, 2), main_func.instructions.items[2].immediate.?.Int);
 
     // Fourth instruction should be Call with 2 arguments
     try std.testing.expectEqual(bytecode.OpCode.Call, main_func.instructions.items[3].op);
-    try std.testing.expectEqual(@as(i64, 2), main_func.instructions.items[3].operand.?.Int);
+    try std.testing.expectEqual(@as(i64, 2), main_func.instructions.items[3].immediate.?.Int);
 
     // Fifth instruction should be Return
     try std.testing.expectEqual(bytecode.OpCode.Return, main_func.instructions.items[4].op);

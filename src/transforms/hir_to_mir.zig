@@ -236,15 +236,38 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             }
         },
         .func_call => |func_call| {
-            // First, evaluate the function
+            // Check if the function is a builtin operator like + or - so we can
+            // emit a direct instruction instead of a generic call. This avoids
+            // the argument order issues that currently cause runtime errors.
+            if (func_call.func.* == .variable) {
+                const name = func_call.func.*.variable.name;
+                if (func_call.args.items.len == 2) {
+                    if (std.mem.eql(u8, name, "+")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.Add);
+                        return;
+                    } else if (std.mem.eql(u8, name, "-")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.Sub);
+                        return;
+                    } else if (std.mem.eql(u8, name, "<")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.LessThan);
+                        return;
+                    }
+                }
+            }
+
+            // Fallback to generic function call
             try convertExpressionWithContext(block, func_call.func.*, context);
 
-            // Then evaluate all the arguments in order
             for (func_call.args.items) |arg| {
                 try convertExpressionWithContext(block, arg.*, context);
             }
 
-            // Finally, call the function with the number of arguments
             try block.instructions.append(.{ .Call = func_call.args.items.len });
         },
         .func_def => |func_def| {

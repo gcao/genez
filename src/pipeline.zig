@@ -67,8 +67,8 @@ pub fn compileNodes(allocator: std.mem.Allocator, nodes: []ast.AstNode, options:
     // Copy instructions
     for (conversion_result.main_func.instructions.items) |instr| {
         var new_instr = instr;
-        if (instr.operand) |operand| {
-            new_instr.operand = try operand.clone(allocator);
+        if (instr.immediate) |operand| {
+            new_instr.immediate = try operand.clone(allocator);
         }
         try main_func.instructions.append(new_instr);
     }

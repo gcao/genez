@@ -287,93 +287,41 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             });
         },
         .Add => {
-            // Binary operations in Gene are function calls
-            const op_copy = try func.allocator.dupe(u8, "+");
-            errdefer func.allocator.free(op_copy);
-
-            // Load the operator
-            const op_reg = next_reg.*;
-            next_reg.* += 1;
-            try stack.push(op_reg); // Push operator onto stack
-            try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadVar,
-                .dst = op_reg,
-                .var_name = op_copy,
-            });
-
-            // Operands are already on stack from previous instructions
-            // Use stack tracker for function call
-            const arg_count = 2;
-            if (stack.len() < arg_count + 1) {
-                std.debug.print("ERROR: Add with {} args but only {} items on stack\n", .{ arg_count, stack.len() });
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: Add needs 2 operands but only {} on stack\n", .{stack.len()});
                 return error.OutOfMemory;
             }
 
-            // Pop arguments from stack
-            var arg_regs = std.ArrayList(u16).init(func.allocator);
-            defer arg_regs.deinit();
-
-            var i: usize = 0;
-            while (i < arg_count) : (i += 1) {
-                try arg_regs.insert(0, stack.pop());
-            }
-
-            // Pop the function
-            const func_reg = stack.pop();
-
+            const right_reg = stack.pop();
+            const left_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg); // Push result onto stack
+            try stack.push(dst_reg);
 
             try func.instructions.append(.{
-                .op = bytecode.OpCode.Call,
-                .src1 = func_reg,
+                .op = bytecode.OpCode.Add,
+                .src1 = left_reg,
+                .src2 = right_reg,
                 .dst = dst_reg,
-                .immediate = types.Value{ .Int = @as(i64, @intCast(arg_count)) },
             });
         },
         .Sub => {
-            const op_copy = try func.allocator.dupe(u8, "-");
-            errdefer func.allocator.free(op_copy);
-
-            // Load the operator
-            const op_reg = next_reg.*;
-            next_reg.* += 1;
-            try stack.push(op_reg); // Push operator onto stack
-            try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadVar,
-                .dst = op_reg,
-                .var_name = op_copy,
-            });
-
-            // Use stack tracker for function call
-            const arg_count = 2;
-            if (stack.len() < arg_count + 1) {
-                std.debug.print("ERROR: Sub with {} args but only {} items on stack\n", .{ arg_count, stack.len() });
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: Sub needs 2 operands but only {} on stack\n", .{stack.len()});
                 return error.OutOfMemory;
             }
 
-            // Pop arguments from stack
-            var arg_regs = std.ArrayList(u16).init(func.allocator);
-            defer arg_regs.deinit();
-
-            var i: usize = 0;
-            while (i < arg_count) : (i += 1) {
-                try arg_regs.insert(0, stack.pop());
-            }
-
-            // Pop the function
-            const func_reg = stack.pop();
-
+            const right_reg = stack.pop();
+            const left_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg); // Push result onto stack
+            try stack.push(dst_reg);
 
             try func.instructions.append(.{
-                .op = bytecode.OpCode.Call,
-                .src1 = func_reg,
+                .op = bytecode.OpCode.Sub,
+                .src1 = left_reg,
+                .src2 = right_reg,
                 .dst = dst_reg,
-                .immediate = types.Value{ .Int = @as(i64, @intCast(arg_count)) },
             });
         },
         .Mul => {
