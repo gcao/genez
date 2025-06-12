@@ -2272,23 +2272,52 @@ Gene uses a unified runtime architecture supporting seamless interoperability be
     └─────────────────────────────────────────────────────────┘
 ```
 
-## 14.2 Execution Modes
+## 14.2 Implementation Phases
 
-Gene supports three execution modes that can coexist seamlessly within the same program:
+The Gene implementation follows a pragmatic, phased approach:
 
-### 14.2.1 Interpreted Execution (Fast Compilation)
+### Phase 1: Core Interpreter (Current Status ✅)
+- 4-stage pipeline: Source → AST → HIR → MIR → Bytecode
+- Stack-based MIR for simplicity
+- Register-based bytecode VM
+- Basic type system without active checking
+- Functions, recursion, conditionals, arithmetic
+
+### Phase 2: Type System & Classes (Next)
+- Active type checking in HIR
+- Runtime support for classes and objects
+- Pattern matching runtime
+- Module system basics
+
+### Phase 3: Optimization & JIT
+- Add LIR stage for optimization
+- SSA form in MIR
+- Basic JIT compilation
+- Inline caches for property access
+
+### Phase 4: Advanced Features
+- Full concurrent runtime (actors, channels)
+- Garbage collection
+- Metaprogramming (macros)
+- AOT compilation support
+
+## 14.3 Execution Modes
+
+Gene will eventually support three execution modes that can coexist seamlessly within the same program:
+
+### 14.3.1 Interpreted Execution (Fast Compilation)
 - **Use Case**: Development, REPL, cold code, rapid iteration
 - **Compilation Time**: ~1-5ms per function
 - **Runtime Performance**: Good for development, adequate for most code
 - **Memory Usage**: Moderate (bytecode + VM state)
 
-### 14.2.2 JIT Compilation (Balanced)
+### 14.3.2 JIT Compilation (Balanced)
 - **Use Case**: Hot paths identified at runtime
 - **Compilation Time**: ~10-50ms per function
 - **Runtime Performance**: Near-native speed
 - **Trigger**: Functions called > 1000 times
 
-### 14.2.3 AOT Compilation (Maximum Performance)
+### 14.3.3 AOT Compilation (Maximum Performance)
 - **Use Case**: Core libraries, system functions, deployment
 - **Compilation Time**: ~100-500ms per function
 - **Runtime Performance**: Native C-level speed
@@ -2541,11 +2570,20 @@ pub const Parser = struct {
 
 ## 16.1 Overview
 
-Gene uses a three-tier IR pipeline for progressive lowering and optimization:
+Gene's IR pipeline is designed for progressive lowering and optimization:
 
+### Current Implementation (Phase 1)
+- **AST**: Direct representation of S-expressions
+- **HIR**: High-level IR preserving semantic information
+- **MIR**: Stack-based intermediate representation
+- **Bytecode**: Register-based VM instructions (no LIR stage)
+
+### Full Design (Phase 3+)
 1. **HIR (High-level IR)**: Close to source, preserves semantic information
 2. **MIR (Mid-level IR)**: SSA form, suitable for optimization
 3. **LIR (Low-level IR)**: Register-based bytecode for VM execution
+
+The current 4-stage pipeline (AST→HIR→MIR→Bytecode) provides a working interpreter with good performance. The LIR stage will be added when implementing advanced optimizations and JIT compilation.
 
 ## 16.2 HIR (High-level Intermediate Representation)
 
@@ -2659,7 +2697,58 @@ Function {
 
 ## 16.3 MIR (Mid-level Intermediate Representation)
 
-MIR uses SSA (Static Single Assignment) form for optimization:
+### Current Implementation (Phase 1)
+The current MIR implementation uses a stack-based approach for simplicity:
+
+```zig
+pub const MIR = struct {
+    functions: std.ArrayList(Function),
+    
+    pub const Function = struct {
+        name: []const u8,
+        param_count: usize,
+        blocks: std.ArrayList(BasicBlock),
+    };
+    
+    pub const BasicBlock = struct {
+        instructions: std.ArrayList(Instruction),
+    };
+    
+    pub const Instruction = union(enum) {
+        // Stack operations
+        LoadInt: i64,
+        LoadFloat: f64,
+        LoadBool: bool,
+        LoadString: []const u8,
+        LoadNil,
+        LoadVariable: []const u8,
+        LoadParameter: usize,
+        StoreVariable: []const u8,
+        
+        // Arithmetic (pop 2, push 1)
+        Add, Sub, Mul, Div,
+        
+        // Comparison (pop 2, push 1)
+        LessThan, GreaterThan, Equal,
+        
+        // Control flow
+        Jump: usize,
+        JumpIfFalse: usize,
+        
+        // Function operations
+        Call: usize,  // arg count
+        Return,
+        
+        // Other
+        Print,
+    };
+};
+```
+
+This stack-based design simplifies code generation from HIR and is sufficient for the interpreter.
+
+### Future Design (Phase 3)
+MIR will eventually use SSA (Static Single Assignment) form for optimization:
 
 ```zig
 pub const MIRFunction = struct {
@@ -2803,7 +2892,11 @@ fn optimizeMir(allocator: std.mem.Allocator, func: *MIRFunction) !void {
 
 ## 16.4 LIR (Low-level Intermediate Representation)
 
-LIR is register-based bytecode for the VM:
+### Current Status
+In Phase 1, bytecode is generated directly from MIR without an intermediate LIR stage. This simplifies the implementation while still producing efficient register-based bytecode.
+
+### Future Design (Phase 3)
+LIR will be introduced as an optimization layer for register-based bytecode:
 
 ```zig
 pub const LIR = union(enum) {
@@ -3305,6 +3398,20 @@ const TypeChecker = struct {
 ---
 
 # Chapter 18: Register-Based Virtual Machine
+
+## Current Implementation Status
+
+The VM is currently implemented with:
+- Register-based bytecode (not stack-based)
+- Basic instruction set for arithmetic, control flow, and function calls
+- Function call frames with proper register allocation
+- Support for recursive functions
+
+Missing features (planned for later phases):
+- Object-oriented instructions (GetField, SetField, etc.)
+- Type checking instructions
+- Inline caches for optimization
+- JIT compilation support
 
 ## 18.1 VM Architecture
 
