@@ -578,52 +578,59 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Evaluate the scrutinee (value being matched)
             try convertExpressionWithContext(block, match_expr.scrutinee.*, context);
             
+            // Store scrutinee in a temporary variable for pattern matching
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
+            
             // For now, implement a simple linear matching approach
             // In a full implementation, this would be optimized with decision trees
             
             var branch_ends = std.ArrayList(usize).init(block.allocator);
             defer branch_ends.deinit();
             
-            for (match_expr.arms) |arm| {
-                // Duplicate the scrutinee for this arm's pattern matching
-                // (In a real implementation, we'd be more sophisticated about this)
-                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__scrutinee_temp") });
+            var arm_jump_patches = std.ArrayList(usize).init(block.allocator);
+            defer arm_jump_patches.deinit();
+            
+            for (match_expr.arms, 0..) |arm, arm_index| {
+                // Patch previous arm's failure jump to here
+                if (arm_index > 0 and arm_jump_patches.items.len > 0) {
+                    const last_jump_index = arm_jump_patches.items[arm_jump_patches.items.len - 1];
+                    block.instructions.items[last_jump_index].JumpIfFalse = block.instructions.items.len;
+                }
+                
+                // Load the scrutinee for this arm's pattern matching
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
                 
                 // Generate pattern matching logic for this arm
-                const match_success_target = try compilePattern(block, arm.pattern, context);
+                const pattern_jump_index = try compilePattern(block, arm.pattern, context);
                 
-                // If pattern matches, evaluate guard (if present)
+                // If we have a conditional jump from pattern matching, we need to handle it
+                if (pattern_jump_index != 0) {
+                    // Pattern might fail - add to patches for next arm
+                    try arm_jump_patches.append(pattern_jump_index);
+                }
+                
+                // If pattern matched (or always matches like variable/wildcard), evaluate guard if present
                 if (arm.guard) |guard| {
                     try convertExpressionWithContext(block, guard.*, context);
                     // Jump to next arm if guard fails
                     const guard_fail_jump = block.instructions.items.len;
                     try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will be patched
-                    
-                    // Guard succeeded, evaluate body
-                    try convertExpressionWithContext(block, arm.body.*, context);
-                    
-                    // Jump to end of match expression
-                    const branch_end_jump = block.instructions.items.len;
-                    try block.instructions.append(.{ .Jump = 0 }); // Will be patched
-                    try branch_ends.append(branch_end_jump);
-                    
-                    // Patch guard failure jump to next arm
-                    const next_arm_target = block.instructions.items.len;
-                    block.instructions.items[guard_fail_jump].JumpIfFalse = next_arm_target;
-                } else {
-                    // No guard, just evaluate body
-                    try convertExpressionWithContext(block, arm.body.*, context);
-                    
-                    // Jump to end of match expression
-                    const branch_end_jump = block.instructions.items.len;
-                    try block.instructions.append(.{ .Jump = 0 }); // Will be patched
-                    try branch_ends.append(branch_end_jump);
+                    try arm_jump_patches.append(guard_fail_jump);
                 }
                 
-                // Patch the pattern match success jump
-                // (This is simplified - real pattern matching would be more complex)
-                if (match_success_target != 0) {
-                    // In a real implementation, we'd patch the pattern matching jumps here
+                // Pattern (and guard if present) succeeded, evaluate body
+                try convertExpressionWithContext(block, arm.body.*, context);
+                
+                // Jump to end of match expression
+                const branch_end_jump = block.instructions.items.len;
+                try block.instructions.append(.{ .Jump = 0 }); // Will be patched
+                try branch_ends.append(branch_end_jump);
+            }
+            
+            // Patch any remaining failure jumps to the default case
+            for (arm_jump_patches.items) |jump_index| {
+                if (block.instructions.items[jump_index].JumpIfFalse == 0) {
+                    block.instructions.items[jump_index].JumpIfFalse = block.instructions.items.len;
                 }
             }
             
@@ -668,8 +675,10 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: Conv
         },
         .wildcard => {
             // Wildcard patterns always match and don't bind anything
-            // Pop the scrutinee since we don't need it
-            // (In a real implementation, we'd be more careful about stack management)
+            // The scrutinee is already on the stack, we just need to pop it
+            // since we don't use it for anything
+            // In MIR, we don't have a Pop instruction, so we'll leave it on stack
+            // The code generation or VM should handle stack cleanup
             return 0;
         },
         .constructor => |ctor| {

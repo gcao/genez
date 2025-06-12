@@ -51,6 +51,7 @@ pub const TokenKind = union(enum) {
     Class, // New: for class definitions
     New, // New: for object instantiation
     Dot, // New: for field/method access
+    Match, // New: for pattern matching
 };
 
 /// Tokenize a Gene source string.
@@ -193,6 +194,7 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             if (std.mem.eql(u8, word, "if")) token_kind = .If else if (std.mem.eql(u8, word, "else")) token_kind = .Else else if (std.mem.eql(u8, word, "var")) token_kind = .Var else if (std.mem.eql(u8, word, "fn")) token_kind = .Fn else if (std.mem.eql(u8, word, "do")) token_kind = .Do // New keyword
             else if (std.mem.eql(u8, word, "class")) token_kind = .Class // New keyword
             else if (std.mem.eql(u8, word, "new")) token_kind = .New // New keyword
+            else if (std.mem.eql(u8, word, "match")) token_kind = .Match // New keyword
             else if (std.mem.eql(u8, word, "true")) token_kind = .{ .Bool = true } else if (std.mem.eql(u8, word, "false")) token_kind = .{ .Bool = false } else {
                 // Store the slice directly, parser will dupe if needed
                 token_kind = .{ .Ident = word };
@@ -368,6 +370,7 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .Do => return parseDoBlock(alloc, toks, depth + 1),
                 .Class => return parseClass(alloc, toks, depth + 1),
                 .New => return parseNew(alloc, toks, depth + 1),
+                .Match => return parseMatch(alloc, toks, depth + 1),
                 .Ident => {
                     // Per instructions, assume (Ident ...) is a call for now.
                     // parseList would handle (Ident op Expr) if it were to receive it.
@@ -1229,4 +1232,145 @@ fn parseNew(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
         },
         .consumed = current_pos,
     };
+}
+
+fn parseMatch(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (match scrutinee (pattern1 expr1) (pattern2 expr2) ...)
+    // Minimum: (match x (1 "one")) -> at least 7 tokens
+    if (toks.len < 7 or toks[0].kind != .LParen or toks[1].kind != .Match) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Match
+
+    // Parse scrutinee (the value being matched)
+    if (current_pos >= toks.len) return error.UnexpectedEOF;
+    const scrutinee_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    current_pos += scrutinee_result.consumed;
+
+    const scrutinee_ptr = try alloc.create(ast.Expression);
+    scrutinee_ptr.* = try scrutinee_result.node.Expression.clone(alloc);
+
+    // Parse match arms
+    var arms = std.ArrayList(ast.MatchExpr.MatchArm).init(alloc);
+    errdefer arms.deinit();
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        // Each arm should be (pattern body)
+        if (toks[current_pos].kind != .LParen) return error.UnexpectedToken;
+        current_pos += 1; // Skip LParen
+
+        // Parse pattern
+        const pattern = try parsePattern(alloc, toks[current_pos..], depth + 1);
+        current_pos += pattern.consumed;
+
+        // Parse body
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += body_result.consumed;
+
+        const body_ptr = try alloc.create(ast.Expression);
+        body_ptr.* = try body_result.node.Expression.clone(alloc);
+
+        // Expect closing paren for this arm
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+        current_pos += 1;
+
+        try arms.append(.{
+            .pattern = pattern.pattern,
+            .guard = null, // TODO: Add guard support later
+            .body = body_ptr,
+        });
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+
+    const arms_slice = try arms.toOwnedSlice();
+
+    return ParseResult{
+        .node = .{
+            .Expression = .{
+                .MatchExpr = .{
+                    .scrutinee = scrutinee_ptr,
+                    .arms = arms_slice,
+                },
+            },
+        },
+        .consumed = current_pos,
+    };
+}
+
+const PatternParseResult = struct {
+    pattern: ast.MatchExpr.Pattern,
+    consumed: usize,
+};
+
+fn parsePattern(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !PatternParseResult {
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    if (toks.len == 0) return error.EmptyExpression;
+
+    const tok = toks[0];
+    switch (tok.kind) {
+        .Int, .Bool, .String => {
+            // Literal pattern
+            const expr_result = try parseExpression(alloc, toks, depth + 1);
+            const value_ptr = try alloc.create(ast.Expression);
+            value_ptr.* = try expr_result.node.Expression.clone(alloc);
+            return PatternParseResult{
+                .pattern = .{ .Literal = .{ .value = value_ptr } },
+                .consumed = expr_result.consumed,
+            };
+        },
+        .Ident => |ident| {
+            if (std.mem.eql(u8, ident, "_")) {
+                // Wildcard pattern
+                return PatternParseResult{
+                    .pattern = .{ .Wildcard = {} },
+                    .consumed = 1,
+                };
+            } else {
+                // Variable pattern
+                const name_copy = try alloc.dupe(u8, ident);
+                return PatternParseResult{
+                    .pattern = .{ .Variable = .{ .name = name_copy, .type_annotation = null } },
+                    .consumed = 1,
+                };
+            }
+        },
+        .LBracket => {
+            // Array pattern
+            var current_pos: usize = 1; // Skip LBracket
+            var elements = std.ArrayList(ast.MatchExpr.Pattern).init(alloc);
+            errdefer elements.deinit();
+
+            while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+                const elem_result = try parsePattern(alloc, toks[current_pos..], depth + 1);
+                try elements.append(elem_result.pattern);
+                current_pos += elem_result.consumed;
+            }
+
+            if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) {
+                return error.ExpectedRBracket;
+            }
+            current_pos += 1;
+
+            const elements_slice = try elements.toOwnedSlice();
+            return PatternParseResult{
+                .pattern = .{ .Array = .{ .elements = elements_slice, .rest = null } },
+                .consumed = current_pos,
+            };
+        },
+        .LParen => {
+            // Could be a constructor pattern or nested pattern
+            // For now, parse as literal expression
+            const expr_result = try parseExpression(alloc, toks, depth + 1);
+            const value_ptr = try alloc.create(ast.Expression);
+            value_ptr.* = try expr_result.node.Expression.clone(alloc);
+            return PatternParseResult{
+                .pattern = .{ .Literal = .{ .value = value_ptr } },
+                .consumed = expr_result.consumed,
+            };
+        },
+        else => return error.InvalidExpression,
+    }
 }
