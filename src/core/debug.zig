@@ -28,7 +28,7 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .Variable => |var_val| log("Variable: {s}", .{var_val.name}),
         .BuiltinOperator => |op| log("BuiltinOperator: {any}", .{op}),
         .Class => |class| log("Class: {s}", .{class.name}),
-        .Object => |obj| log("Object of {s}", .{obj.class.name}),
+        .Object => |obj_id| log("Object ID: {}", .{obj_id}),
     }
 }
 

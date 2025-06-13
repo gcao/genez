@@ -123,8 +123,8 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .DefineClass => |class_def| {
             try writer.print("define-class \"{s}\"", .{class_def.name});
         },
-        .CreateInstance => |class_name| {
-            try writer.print("create-instance \"{s}\"", .{class_name});
+        .CreateInstance => |inst_creation| {
+            try writer.print("create-instance \"{s}\" {}", .{inst_creation.class_name, inst_creation.arg_count});
         },
         .GetField => |field_name| {
             try writer.print("get-field \"{s}\"", .{field_name});

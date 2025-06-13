@@ -536,17 +536,11 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 try convertExpressionWithContext(block, arg.*, context);
             }
             
-            // Create the instance
-            try block.instructions.append(.{ .CreateInstance = try block.allocator.dupe(u8, inst_creation.class_name) });
-            
-            // If there's an init method, call it
-            // The init method will be called with the instance and constructor args
-            if (inst_creation.args.items.len > 0) {
-                try block.instructions.append(.{ .CallMethod = .{
-                    .method_name = try block.allocator.dupe(u8, "init"),
-                    .arg_count = inst_creation.args.items.len,
-                }});
-            }
+            // Create the instance (constructor will be called automatically)
+            try block.instructions.append(.{ .CreateInstance = .{
+                .class_name = try block.allocator.dupe(u8, inst_creation.class_name),
+                .arg_count = inst_creation.args.items.len,
+            }});
         },
         .method_call => |method_call| {
             // Evaluate the instance

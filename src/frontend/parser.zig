@@ -1102,31 +1102,69 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
     errdefer methods.deinit();
 
     // Parse class body - looking for field and method definitions
+    debug.log("Parsing class body for {s}", .{class_name});
     while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        debug.log("Class body token at {}: {any}", .{current_pos, toks[current_pos].kind});
         if (toks[current_pos].kind == .LParen) {
             // Check what kind of definition this is
             if (current_pos + 1 < toks.len) {
-                if (toks[current_pos + 1].kind == .Ident and 
-                    toks[current_pos + 1].kind.Ident.len > 0 and 
-                    toks[current_pos + 1].kind.Ident[0] == '^') {
-                    // Field definition like (^x ^y) or (.prop x Int)
-                    const field_result = try parseClassFields(alloc, toks[current_pos..], depth + 1);
-                    for (field_result.fields) |field| {
-                        try fields.append(field);
-                    }
-                    current_pos += field_result.consumed;
-                } else if (toks[current_pos + 1].kind == .Ident) {
-                    const ident = toks[current_pos + 1].kind.Ident;
-                    if (std.mem.eql(u8, ident, ".fn") or std.mem.eql(u8, ident, "fn")) {
-                        // Method definition
+                debug.log("  Next token at {}: {any}", .{current_pos + 1, toks[current_pos + 1].kind});
+                if (current_pos + 2 < toks.len) {
+                    debug.log("  Token at {}: {any}", .{current_pos + 2, toks[current_pos + 2].kind});
+                }
+                if (toks[current_pos + 1].kind == .Dot and current_pos + 2 < toks.len) {
+                    // Handle .method syntax (.fn, .prop, .ctor)
+                    const token_kind = toks[current_pos + 2].kind;
+                    
+                    // Check if it's .fn (keyword) or .prop/.ctor (identifier)
+                    if (token_kind == .Fn) {
+                        // Method definition using .fn keyword
+                        debug.log("Found .fn method in class body", .{});
+                        debug.log("Parsing .fn method definition", .{});
                         const method_result = try parseClassMethod(alloc, toks[current_pos..], depth + 1);
                         try methods.append(method_result.method);
                         current_pos += method_result.consumed;
-                    } else if (std.mem.eql(u8, ident, ".prop")) {
-                        // Property definition with type
-                        const field_result = try parseClassProperty(alloc, toks[current_pos..], depth + 1);
-                        try fields.append(field_result.field);
-                        current_pos += field_result.consumed;
+                        debug.log("Added method: {s}", .{method_result.method.name});
+                    } else if (token_kind == .Ident) {
+                        const method_type = token_kind.Ident;
+                        debug.log("Found dot-method in class body: .{s}", .{method_type});
+                        if (std.mem.eql(u8, method_type, "prop")) {
+                            // Property definition with type
+                            const field_result = try parseClassProperty(alloc, toks[current_pos..], depth + 1);
+                            try fields.append(field_result.field);
+                            current_pos += field_result.consumed;
+                        } else if (std.mem.eql(u8, method_type, "ctor")) {
+                            // Constructor definition
+                            debug.log("Parsing constructor definition", .{});
+                            const ctor_result = try parseClassConstructor(alloc, toks[current_pos..], class_name, depth + 1);
+                            try methods.append(ctor_result.method);
+                            current_pos += ctor_result.consumed;
+                            debug.log("Added constructor", .{});
+                        } else {
+                            // Unknown .method construct, skip it
+                            var paren_count: i32 = 1;
+                            var skip_pos: usize = current_pos + 1;
+                            while (skip_pos < toks.len and paren_count > 0) {
+                                switch (toks[skip_pos].kind) {
+                                    .LParen => paren_count += 1,
+                                    .RParen => paren_count -= 1,
+                                    else => {},
+                                }
+                                skip_pos += 1;
+                            }
+                            current_pos = skip_pos;
+                        }
+                    }
+                } else if (toks[current_pos + 1].kind == .Ident) {
+                    const ident = toks[current_pos + 1].kind.Ident;
+                    debug.log("Found ident in class body: {s}", .{ident});
+                    if (std.mem.eql(u8, ident, "fn")) {
+                        // Method definition without dot
+                        debug.log("Parsing method definition", .{});
+                        const method_result = try parseClassMethod(alloc, toks[current_pos..], depth + 1);
+                        try methods.append(method_result.method);
+                        current_pos += method_result.consumed;
+                        debug.log("Added method: {s}", .{method_result.method.name});
                     } else {
                         // Unknown construct, skip it
                         var paren_count: i32 = 1;
@@ -1184,48 +1222,6 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
     };
 }
 
-const FieldParseResult = struct {
-    fields: []ast.ClassDef.ClassField,
-    consumed: usize,
-};
-
-fn parseClassFields(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !FieldParseResult {
-    // Parse (^field1 ^field2 ...) format
-    if (toks.len < 3 or toks[0].kind != .LParen) return error.UnexpectedToken;
-    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
-    
-    var fields = std.ArrayList(ast.ClassDef.ClassField).init(alloc);
-    errdefer fields.deinit();
-    
-    var current_pos: usize = 1; // Skip LParen
-    
-    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
-        if (toks[current_pos].kind == .Ident and 
-            toks[current_pos].kind.Ident.len > 0 and 
-            toks[current_pos].kind.Ident[0] == '^') {
-            // Skip the ^ prefix
-            const field_name = try alloc.dupe(u8, toks[current_pos].kind.Ident[1..]);
-            try fields.append(.{
-                .name = field_name,
-                .type_annotation = null,
-                .default_value = null,
-                .is_public = true,
-            });
-            current_pos += 1;
-        } else {
-            // Skip unexpected tokens
-            current_pos += 1;
-        }
-    }
-    
-    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
-    current_pos += 1;
-    
-    return FieldParseResult{
-        .fields = try fields.toOwnedSlice(),
-        .consumed = current_pos,
-    };
-}
 
 const PropertyParseResult = struct {
     field: ast.ClassDef.ClassField,
@@ -1237,7 +1233,19 @@ fn parseClassProperty(alloc: std.mem.Allocator, toks: []const Token, depth: usiz
     if (toks.len < 5 or toks[0].kind != .LParen) return error.UnexpectedToken;
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
     
-    var current_pos: usize = 2; // Skip LParen and .prop
+    var current_pos: usize = 1; // Skip LParen
+    
+    // Skip dot if present
+    if (current_pos < toks.len and toks[current_pos].kind == .Dot) {
+        current_pos += 1;
+    }
+    
+    // Skip prop keyword
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident or 
+        !std.mem.eql(u8, toks[current_pos].kind.Ident, "prop")) {
+        return error.UnexpectedToken;
+    }
+    current_pos += 1;
     
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedPropertyName;
     const prop_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
@@ -1273,7 +1281,26 @@ fn parseClassMethod(alloc: std.mem.Allocator, toks: []const Token, depth: usize)
     if (toks.len < 5 or toks[0].kind != .LParen) return error.UnexpectedToken;
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
     
-    var current_pos: usize = 2; // Skip LParen and .fn
+    var current_pos: usize = 1; // Skip LParen
+    
+    // Skip dot if present
+    if (current_pos < toks.len and toks[current_pos].kind == .Dot) {
+        current_pos += 1;
+    }
+    
+    // Skip fn keyword (can be either .Fn keyword or .Ident "fn")
+    if (current_pos >= toks.len) return error.UnexpectedToken;
+    
+    if (toks[current_pos].kind == .Fn) {
+        // It's the Fn keyword
+        current_pos += 1;
+    } else if (toks[current_pos].kind == .Ident and 
+               std.mem.eql(u8, toks[current_pos].kind.Ident, "fn")) {
+        // It's an identifier "fn"
+        current_pos += 1;
+    } else {
+        return error.UnexpectedToken;
+    }
     
     // Get method name
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedMethodName;
@@ -1328,6 +1355,89 @@ fn parseClassMethod(alloc: std.mem.Allocator, toks: []const Token, depth: usize)
     return MethodParseResult{
         .method = .{
             .name = method_name,
+            .params = try params.toOwnedSlice(),
+            .return_type = null,
+            .body = body_ptr,
+            .is_public = true,
+            .is_virtual = false,
+            .is_abstract = false,
+            .is_static = false,
+        },
+        .consumed = current_pos,
+    };
+}
+
+fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_name: []const u8, depth: usize) !MethodParseResult {
+    // Parse (.ctor [params] body) format
+    // Constructor is a special method named "init" or class_name_init
+    if (toks.len < 5 or toks[0].kind != .LParen) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    
+    var current_pos: usize = 1; // Skip LParen
+    
+    // Skip dot if present
+    if (current_pos < toks.len and toks[current_pos].kind == .Dot) {
+        current_pos += 1;
+    }
+    
+    // Skip ctor keyword
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident or 
+        !std.mem.eql(u8, toks[current_pos].kind.Ident, "ctor")) {
+        return error.UnexpectedToken;
+    }
+    current_pos += 1;
+    
+    // Parse parameters
+    var params = std.ArrayList(ast.ClassDef.Parameter).init(alloc);
+    errdefer params.deinit();
+    
+    if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
+        current_pos += 1; // Skip '['
+        while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+            if (toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
+            const param_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+            current_pos += 1;
+            
+            var param_type: ?[]const u8 = null;
+            if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+                // Check if it looks like a type
+                const potential_type = toks[current_pos].kind.Ident;
+                if (std.mem.eql(u8, potential_type, "Int") or 
+                    std.mem.eql(u8, potential_type, "Float") or 
+                    std.mem.eql(u8, potential_type, "String") or 
+                    std.mem.eql(u8, potential_type, "Bool")) {
+                    param_type = try alloc.dupe(u8, potential_type);
+                    current_pos += 1;
+                }
+            }
+            
+            try params.append(.{
+                .name = param_name,
+                .type_annotation = param_type,
+                .default_value = null,
+            });
+        }
+        if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
+        current_pos += 1; // Skip ']'
+    }
+    
+    // Parse body
+    if (current_pos >= toks.len) return error.ExpectedMethodBody;
+    const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    current_pos += body_result.consumed;
+    
+    const body_ptr = try alloc.create(ast.Expression);
+    body_ptr.* = try body_result.node.Expression.clone(alloc);
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+    
+    // Constructor is named ClassName_init
+    const ctor_name = try std.fmt.allocPrint(alloc, "{s}_init", .{class_name});
+    
+    return MethodParseResult{
+        .method = .{
+            .name = ctor_name,
             .params = try params.toOwnedSlice(),
             .return_type = null,
             .body = body_ptr,
