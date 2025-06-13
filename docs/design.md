@@ -196,6 +196,8 @@ Gene supports infix operators within S-expressions:
 
 ## 2.7 Function Syntax
 
+In Gene's unified design, **functions and methods are the same thing**. Methods are simply functions where the first parameter is conventionally named `self`. This unification provides consistency and flexibility.
+
 ```gene
 # Function definition
 (fn add [x y]
@@ -212,9 +214,19 @@ Gene supports infix operators within S-expressions:
 # Anonymous function
 (fnx [x] (* x 2))
 
-# Method syntax
-# It's like invoking "fn" method on current class object
-(.fn method-name [args] body)
+# Method syntax - just sugar for defining a function in a class
+# These are equivalent:
+(.fn distance [other :Point => :Float] ...)  # Method syntax
+(fn distance [self :Point other :Point => :Float] ...)  # Function syntax
+
+# Macro syntax - for lazy evaluation
+(macro unless [condition body] ...)  # Standalone macro
+(.macro validate [rule] ...)         # Method macro with implicit self
+
+# The dot prefix is syntactic sugar that:
+# 1. Adds implicit 'self' as first parameter
+# 2. Binds the function/macro to the class namespace
+# 3. Works for both .fn (functions) and .macro (macros)
 ```
 
 ## 2.8 Grammar Specification
@@ -239,144 +251,271 @@ property-name = symbol ('^' symbol)*
 
 ## 3.1 Overview
 
-Gene features a gradual type system that supports:
-- Dynamic typing by default
-- Optional type annotations
-- Type inference
-- Generic programming
-- Type constraints and traits
+Gene features a unified, class-based type system where **everything is an object** and **every type is a class**. This provides:
+
+- **Uniform object model**: All values are instances of classes
+- **Metaclass hierarchy**: Classes themselves are objects (instances of `Class`)
+- **Dynamic typing by default**: Type checking at runtime
+- **Optional type annotations**: Static type checking when desired
+- **Type inference**: Automatic type deduction
+- **Generic programming**: Parameterized classes and methods
+- **Type constraints**: Interface-based constraints via traits
+
+Key principles:
+1. Every value has a class (accessible via `.class`)
+2. Every class inherits from `Any` (except `Any` itself)
+3. `Class` is the metaclass - the class of all classes
+4. Type annotations use class names (`:Int`, `:Str`, etc.)
+5. Type checking uses `is` operator or `.is?` method
 
 ## 3.2 Type Annotations
 
-```gene
-# Variable types
-(var x :Int)
-(var y :Str = "hello")
+Type annotations in Gene use class names. Since all types are classes, type annotations are simply references to class objects:
 
-# Function types
+```gene
+# Variable types - referring to classes
+(var x :Int)                # x must be instance of Int class
+(var y :Str = "hello")      # y must be instance of Str class
+
+# Function types - class constraints on parameters
 (fn add [x :Int y :Int => :Int]
   (+ x y))
-(fn g [x :Int y :Int]  # returns nothing/void
-)
+(fn print [s :Str]          # Returns Void by default
+  (io/write s))
 
-# Complex types
-(var nums :(Array Int))
-(var map :(Map Str Int))
-(var fn-var :(Fn Int Int => Int))
+# Complex types - parameterized classes
+(var nums :(Array Int))     # Array class parameterized with Int
+(var map :(Map Str Int))    # Map class with Str keys, Int values
+(var fn-var :(Fn Int Int => Int))  # Function class
+
+# Type annotations are first-class
+(var type-var = Int)        # Store class in variable
+(var x :type-var = 42)      # Use variable as type annotation
 ```
 
-## 3.3 Built-in Types
+## 3.3 Built-in Types as Classes
 
-Gene has a well-defined type hierarchy with `Any` at the root:
+In Gene, **everything is an object** and **every type is a class**. The type system is fully unified under a class hierarchy where even primitive types like `Int` and `Float` are classes. This provides consistency and allows all values to share common behavior.
 
 ```gene
-# Type Hierarchy
-Any                    # Root type - all values are Any
-├── Void              # No value (function returns)
-├── Nil               # The nil value
-├── Bool              # true/false
-├── Number            # Abstract numeric type
-│   ├── Int           # 48-bit integers (NaN-boxed)
-│   └── Float         # 64-bit IEEE 754 floats
-├── Char              # Unicode character
-├── Str               # UTF-8 string
-├── Symbol            # Interned symbol
-├── ComplexSymbol     # Symbol with namespace/path
-├── Map               # Key-value mapping
-├── Array             # Indexed sequence
-├── Set               # Unique value collection
-├── Gene              # Generic container (X ^prop val ...)
-├── Fn                # Function type
-├── Class             # Class metaobject
-├── Trait             # Trait metaobject
-├── Module            # Module/namespace
-├── Ref               # Mutable reference
-├── Atom              # Atomic reference
-├── Chan              # Channel for concurrency
-├── Promise           # Future value
-├── CPtr              # C pointer (for FFI)
-├── CArray            # C array (for FFI)
-├── CStruct           # C struct (for FFI)
-├── CUnion            # C union (for FFI)
-├── CFn               # C function pointer (for FFI)
-└── ...               # User-defined types
+# Unified Class Hierarchy
+Any                    # Root class - all classes inherit from Any
+├── Class             # The class of all classes (including itself)
+├── Void              # Class for no value (function returns)
+├── Nil               # Class for the nil value
+├── Bool              # Class for boolean values
+├── Number            # Abstract numeric class
+│   ├── Int           # Class for 48-bit integers (NaN-boxed)
+│   ├── Float         # Class for 64-bit IEEE 754 floats
+│   ├── Int8          # Class for 8-bit signed integers
+│   ├── UInt8         # Class for 8-bit unsigned integers
+│   ├── Int16         # Class for 16-bit signed integers
+│   ├── UInt16        # Class for 16-bit unsigned integers
+│   ├── Int32         # Class for 32-bit signed integers
+│   ├── UInt32        # Class for 32-bit unsigned integers
+│   ├── Int64         # Class for 64-bit signed integers
+│   ├── UInt64        # Class for 64-bit unsigned integers
+│   └── Float32       # Class for 32-bit floats
+├── Char              # Class for Unicode characters
+├── Str               # Class for UTF-8 strings
+├── Symbol            # Class for interned symbols
+├── ComplexSymbol     # Class for namespace-qualified symbols
+├── Collection        # Abstract collection class
+│   ├── Array         # Class for indexed sequences
+│   ├── Map           # Class for key-value mappings
+│   └── Set           # Class for unique value collections
+├── Gene              # Class for generic containers
+├── Fn                # Class for functions
+├── Trait             # Class for traits/interfaces
+├── Module            # Class for modules/namespaces
+├── Ref               # Class for mutable references
+├── Atom              # Class for atomic references
+├── Chan              # Class for channels (concurrency)
+├── Promise           # Class for future values
+├── Pointer           # Abstract pointer class (FFI)
+│   ├── CPtr          # Class for C pointers
+│   ├── CArray        # Class for C arrays
+│   ├── CStruct       # Class for C structs
+│   ├── CUnion        # Class for C unions
+│   └── CFn           # Class for C function pointers
+└── ...               # User-defined classes
 ```
 
-### 3.3.1 Type Definitions
+### Key Principles:
+
+1. **Everything is an Object**: Every value in Gene is an instance of a class
+2. **Every Type is a Class**: `Int`, `Float`, `Str`, etc. are all classes
+3. **Class is a Class**: The `Class` type is itself a class (instance of `Class`)
+4. **Uniform Method Dispatch**: All values support method calls
+5. **Shared Behavior**: Common operations defined in parent classes
+
+### 3.3.1 Class-Based Type System
+
+All types in Gene are classes. Even primitive values like integers and booleans are instances of their respective classes. This unified approach means:
 
 ```gene
-# Any - root of type hierarchy
-(type Any)  # Everything is Any
+# The Class class itself
+Class                  # The metaclass - class of all classes
+(Class .class)         # Returns Class (it's its own class)
+(Class .superclass)    # Returns Any
 
-# Void - no value
+# Any - root of the class hierarchy
+Any                    # Base class for everything
+(Any .class)           # Returns Class
+(Any .superclass)      # Returns nil (no parent)
+
+# Every value has a class
+(42 .class)            # Returns Int
+(3.14 .class)          # Returns Float
+("hello" .class)       # Returns Str
+(Int .class)           # Returns Class (Int is a class)
+
+# Type checking with classes
+(42 is Int)            # true - 42 is instance of Int
+(42 is Number)         # true - Int inherits from Number
+(42 is Any)            # true - everything is Any
+(Int is Class)         # true - Int is a class
+(Int is Any)           # true - Class inherits from Any
+
+# Class relationships
+(Int .superclass)      # Returns Number
+(Number .superclass)   # Returns Any
+(Int .ancestors)       # Returns [Int Number Any]
+
+# Void - class for no value
+(class Void extends Any)  # Built-in class
 (fn print [s :Str => :Void]
   (io/write s))
-(fn print [s :Str]    # If not specified, returns void
-  (io/write s))
 
-# Nil - singleton null value
-(var x :Nil = nil)
-(var x)     # default to nil
-(x is Nil)  # true
+# Nil - class for null value
+(class Nil extends Any)    # Built-in singleton class
+(nil .class)               # Returns Nil
+(nil is Nil)               # true
+(nil is Any)               # true
 
-# Bool
-(var flag :Bool = true)
-(var flag :Bool)      # Default to (new Bool)
-(x is Bool)
+# Bool - class for booleans
+(class Bool extends Any)   # Built-in class
+(true .class)              # Returns Bool
+(false .class)             # Returns Bool
+(true is Bool)             # true
 
-# Number - abstract base for numeric types
-(fn numeric-op [x :Number y :Number => :Number]
-  (+ x y))  # Works with Int or Float
+# Number - abstract numeric class
+(abstract class Number extends Any
+  (.fn + [other :Number => :Number])  # Abstract
+  (.fn - [other :Number => :Number])  # Abstract
+  (.fn * [other :Number => :Number])  # Abstract
+  (.fn / [other :Number => :Number])  # Abstract
+  (.fn abs [] => :Number)              # Concrete
+  (.fn to_str [] => :Str))             # Concrete
 
-# Int - 48-bit signed integer
-(var count :Int = 42)
-(x is Int)
-(Int/MAX)  # 140737488355327
-(Int/MIN)  # -140737488355328
+# Int - integer class
+(class Int extends Number
+  # Class constants
+  (.const MAX 140737488355327)   # 48-bit max
+  (.const MIN -140737488355328)  # 48-bit min
 
-# Float - 64-bit IEEE 754
-(var pi :Float = 3.14159)
-(x is Float)
-(Float/INFINITY)
-(Float/NAN)
+  # Instance methods (inherited + specific)
+  (.fn + [other :Number => :Number] ...)
+  (.fn mod [other :Int => :Int] ...)
+  (.fn bit_and [other :Int => :Int] ...))
 
-# Char - Unicode character
-(var c :Char = 'A')
-(var emoji :Char = '😊')
-(c .code)  # 65
+# Float - floating point class
+(class Float extends Number
+  (.const INFINITY ...)
+  (.const NAN ...)
+  (.const EPSILON ...)
 
-# Str - UTF-8 string
-(var name :Str = "Gene")
-# Small string optimization for ≤ 6 bytes
+  (.fn + [other :Number => :Number] ...)
+  (.fn sqrt [] => :Float] ...)
+  (.fn floor [] => :Int] ...))
 
-# Symbol - interned identifier
-(var sym :Symbol = 'foo)
-(new Symbol "dynamic-" "symbol")  # Create dynamically
+# Char - character class
+(class Char extends Any
+  (.fn code [] => :Int)        # Get Unicode codepoint
+  (.fn to_str [] => :Str)      # Convert to string
+  (.fn is_digit? [] => :Bool)  # Check if digit
+  (.fn is_alpha? [] => :Bool)) # Check if alphabetic
 
-# ComplexSymbol - namespace-qualified symbol
-(var cs :ComplexSymbol = myapp/utils/helper)
+('A' .class)           # Returns Char
+('A' .code)            # Returns 65
+('😊' is Char)         # true
 
-# Map - key-value collection
-(var m :Map = {^a 1 ^b 2})
-(var m2 :(Map Str Int) = {"a" 1 "b" 2})
+# Str - string class
+(class Str extends Any implements Comparable
+  (.fn length [] => :Int)
+  (.fn chars [] => :(Array Char))
+  (.fn + [other :Str => :Str])       # Concatenation
+  (.fn substr [start :Int len :Int => :Str])
+  (.fn compare [other :Str => :Int]))  # For Comparable
 
-# Array - indexed collection
-(var arr :Array = [1 2 3])
-(var arr2 :(Array Int) = [1 2 3])
+("hello" .class)       # Returns Str
+("hello" .length)      # Returns 5
+("hello" is Comparable) # true (Str implements Comparable)
 
-# Set - unique values
-(var s :Set = #{1 2 3})
-(var s2 :(Set Str) = #{"a" "b" "c"})
+# Symbol - symbol class
+(class Symbol extends Any
+  (.fn to_str [] => :Str)
+  (.fn namespace [] => :(Optional Str)))
 
-# Gene - generic container
-(var g :Gene = (div ^class "main" "Hello"))
-(g .head)         # 'div
-(g .props)    # {^class "main"}
-(g .children) # ["Hello"]
+('foo .class)          # Returns Symbol
+(foo is Symbol)        # true (when foo is unquoted symbol)
 
-# Fn - function type
-(var f :Fn = (fnx [x] (* x 2)))
-(var f2 :(Fn Int Int) = (fnx [x :Int => :Int] (* x 2)))
+# Collection - abstract collection class
+(abstract class Collection extends Any
+  (.fn length [] => :Int)
+  (.fn empty? [] => :Bool]
+    (== (.length) 0))
+  (.fn contains? [item :Any => :Bool]))
+
+# Array - array class
+(class Array extends Collection
+  (.fn get [index :Int => :Any])
+  (.fn set [index :Int value :Any => :Void])
+  (.fn push [item :Any => :Void])
+  (.fn map [f :Fn => :Array]))
+
+([1 2 3] .class)       # Returns Array
+([1 2 3] is Collection) # true
+([1 2 3] .length)      # Returns 3
+
+# Map - map class
+(class Map extends Collection
+  (.fn get [key :Any => :Any])
+  (.fn set [key :Any value :Any => :Void])
+  (.fn keys [] => :Array)
+  (.fn values [] => :Array))
+
+({^a 1} .class)        # Returns Map
+({^a 1} is Collection) # true
+
+# Gene - the Gene expression class
+(class Gene extends Any
+  (.fn head [] => :Any)        # Get head symbol
+  (.fn props [] => :Map)       # Get properties
+  (.fn children [] => :Array)) # Get children
+
+# Fn - function class (unified functions and methods)
+(class Fn extends Any
+  (.fn arity [] => :Int)       # Number of parameters
+  (.fn call [&args => :Any])   # Invoke function
+  (.fn partial [&args => :Fn]) # Partial application
+  (.fn bind [obj :Any => :Fn]) # Bind first arg (for method conversion)
+  (.fn name [] => :Str)        # Function name
+  (.fn params [] => :Array))   # Parameter metadata
+
+# All functions are Fn instances
+((fnx [x] x) .class)   # Returns Fn
+(+ .class)             # Returns Fn (+ is a function)
+(Point/distance .class) # Returns Fn (methods are functions)
+
+# Functions and methods are distinct but related
+(var f = (fnx [x y] (+ x y)))
+(f 2 3)                # Function call: 5
+# (2 .f 3)             # ERROR: f is not a method of Int
+
+# But methods can be used as functions
+(var plus = Int/+)     # Extract + method from Int
+(plus 2 3)             # 5 - method used as function
 
 # FFI Types - for C interoperability
 (var ptr :CPtr = (c-malloc 100))     # Raw C pointer
@@ -395,7 +534,102 @@ Any                    # Root type - all values are Any
 (var f32 :Float32)           # 32-bit float
 ```
 
-### 3.3.2 Type Constructors
+### 3.3.2 Metaclasses and Class Methods
+
+Since classes are objects (instances of `Class`), they can have their own methods (class methods) and properties:
+
+```gene
+# Class methods on built-in classes
+(Int .parse "42")              # Returns 42
+(Float .parse "3.14")          # Returns 3.14
+(Str .from_chars ['h' 'i'])    # Returns "hi"
+(Array .new 10)                # Creates array with capacity 10
+
+# The Class class has methods too
+(Class .new "DynamicClass" Any)  # Create class at runtime
+(Int .methods)                    # List all methods
+(Int .instance_methods)           # List instance methods
+(Int .class_methods)              # List class methods
+
+# Metaclass hierarchy
+(42 .class)                    # Int
+(Int .class)                   # Class
+(Class .class)                 # Class (it's its own class)
+
+# Every class is an instance of Class
+(Int is Class)                 # true
+(Float is Class)               # true
+(MyCustomClass is Class)       # true
+(Class is Class)               # true
+
+# But Class is also a subclass of Any
+(Class .superclass)            # Any
+(Class is Any)                 # true
+```
+
+### 3.3.3 Common Methods from Any
+
+All objects inherit these methods from the `Any` class:
+
+```gene
+(class Any
+  # Identity and type
+  (.fn class [] => :Class)           # Get the object's class
+  (.fn is? [type :Class => :Bool])   # Type check
+  (.fn hash [] => :Int)              # Hash code
+  (.fn equals [other :Any => :Bool]) # Equality
+
+  # String representation
+  (.fn to_str [] => :Str)            # Convert to string
+  (.fn inspect [] => :Str)           # Debug representation
+
+  # Method dispatch
+  (.fn send [method :Symbol &args => :Any])  # Dynamic dispatch
+  (.fn responds_to? [method :Symbol => :Bool])
+
+  # Cloning
+  (.fn clone [] => :Any)             # Shallow copy
+  (.fn deep_clone [] => :Any))       # Deep copy
+
+# Examples
+(42 .to_str)                   # "42"
+(42 .class)                    # Int
+(42 .is? Number)               # true
+(42 .send '+ 8)                # 50
+(42 .responds_to? 'sqrt)       # false
+```
+
+### 3.3.4 Primitive Values as Objects
+
+Even though primitive types like integers and floats are classes, Gene optimizes their representation for performance:
+
+```gene
+# Primitive values are still objects
+(42 .class)                    # Int
+(42 .to_str)                   # "42"
+(42 .+ 8)                      # 50 (method call syntax)
+(42 + 8)                       # 50 (operator syntax - same thing)
+
+# But they're optimized internally
+# - Integers use NaN-boxing (48-bit values)
+# - Floats use IEEE 754 representation
+# - Small strings use inline storage
+# - Method calls on primitives are optimized/inlined
+
+# Boxing happens transparently when needed
+(var obj :Any = 42)            # 42 is treated as object
+(obj .class)                   # Int
+(obj .+ 8)                     # 50
+
+# Literals create instances
+42                             # Creates instance of Int
+3.14                           # Creates instance of Float
+"hello"                        # Creates instance of Str
+true                           # Creates instance of Bool
+nil                            # The singleton instance of Nil
+```
+
+### 3.3.5 Type Constructors
 
 ```gene
 # Parameterized types
@@ -1084,18 +1318,64 @@ In Gene, all constructs return values:
 
 # Chapter 6: Functions and Closures
 
-## 6.1 Function Definition
+## 6.1 Unified Functions and Methods
 
-Functions are first-class values in Gene:
+In Gene, **functions and methods are unified at the type level** - both are instances of the `Fn` class. However, they have distinct calling conventions:
+
+- All functions and methods are instances of the `Fn` class
+- Methods are functions with an implicit `self` parameter
+- Method calls `(obj .method)` only resolve to methods in the class hierarchy
+- Functions must be explicitly added to a class to be used as methods
+- Methods can be extracted from classes and used as standalone functions
+
+### Core Principles:
+
+1. **Functions are objects**: Every function is an instance of `Fn`
+2. **Methods are functions**: Methods are functions with an implicit `self` parameter
+3. **Clear separation**: Method calls only resolve to methods, not standalone functions
+4. **Extraction allowed**: Methods can be extracted and used as functions
 
 ```gene
 # Basic function
 (fn add [x y]
   (+ x y))
 
-# With type annotations
+# Function call only:
+(add 2 3)                   # Function call: 5
+# (2 .add 3)                # ERROR: add is not a method of Int
+
+# Built-in arithmetic methods work differently:
+(2 .+ 3)                    # 5 - because + is a method of Number class
+(2 + 3)                     # 5 - operator syntax (sugar for method call)
+
+# Method definition in a class
+(class Point
+  (.fn distance [other :Point => :Float]
+    (math/sqrt (+ (** (- other/x /x) 2)
+                  (** (- other/y /y) 2)))))
+
+# Is equivalent to:
+(class Point
+  # Function with explicit self
+  (fn distance [self :Point other :Point => :Float]
+    (math/sqrt (+ (** (- other/x self/x) 2)
+                  (** (- other/y self/y) 2)))))
+
+# Both can be called as:
+(p1 .distance p2)           # Method syntax
+(distance p1 p2)            # Function syntax (if in scope)
+```
+
+### Function Definition Syntax:
+
+```gene
+# Standalone function
 (fn add [x :Int y :Int => :Int]
   (+ x y))
+
+# Method using .fn (adds implicit self)
+(.fn add [y :Int => :Int]
+  (+ self y))
 
 # Generic function
 (fn identity ^^T [x :T => :T]
@@ -1110,7 +1390,58 @@ Functions are first-class values in Gene:
   (new Str greeting " " name))
 ```
 
-## 6.2 Anonymous Functions
+## 6.2 Unified Calling Conventions
+
+The unification of functions and methods enables flexible calling patterns:
+
+```gene
+# Define a function
+(fn multiply [x :Number y :Number => :Number]
+  (* x y))
+
+# Call as function
+(multiply 3 4)              # 12
+
+# Cannot call function as method - this would error!
+# (3 .multiply 4)          # ERROR: multiply not found in Int class
+
+# Must use function syntax
+(multiply 3 4)             # 12 - correct way
+
+# Methods can be extracted as functions
+(var dist-fn = Point/distance)  # Get method as function
+(dist-fn p1 p2)                 # Call it as function
+
+# To use a function as a method, you must add it to the class
+(class-extension Int
+  # Add a function as a method
+  (.fn double [] (* self 2)))
+
+(5 .double)                 # 10 - now it works!
+
+# Partial application creates a new function
+(var add5 = (add .partial 5))   # Partial application
+(add5 3)                        # 8 - function call
+# (3 .add5)                      # ERROR: add5 not a method of Int
+```
+
+### Method Resolution:
+
+When you write `(obj .method args)`, Gene:
+1. Looks for `method` in `obj`'s class hierarchy
+2. If found, calls it with `obj` as the implicit `self`
+3. If not found, raises a "method not found" error
+
+**Important**: Method calls `(obj .method)` only search for methods defined in the class hierarchy. They do NOT search for standalone functions. To call a function with an object as the first argument, use the function call syntax: `(function obj args)`.
+
+This clear separation ensures:
+- Predictable method resolution
+- No unexpected function shadowing
+- Clear distinction between OO and functional styles
+
+## 6.3 Anonymous Functions
+
+Anonymous functions work the same way and can be used as methods:
 
 ```gene
 # Lambda syntax
@@ -1119,14 +1450,19 @@ Functions are first-class values in Gene:
 # With types
 (fnx [x :Int => :Int] (* x 2))
 
+# Anonymous functions are still just functions
+(var doubler = (fnx [x] (* x 2)))
+(doubler 5)                 # 10 - function call
+# (5 .doubler)              # ERROR: doubler is not a method
+
 # Shorthand syntax (future feature)
 #(* % 2)              # % is implicit parameter
 #(+ %1 %2)            # Multiple parameters
 ```
 
-## 6.3 Closures
+## 6.4 Closures
 
-Functions capture their lexical environment:
+Functions capture their lexical environment, and this works uniformly whether called as functions or methods:
 
 ```gene
 (fn make-counter [initial :Int]
@@ -1188,7 +1524,11 @@ Methods are functions with special dispatch:
 
 # Chapter 7: Object-Oriented Programming
 
+Gene's object system is built on the unified class hierarchy described in Chapter 3, where everything is an object and every type is a class. This chapter covers how to define your own classes and work with the object system.
+
 ## 7.1 Classes
+
+In Gene's unified type system, user-defined classes integrate seamlessly with built-in classes:
 
 ```gene
 # Basic class
@@ -1202,10 +1542,15 @@ Methods are functions with special dispatch:
     (/x = x)
     (/y = y))
 
-  # Methods
+  # Methods - using .fn adds implicit self parameter
   (.fn distance [other :Point => :Float]
     (math/sqrt (+ (** (- other/x /x) 2)
                   (** (- other/y /y) 2))))
+
+  # Alternative: explicit self (same effect)
+  (fn distance-explicit [self :Point other :Point => :Float]
+    (math/sqrt (+ (** (- other/x self/x) 2)
+                  (** (- other/y self/y) 2))))
 
   # Properties (getters/setters)
   (.get magnitude []
@@ -1214,17 +1559,110 @@ Methods are functions with special dispatch:
   (.set magnitude [m :Float]
     (var scale = (/ m /magnitude))
     (/x = (* /x scale))
-    (/y = (* /y scale))))
+    (/y = (* /y scale)))
+  
+  # Macro method for DSL-like syntax
+  (.macro move-by [dx dy]
+    (/x = (+ /x dx))     # dx/dy evaluated in caller's context
+    (/y = (+ /y dy))
+    self))
 
 # Instantiation
 (var p = (new Point 3.0 4.0))
 (var p2 = (Point 3.0 4.0))  # new is optional
+
+# User classes are part of the hierarchy
+(p .class)                  # Point
+(Point .class)              # Class
+(Point .superclass)         # Any (default parent)
+(p is Point)                # true
+(p is Any)                  # true
+(Point is Class)            # true
+
+# Using macro methods - lazy evaluation
+(var step 5)
+(p .move-by step (* step 2))  # step evaluated when macro runs
+# Equivalent to: (/x = (+ /x 5)), (/y = (+ /y 10))
+```
+
+### Class Definition in the Unified System
+
+```gene
+# All classes inherit from Any by default
+(class Person)              # Implicitly: extends Any
+
+# Check the class hierarchy
+(Person .superclass)        # Any
+(Person .ancestors)         # [Person Any]
+(Person is Class)           # true
+(Person is Any)             # true
+
+# Create instances
+(var john = (Person))
+(john .class)               # Person
+(john is Person)            # true
+(john is Any)               # true
+
+# Built-in classes work the same way
+(42 .class)                 # Int
+(Int .superclass)           # Number
+(Int is Class)              # true
+```
+
+### Unified Functions and Methods in Classes
+
+In Gene's unified system, methods are just functions associated with a class. This provides flexibility in how you define and use them:
+
+```gene
+(class Calculator
+  # Method using .fn (implicit self)
+  (.fn add [x :Number => :Number]
+    (+ self x))
+
+  # Function with explicit self (same as above)
+  (fn multiply [self :Number x :Number => :Number]
+    (* self x))
+
+  # Static method (no self parameter)
+  (fn pi [] => :Float
+    3.14159))
+
+# Usage - all these work:
+(var calc = (Calculator))
+(calc .add 5)               # Method call
+(add calc 5)                # Function call (if in scope)
+
+# Extract method as function
+(var add-fn = Calculator/add)
+(add-fn calc 5)             # Call as function
+
+# Standalone functions are NOT automatically methods
+(fn double [x :Number => :Number] (* x 2))
+(double 5)                  # 10 - function call
+# (5 .double)               # ERROR: double is not a method of Int
+
+# To make it a method, add it to the class:
+(class-extension Int
+  (.fn double [] (* self 2)))
+(5 .double)                 # Now it works!
 ```
 
 ## 7.2 Inheritance
 
+Since all types are classes in Gene's unified system, user-defined classes can even inherit from built-in classes (with some restrictions):
+
 ```gene
-# Single inheritance
+# Inherit from built-in collection class
+(class Stack extends Array
+  (.fn push [item :Any]
+    (super .push item))
+
+  (.fn pop []
+    (if (.empty?)
+      (error "Stack underflow")
+      (super .pop))))
+
+# Single inheritance from user class
 (class Circle extends Shape
   (.prop radius Float)
 
@@ -1881,16 +2319,70 @@ Pseudo macros are a unique metaprogramming feature that provides lazy evaluation
 (macro when [condition body]
   (if condition body nil))
 
+# Class-based macro with .macro (implicit self)
+(class QueryBuilder
+  (.macro where [condition]
+    (.add-condition self condition)  # self is implicit
+    self)  # Return self for chaining
+  
+  (.macro select [fields...]
+    (/fields = fields)  # Access self's properties
+    self))
+
 # Usage - arguments not evaluated until needed
 (var x 0)
 (when (> x 5)           ;; This comparison not evaluated immediately
   (print "x is large")) ;; This print not evaluated immediately
 
-# The macro body evaluates 'condition' and 'body' on demand
-# in the caller's context where x is visible
+# Using class macros
+(var query (QueryBuilder))
+(query .where (> age 18)     # Condition not evaluated yet
+       .select name email)    # Fields captured as symbols
+
+# The macro body evaluates arguments on demand
+# in the caller's context where variables are visible
 ```
 
-### 11.1.2 Advanced Examples
+### 11.1.2 Method Macros with .macro
+
+Just like `.fn` adds an implicit `self` parameter to functions, `.macro` adds an implicit `self` parameter to macros:
+
+```gene
+# Standalone macro
+(macro log [level message]
+  (when (>= level *log-level*)
+    (print (timestamp) level message)))
+
+# Method macro with implicit self
+(class DSL
+  (.macro rule [name body]
+    # self is implicitly available
+    (.add-rule self name body)
+    self)
+  
+  (.macro when [condition action]
+    # Can access self's properties
+    (/conditions = (cons [condition action] /conditions))
+    self))
+
+# Usage shows the difference
+(log :info "Starting")              # Standalone macro
+
+(var dsl (DSL))
+(dsl .rule 'validate-age           # Method macro - self is dsl
+     (when (< age 18)
+           (error "Too young"))
+     .rule 'validate-email          # Chaining works
+     (when (not (valid-email? email))
+           (error "Invalid email")))
+
+# .macro vs macro:
+# - macro: defines standalone macro
+# - .macro: defines method macro with implicit self
+# - Both have lazy evaluation of arguments
+```
+
+### 11.1.3 Advanced Examples
 
 ```gene
 # Conditional execution with multiple statements
