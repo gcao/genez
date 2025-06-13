@@ -1,4 +1,6 @@
-(class Point 
+#!/usr/bin/env gene run
+
+(class Point
   (.prop x)
   (.prop y)
 

@@ -54,6 +54,12 @@ pub const VM = struct {
     next_free_register: u16, // Next available register for allocation
     allocated_functions: std.ArrayList(*bytecode.Function), // Track allocated function objects for cleanup
     function_called: bool, // Flag to indicate if a function was just called
+    constructor_called: bool, // Flag to indicate if a constructor was just called
+    object_pool: std.ArrayList(*types.ObjectInstance), // Object pool for reference semantics
+    next_object_id: u32, // Next available object ID
+    allocated_classes: std.ArrayList(*types.ClassDefinition), // Track allocated class objects for cleanup
+    metaclass: ?*types.ClassDefinition, // The Class metaclass
+    any_class: ?*types.ClassDefinition, // The Any root class
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
 
@@ -100,7 +106,7 @@ pub const VM = struct {
         variables.put("len", .{ .BuiltinOperator = .Len }) catch unreachable;
         variables.put("type", .{ .BuiltinOperator = .Type }) catch unreachable;
 
-        return VM{
+        var vm = VM{
             .allocator = allocator,
             .stdout = stdout,
             .registers = std.ArrayList(types.Value).init(allocator),
@@ -112,7 +118,18 @@ pub const VM = struct {
             .next_free_register = 0,
             .allocated_functions = std.ArrayList(*bytecode.Function).init(allocator),
             .function_called = false,
+            .constructor_called = false,
+            .object_pool = std.ArrayList(*types.ObjectInstance).init(allocator),
+            .next_object_id = 0,
+            .allocated_classes = std.ArrayList(*types.ClassDefinition).init(allocator),
+            .metaclass = null,
+            .any_class = null,
         };
+
+        // Initialize the metaclass system
+        vm.initMetaclassSystem() catch unreachable;
+
+        return vm;
     }
 
     pub fn deinit(self: *VM) void {
@@ -137,12 +154,58 @@ pub const VM = struct {
         }
         self.variables.deinit();
 
+        // Clean up object pool
+        for (self.object_pool.items) |obj| {
+            obj.deinit();
+            self.allocator.destroy(obj);
+        }
+        self.object_pool.deinit();
+
+        // Clean up allocated classes
+        for (self.allocated_classes.items) |class| {
+            class.deinit();
+            self.allocator.destroy(class);
+        }
+        self.allocated_classes.deinit();
+
         // Clean up current function if it exists
         // Note: We don't deinit the function itself as it's owned by the caller
         // or has already been cleaned up as part of the stack or variables
         self.current_func = null;
     }
 
+    pub fn getObjectById(self: *VM, id: u32) ?*types.ObjectInstance {
+        for (self.object_pool.items) |obj| {
+            if (obj.id == id) return obj;
+        }
+        return null;
+    }
+
+    fn initMetaclassSystem(self: *VM) !void {
+        // Create the Class metaclass
+        const metaclass = try self.allocator.create(types.ClassDefinition);
+        metaclass.* = types.ClassDefinition.init(self.allocator, try self.allocator.dupe(u8, "Class"));
+        metaclass.parent = null; // Class has no parent
+        try self.allocated_classes.append(metaclass);
+        self.metaclass = metaclass;
+
+        // Add Class methods: .prop, .ctor, .fn, .macro
+        // These will be implemented as special built-in functions
+        try self.variables.put("Class", .{ .Class = metaclass });
+
+        // Create the Any class (instance of Class, root of type hierarchy)
+        const any_class = try self.allocator.create(types.ClassDefinition);
+        any_class.* = types.ClassDefinition.init(self.allocator, try self.allocator.dupe(u8, "Any"));
+        any_class.parent = null; // Any is the root, no parent
+        try self.allocated_classes.append(any_class);
+        self.any_class = any_class;
+
+        try self.variables.put("Any", .{ .Class = any_class });
+
+        // TODO: Add methods to Class for defining classes
+        // For now, we'll handle .prop, .ctor, .fn, .macro in the parser/compiler
+    }
+    
     pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
         try self.variables.put(name, value);
     }
@@ -197,6 +260,7 @@ pub const VM = struct {
             // Execute the current instruction
             const instruction = executing_func.instructions.items[self.pc];
             self.function_called = false; // Reset the flag
+            // constructor_called is reset in Return instruction handler
             try self.executeInstruction(instruction);
 
             // Only increment PC if a function wasn't called
@@ -705,7 +769,13 @@ pub const VM = struct {
                     .Variable => |var_val| try self.stdout.print("Variable: {s}\n", .{var_val.name}),
                     .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}\n", .{op}),
                     .Class => |class| try self.stdout.print("Class: {s}\n", .{class.name}),
-                    .Object => |obj| try self.stdout.print("Object of {s}\n", .{obj.class.name}),
+                    .Object => |obj_id| {
+                        if (self.getObjectById(obj_id)) |obj| {
+                            try self.stdout.print("Object of {s}\n", .{obj.class.name});
+                        } else {
+                            try self.stdout.print("Object(invalid ID: {})\n", .{obj_id});
+                        }
+                    },
                 }
             },
             .Call => {
@@ -757,7 +827,13 @@ pub const VM = struct {
                                 .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
                                 .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}", .{op}),
                                 .Class => |class| try self.stdout.print("Class: {s}", .{class.name}),
-                                .Object => |obj| try self.stdout.print("Object of {s}", .{obj.class.name}),
+                                .Object => |obj_id| {
+                                    if (self.getObjectById(obj_id)) |obj| {
+                                        try self.stdout.print("Object of {s}", .{obj.class.name});
+                                    } else {
+                                        try self.stdout.print("Object(invalid ID: {})", .{obj_id});
+                                    }
+                                },
                             }
 
                             // Add space between arguments except for the last one
@@ -1031,7 +1107,13 @@ pub const VM = struct {
                                 .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
                                 .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}", .{op}),
                                 .Class => |class| try self.stdout.print("Class: {s}", .{class.name}),
-                                .Object => |obj| try self.stdout.print("Object of {s}", .{obj.class.name}),
+                                .Object => |obj_id| {
+                                    if (self.getObjectById(obj_id)) |obj| {
+                                        try self.stdout.print("Object of {s}", .{obj.class.name});
+                                    } else {
+                                        try self.stdout.print("Object(invalid ID: {})", .{obj_id});
+                                    }
+                                },
                             }
 
                             // Add space between arguments except for the last one
@@ -1144,8 +1226,17 @@ pub const VM = struct {
 
                     // Store return value in the destination register of the calling context
                     if (return_value) |ret_val| {
-                        debug.log("Storing return value in R{}: {any}", .{ frame.return_reg, ret_val });
-                        try self.setRegister(frame.return_reg, ret_val);
+                        // Check if we're returning from a constructor
+                        if (self.constructor_called) {
+                            debug.log("Returning from constructor, ignoring return value", .{});
+                            self.constructor_called = false; // Reset the flag
+                        } else {
+                            debug.log("Storing return value in R{}: {any}", .{ frame.return_reg, ret_val });
+                            if (frame.caller_func) |caller| {
+                                debug.log("Caller was: {s}", .{caller.name});
+                            }
+                            try self.setRegister(frame.return_reg, ret_val);
+                        }
                     }
 
                     debug.log("Restored call frame: pc={}, base={}", .{ self.pc, self.current_register_base });
@@ -1232,8 +1323,8 @@ pub const VM = struct {
                 const class_reg = instruction.src1 orelse return error.InvalidInstruction;
                 
                 // Get the class
-                var class_val = try self.getRegister(class_reg);
-                defer class_val.deinit(self.allocator);
+                const class_val = try self.getRegister(class_reg);
+                // Don't defer deinit for class values as they are shared
                 
                 if (class_val != .Class) {
                     debug.log("New instruction requires a Class, got {}", .{class_val});
@@ -1244,7 +1335,12 @@ pub const VM = struct {
                 
                 // Create the object instance
                 var obj = try self.allocator.create(types.ObjectInstance);
-                obj.* = types.ObjectInstance.init(self.allocator, class);
+                const obj_id = self.next_object_id;
+                self.next_object_id += 1;
+                obj.* = types.ObjectInstance.init(self.allocator, class, obj_id);
+                
+                // Add to object pool
+                try self.object_pool.append(obj);
                 
                 // Initialize fields with default values
                 var field_iter = class.fields.iterator();
@@ -1257,8 +1353,75 @@ pub const VM = struct {
                     }
                 }
                 
-                try self.setRegister(dst_reg, .{ .Object = obj });
+                try self.setRegister(dst_reg, .{ .Object = obj_id });
                 debug.log("Created instance of class {s} in R{}", .{ class.name, dst_reg });
+                
+                // Check if there's a constructor to call
+                // Constructor is named ClassName_init
+                const ctor_name = try std.fmt.allocPrint(self.allocator, "{s}_init", .{class.name});
+                defer self.allocator.free(ctor_name);
+                
+                // std.debug.print("Looking for constructor: {s}\n", .{ctor_name});
+                // std.debug.print("Class has {} methods\n", .{class.methods.count()});
+                // var method_iter = class.methods.iterator();
+                // while (method_iter.next()) |entry| {
+                //     std.debug.print("  Method: {s}\n", .{entry.key_ptr.*});
+                // }
+                
+                if (class.methods.get(ctor_name)) |ctor_method| {
+                    debug.log("Found constructor {s} in class {s}, calling it", .{ctor_name, class.name});
+                    
+                    // Get number of constructor arguments from immediate value
+                    const arg_count: usize = if (instruction.immediate) |imm| blk: {
+                        if (imm == .Int) break :blk @intCast(imm.Int);
+                        break :blk 0;
+                    } else 0;
+                    
+                    // Set up new call frame for the constructor
+                    const new_register_base = self.next_free_register;
+                    const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
+                    try self.call_frames.append(frame);
+                    
+                    // Allocate registers for the constructor (self + parameters + locals)
+                    const needed_regs = @as(u16, @intCast(ctor_method.param_count + ctor_method.register_count));
+                    const allocated_base = try self.allocateRegisters(needed_regs);
+                    
+                    // Set 'self' as first parameter (the newly created object)
+                    const self_value = types.Value{ .Object = obj_id };
+                    debug.log("Setting self (object ID {}) in register {}", .{ obj_id, allocated_base });
+                    // Directly store 'self' into the absolute register of the new frame
+                    while (allocated_base >= self.registers.items.len) {
+                        try self.registers.append(.{ .Nil = {} });
+                    }
+                    self.registers.items[allocated_base].deinit(self.allocator);
+                    self.registers.items[allocated_base] = self_value;
+                    
+                    // Copy constructor arguments to parameter registers (after 'self')
+                    for (0..arg_count) |i| {
+                        const arg_reg = class_reg + 1 + @as(u16, @intCast(i));
+                        const arg = try self.getRegister(arg_reg);
+                        const dest_reg = allocated_base + 1 + @as(u16, @intCast(i));
+                        // Directly store argument into the absolute register of the new frame
+                        while (dest_reg >= self.registers.items.len) {
+                            try self.registers.append(.{ .Nil = {} });
+                        }
+                        self.registers.items[dest_reg].deinit(self.allocator);
+                        self.registers.items[dest_reg] = arg;
+                    }
+                    
+                    // Switch to the constructor
+                    self.current_func = ctor_method;
+                    self.pc = 0;
+                    self.current_register_base = allocated_base;
+                    self.function_called = true;
+                    
+                    debug.log("Called constructor with {} args, self is object ID {}", .{ arg_count, obj_id });
+                    
+                    // Mark that we called a constructor - we need to ignore its return value
+                    self.constructor_called = true;
+                } else {
+                    debug.log("No constructor found for class {s}", .{class.name});
+                }
             },
             .GetField => {
                 // Get object field: GetField Rd, obj_reg, field_name
@@ -1274,7 +1437,10 @@ pub const VM = struct {
                     return error.TypeMismatch;
                 }
                 
-                const obj = obj_val.Object;
+                const obj = self.getObjectById(obj_val.Object) orelse {
+                    debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                    return error.InvalidInstruction;
+                };
                 
                 if (obj.fields.get(field_name)) |field_value| {
                     try self.setRegister(dst_reg, try field_value.clone(self.allocator));
@@ -1298,7 +1464,10 @@ pub const VM = struct {
                     return error.TypeMismatch;
                 }
                 
-                const obj = obj_val.Object;
+                const obj = self.getObjectById(obj_val.Object) orelse {
+                    debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                    return error.InvalidInstruction;
+                };
                 
                 var value = try self.getRegister(value_reg);
                 defer value.deinit(self.allocator);
@@ -1329,9 +1498,20 @@ pub const VM = struct {
                     return error.TypeMismatch;
                 }
                 
-                const obj = obj_val.Object;
+                const obj = self.getObjectById(obj_val.Object) orelse {
+                    debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                    return error.InvalidInstruction;
+                };
                 
                 // Look up the method in the class
+                debug.log("Looking for method {s} in class {s}", .{ method_name, obj.class.name });
+                debug.log("Class has {} methods", .{obj.class.methods.count()});
+                var method_iter = obj.class.methods.iterator();
+                while (method_iter.next()) |entry| {
+                    debug.log("  Method: {s}", .{entry.key_ptr.*});
+                }
+                
+                // First check if method is in the class
                 if (obj.class.methods.get(method_name)) |method| {
                     debug.log("Calling method {s} on object of class {s}", .{ method_name, obj.class.name });
                     
@@ -1372,7 +1552,57 @@ pub const VM = struct {
                     self.current_register_base = allocated_base;
                     self.function_called = true;
                 } else {
-                    debug.log("Method {s} not found on class {s}", .{ method_name, obj.class.name });
+                    // Try to find a function with the pattern ClassName_methodName
+                    const func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ obj.class.name, method_name });
+                    defer self.allocator.free(func_name);
+                    
+                    debug.log("Method {s} not found in class, looking for function {s}", .{ method_name, func_name });
+                    
+                    if (self.variables.get(func_name)) |func_val| {
+                        if (func_val == .Function) {
+                            const func = func_val.Function;
+                            debug.log("Found function {s} as method implementation", .{func_name});
+                            
+                            // Set up call similar to regular function call but with object as first argument
+                            const new_register_base = self.next_free_register;
+                            const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
+                            try self.call_frames.append(frame);
+                            
+                            // Allocate registers for the function (self + parameters + locals)
+                            const needed_regs = @as(u16, @intCast(func.param_count + func.register_count));
+                            const allocated_base = try self.allocateRegisters(needed_regs);
+                            
+                            // Set object as first parameter (self)
+                            const self_value = try obj_val.clone(self.allocator);
+                            while (allocated_base >= self.registers.items.len) {
+                                try self.registers.append(.{ .Nil = {} });
+                            }
+                            self.registers.items[allocated_base].deinit(self.allocator);
+                            self.registers.items[allocated_base] = self_value;
+                            
+                            // Copy arguments to parameter registers (after 'self')
+                            for (0..arg_count) |i| {
+                                const arg_reg = obj_reg + 1 + @as(u16, @intCast(i));
+                                const arg = try self.getRegister(arg_reg);
+                                const dest_reg = allocated_base + 1 + @as(u16, @intCast(i));
+                                while (dest_reg >= self.registers.items.len) {
+                                    try self.registers.append(.{ .Nil = {} });
+                                }
+                                self.registers.items[dest_reg].deinit(self.allocator);
+                                self.registers.items[dest_reg] = arg;
+                            }
+                            
+                            // Switch to the function
+                            self.current_func = func;
+                            self.pc = 0;
+                            self.current_register_base = allocated_base;
+                            self.next_free_register = allocated_base + needed_regs;
+                            self.function_called = true;
+                            return;
+                        }
+                    }
+                    
+                    debug.log("Method {s} not found on class {s} or as function {s}", .{ method_name, obj.class.name, func_name });
                     return error.MethodNotFound;
                 }
             },

@@ -74,7 +74,7 @@ Gene is a programming language implementation featuring a 4-stage compilation pi
 
 When modifying the compiler, always run tests and verify examples still work. The debug mode (`--debug` flag) is essential for understanding compilation pipeline behavior.
 
-When creating temporary files, use `tmp/` directory to avoid polluting the main project directory.
+When creating temporary files and .gene files for testing, use `tmp/` directory to avoid polluting the main project directory.
 
 ## Current Development Status
 

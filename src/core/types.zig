@@ -51,12 +51,14 @@ pub const ObjectInstance = struct {
     class: *ClassDefinition,
     fields: std.StringHashMap(Value),
     allocator: std.mem.Allocator,
+    id: u32, // Unique object ID for reference semantics
     
-    pub fn init(allocator: std.mem.Allocator, class: *ClassDefinition) ObjectInstance {
+    pub fn init(allocator: std.mem.Allocator, class: *ClassDefinition, id: u32) ObjectInstance {
         return .{
             .class = class,
             .fields = std.StringHashMap(Value).init(allocator),
             .allocator = allocator,
+            .id = id,
         };
     }
     
@@ -128,7 +130,7 @@ pub const Value = union(enum) {
     },
     BuiltinOperator: BuiltinOperatorType,
     Class: *ClassDefinition,
-    Object: *ObjectInstance,
+    Object: u32, // Object ID instead of pointer for reference semantics
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -157,13 +159,12 @@ pub const Value = union(enum) {
             },
             .Variable => {}, // No need to free the name as it's a string literal
             .BuiltinOperator => {},
-            .Class => |class| {
-                class.deinit();
-                allocator.destroy(class);
+            .Class => {
+                // Classes are shared and should be managed by the module/runtime
+                // Don't free them here to avoid double-free
             },
-            .Object => |obj| {
-                obj.deinit();
-                allocator.destroy(obj);
+            .Object => {
+                // Objects are managed by the VM's object pool, not freed here
             },
             else => {},
         }
@@ -220,21 +221,7 @@ pub const Value = union(enum) {
             .Variable => |var_val| Value{ .Variable = .{ .name = var_val.name } },
             .BuiltinOperator => |op| Value{ .BuiltinOperator = op },
             .Class => |class| Value{ .Class = class }, // Classes are immutable, shallow copy
-            .Object => |obj| {
-                // Deep copy object instance
-                var new_obj = try allocator.create(ObjectInstance);
-                new_obj.* = ObjectInstance.init(allocator, obj.class);
-                
-                // Copy all fields
-                var iter = obj.fields.iterator();
-                while (iter.next()) |entry| {
-                    const key = try allocator.dupe(u8, entry.key_ptr.*);
-                    const value = try entry.value_ptr.clone(allocator);
-                    try new_obj.fields.put(key, value);
-                }
-                
-                return Value{ .Object = new_obj };
-            },
+            .Object => |id| Value{ .Object = id }, // Just copy the object ID
         };
     }
 };

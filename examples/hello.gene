@@ -1,0 +1,9 @@
+#!/usr/bin/env gene run
+
+# Hello World example in Gene
+# This demonstrates basic printing
+
+(print "Hello, World!")
+
+# You can print multiple values
+(print "Gene" "Programming" "Language")

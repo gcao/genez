@@ -1,3 +1,5 @@
+#!/usr/bin/env gene run
+
 (fn test_simple_match [x]
   (match x
     (1 "one")

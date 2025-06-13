@@ -16,7 +16,9 @@
       "Bash(sed:*)",
       "Bash(cp:*)",
       "Bash(awk:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(true)"
     ],
     "deny": []
   },

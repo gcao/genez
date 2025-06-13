@@ -228,7 +228,7 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
         },
         .method_call => |method_call| {
             try writer.writeAll("(method-call ");
-            try serializeExpression(writer, method_call.instance.*, indent + 1);
+            try serializeExpression(writer, method_call.object.*, indent + 1);
             try writer.print(" \"{s}\"", .{method_call.method_name});
             for (method_call.args.items) |arg| {
                 try writer.writeAll(" ");
@@ -237,9 +237,24 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             try writer.writeAll(")");
         },
         .field_access => |field_access| {
-            try writer.writeAll("(field-access ");
-            try serializeExpression(writer, field_access.instance.*, indent + 1);
-            try writer.print(" \"{s}\")", .{field_access.field_name});
+            if (field_access.object) |obj| {
+                try serializeExpression(writer, obj.*, indent);
+                try writer.print("/{s}", .{field_access.field_name});
+            } else {
+                try writer.print("/{s}", .{field_access.field_name});
+            }
+        },
+        .field_assignment => |field_assign| {
+            try writer.writeAll("(");
+            if (field_assign.object) |obj| {
+                try serializeExpression(writer, obj.*, indent);
+                try writer.print("/{s}", .{field_assign.field_name});
+            } else {
+                try writer.print("/{s}", .{field_assign.field_name});
+            }
+            try writer.writeAll(" = ");
+            try serializeExpression(writer, field_assign.value.*, indent);
+            try writer.writeAll(")");
         },
         .match_expr => |match_expr| {
             try writer.writeAll("(match ");

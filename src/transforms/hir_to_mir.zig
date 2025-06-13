@@ -536,21 +536,15 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 try convertExpressionWithContext(block, arg.*, context);
             }
             
-            // Create the instance
-            try block.instructions.append(.{ .CreateInstance = try block.allocator.dupe(u8, inst_creation.class_name) });
-            
-            // If there's an init method, call it
-            // The init method will be called with the instance and constructor args
-            if (inst_creation.args.items.len > 0) {
-                try block.instructions.append(.{ .CallMethod = .{
-                    .method_name = try block.allocator.dupe(u8, "init"),
-                    .arg_count = inst_creation.args.items.len,
-                }});
-            }
+            // Create the instance (constructor will be called automatically)
+            try block.instructions.append(.{ .CreateInstance = .{
+                .class_name = try block.allocator.dupe(u8, inst_creation.class_name),
+                .arg_count = inst_creation.args.items.len,
+            }});
         },
         .method_call => |method_call| {
             // Evaluate the instance
-            try convertExpressionWithContext(block, method_call.instance.*, context);
+            try convertExpressionWithContext(block, method_call.object.*, context);
             
             // Evaluate method arguments
             for (method_call.args.items) |arg| {
@@ -564,11 +558,32 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             }});
         },
         .field_access => |field_access| {
-            // Evaluate the instance
-            try convertExpressionWithContext(block, field_access.instance.*, context);
+            if (field_access.object) |obj| {
+                // Evaluate the object
+                try convertExpressionWithContext(block, obj.*, context);
+            } else {
+                // No object means implicit self - load from variable 'self'
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+            }
             
             // Get the field value
             try block.instructions.append(.{ .GetField = try block.allocator.dupe(u8, field_access.field_name) });
+        },
+        .field_assignment => |field_assign| {
+            // Evaluate the object first
+            if (field_assign.object) |obj| {
+                // Evaluate the object
+                try convertExpressionWithContext(block, obj.*, context);
+            } else {
+                // No object means implicit self - load from variable 'self'
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+            }
+            
+            // Then evaluate the value to assign
+            try convertExpressionWithContext(block, field_assign.value.*, context);
+            
+            // Set the field value
+            try block.instructions.append(.{ .SetField = try block.allocator.dupe(u8, field_assign.field_name) });
         },
         .match_expr => |match_expr| {
             // Pattern matching compilation to MIR

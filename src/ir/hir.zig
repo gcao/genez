@@ -83,6 +83,7 @@ pub const HIR = struct {
         instance_creation: InstanceCreation, // Creating class instances
         method_call: MethodCall, // Calling methods on instances
         field_access: FieldAccess, // Accessing fields on instances
+        field_assignment: FieldAssignment, // Assigning fields on instances
         match_expr: *MatchExpr, // Pattern matching expression
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
@@ -109,6 +110,7 @@ pub const HIR = struct {
                 .instance_creation => |*inst_creation| inst_creation.deinit(allocator),
                 .method_call => |*method_call| method_call.deinit(allocator),
                 .field_access => |*field_access| field_access.deinit(allocator),
+                .field_assignment => |*field_assign| field_assign.deinit(allocator),
                 .match_expr => |match_ptr| {
                     match_ptr.deinit(allocator);
                     allocator.destroy(match_ptr);
@@ -399,13 +401,13 @@ pub const HIR = struct {
     };
     
     pub const MethodCall = struct {
-        instance: *Expression, // The object instance
+        object: *Expression, // The object instance
         method_name: []const u8,
         args: std.ArrayList(*Expression),
         
         pub fn deinit(self: *MethodCall, allocator: std.mem.Allocator) void {
-            self.instance.deinit(allocator);
-            allocator.destroy(self.instance);
+            self.object.deinit(allocator);
+            allocator.destroy(self.object);
             allocator.free(self.method_name);
             for (self.args.items) |arg| {
                 arg.deinit(allocator);
@@ -416,13 +418,31 @@ pub const HIR = struct {
     };
     
     pub const FieldAccess = struct {
-        instance: *Expression, // The object instance
+        object: ?*Expression, // The object instance (null for implicit self)
         field_name: []const u8,
         
         pub fn deinit(self: *FieldAccess, allocator: std.mem.Allocator) void {
-            self.instance.deinit(allocator);
-            allocator.destroy(self.instance);
+            if (self.object) |obj| {
+                obj.deinit(allocator);
+                allocator.destroy(obj);
+            }
             allocator.free(self.field_name);
+        }
+    };
+    
+    pub const FieldAssignment = struct {
+        object: ?*Expression, // The object instance (null for implicit self)
+        field_name: []const u8,
+        value: *Expression,
+        
+        pub fn deinit(self: *FieldAssignment, allocator: std.mem.Allocator) void {
+            if (self.object) |obj| {
+                obj.deinit(allocator);
+                allocator.destroy(obj);
+            }
+            allocator.free(self.field_name);
+            self.value.deinit(allocator);
+            allocator.destroy(self.value);
         }
     };
     

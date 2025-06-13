@@ -108,7 +108,7 @@ pub const MIR = struct {
                         }
                         class_def.methods.deinit();
                     },
-                    .CreateInstance => |class_name| self.allocator.free(class_name),
+                    .CreateInstance => |*inst_creation| self.allocator.free(inst_creation.class_name),
                     .GetField => |field_name| self.allocator.free(field_name),
                     .SetField => |field_name| self.allocator.free(field_name),
                     .CallMethod => |*method_call| {
@@ -148,7 +148,7 @@ pub const MIR = struct {
         Return,
         // Class-related instructions
         DefineClass: ClassDefinition,
-        CreateInstance: []const u8, // Class name
+        CreateInstance: InstanceCreation,
         GetField: []const u8, // Field name
         SetField: []const u8, // Field name
         CallMethod: MethodCall,
@@ -163,6 +163,11 @@ pub const MIR = struct {
     
     pub const MethodCall = struct {
         method_name: []const u8,
+        arg_count: usize,
+    };
+    
+    pub const InstanceCreation = struct {
+        class_name: []const u8,
         arg_count: usize,
     };
 };
