@@ -53,6 +53,8 @@ pub const TokenKind = union(enum) {
     Dot, // New: for field/method access
     Slash, // New: for field access in Gene
     Match, // New: for pattern matching
+    Macro, // New: for pseudo macro definitions
+    Percent, // New: for unquote syntax (%identifier)
 };
 
 /// Tokenize a Gene source string.
@@ -158,6 +160,11 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
                 i += 1;
                 continue;
             },
+            '%' => {
+                try tokens.append(.{ .kind = .Percent, .loc = i });
+                i += 1;
+                continue;
+            },
             else => {},
         }
 
@@ -189,7 +196,7 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
         }
 
         // Handle identifiers and keywords (including operators)
-        const ident_chars = "_!$%&*+-:<=>?@^~"; // Removed '.' and '/' as they're now separate tokens
+        const ident_chars = "_!$&*+-:<=>?@^~"; // Removed '.', '/', and '%' as they're now separate tokens
         if (std.ascii.isAlphabetic(c) or std.mem.indexOfScalar(u8, ident_chars, c) != null) {
             const start = i;
             while (i + 1 < source_to_parse.len and (std.ascii.isAlphanumeric(source_to_parse[i + 1]) or std.mem.indexOfScalar(u8, ident_chars, source_to_parse[i + 1]) != null)) : (i += 1) {}
@@ -201,6 +208,7 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             else if (std.mem.eql(u8, word, "class")) token_kind = .Class // New keyword
             else if (std.mem.eql(u8, word, "new")) token_kind = .New // New keyword
             else if (std.mem.eql(u8, word, "match")) token_kind = .Match // New keyword
+            else if (std.mem.eql(u8, word, "macro")) token_kind = .Macro // New keyword
             else if (std.mem.eql(u8, word, "true")) token_kind = .{ .Bool = true } else if (std.mem.eql(u8, word, "false")) token_kind = .{ .Bool = false } else {
                 // Store the slice directly, parser will dupe if needed
                 token_kind = .{ .Ident = word };
@@ -416,6 +424,7 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .Class => return parseClass(alloc, toks, depth + 1),
                 .New => return parseNew(alloc, toks, depth + 1),
                 .Match => return parseMatch(alloc, toks, depth + 1),
+                .Macro => return parseMacro(alloc, toks, depth + 1),
                 .Ident => {
                     // Check if this is a method call pattern (obj .method ...)
                     if (toks.len > 2 and toks[2].kind == .Dot) {
@@ -451,6 +460,20 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                     .object = null, // /field means self.field
                     .field_name = field_name,
                 }}},
+                .consumed = 2,
+            };
+        },
+        .Percent => {
+            // Parse unquote syntax %identifier
+            if (toks.len < 2) return error.UnexpectedEOF;
+            if (toks[1].kind != .Ident) return error.UnexpectedToken;
+            
+            const ident_name = toks[1].kind.Ident;
+            // Create variable name with % prefix to indicate unquote
+            const var_name = try std.fmt.allocPrint(alloc, "%{s}", .{ident_name});
+            
+            return .{
+                .node = .{ .Expression = .{ .Variable = .{ .name = var_name } } },
                 .consumed = 2,
             };
         },
@@ -990,6 +1013,95 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
     return .{
         .node = fn_node,
         .consumed = current_pos, // Total consumed tokens
+    };
+}
+
+/// Parse a Gene pseudo macro definition.
+///
+/// Ownership: The caller is responsible for freeing the returned node using `node.deinit(allocator)`
+/// unless the node is transferred to another data structure.
+///
+/// Args:
+///   alloc: The allocator to use for allocating the AST nodes.
+///   toks: The tokens to parse.
+///   depth: The current recursion depth.
+///
+/// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
+fn parseMacro(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (macro name [params] body)
+    // toks[0] is LParen, toks[1] is Macro
+    // Minimum: (macro name [params] body) -> at least 7 tokens
+    if (toks.len < 7 or toks[0].kind != .LParen or toks[1].kind != .Macro) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Macro
+
+    // Parse macro name
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedFunctionName;
+    const name_slice = toks[current_pos].kind.Ident;
+    const name_copy = try alloc.dupe(u8, name_slice);
+    current_pos += 1;
+
+    // Parse parameters
+    var params_list = std.ArrayList(ast.PseudoMacroDef.MacroParam).init(alloc);
+    errdefer params_list.deinit();
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .LBracket) return error.ExpectedRBracket;
+    current_pos += 1; // Skip '['
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+        if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
+        const param_name_slice = toks[current_pos].kind.Ident;
+        const param_name_copy = try alloc.dupe(u8, param_name_slice);
+        current_pos += 1;
+
+        // Check if this is a variadic parameter (ends with ...)
+        var is_variadic = false;
+        if (std.mem.endsWith(u8, param_name_slice, "...")) {
+            is_variadic = true;
+            // TODO: Handle variadic parameters properly
+        }
+
+        try params_list.append(.{ .name = param_name_copy, .is_variadic = is_variadic });
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
+    current_pos += 1; // Skip ']'
+
+    // Parse body - for now, parse multiple expressions as a do block
+    var body_exprs = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer body_exprs.deinit();
+    
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const expr_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += expr_result.consumed;
+        
+        const expr_ptr = try alloc.create(ast.Expression);
+        expr_ptr.* = expr_result.node.Expression;
+        try body_exprs.append(expr_ptr);
+    }
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
+    
+    // Create a do block for the body if there are multiple expressions
+    const body_ptr = try alloc.create(ast.Expression);
+    if (body_exprs.items.len == 1) {
+        body_ptr.* = body_exprs.items[0].*;
+        alloc.destroy(body_exprs.items[0]);
+    } else {
+        body_ptr.* = .{ .DoBlock = .{ .statements = try body_exprs.toOwnedSlice() } };
+    }
+
+    const params_slice = try params_list.toOwnedSlice();
+
+    return .{
+        .node = .{ .Expression = .{ .PseudoMacroDef = .{
+            .name = name_copy,
+            .params = params_slice,
+            .body = body_ptr,
+        }}},
+        .consumed = current_pos,
     };
 }
 

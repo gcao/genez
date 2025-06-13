@@ -697,17 +697,49 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 }
             };
         },
-        .PseudoMacroDef => {
-            // TODO: Implement proper HIR pseudo macro definition support
-            // For now, return an error as this feature is not yet implemented
-            std.debug.print("PseudoMacroDef not yet implemented in HIR\n", .{});
-            return error.NotImplemented;
+        .PseudoMacroDef => |macro_def| {
+            // Lower macro parameters
+            var params = try allocator.alloc(hir.HIR.MacroDef.MacroParam, macro_def.params.len);
+            for (macro_def.params, 0..) |param, i| {
+                params[i] = .{
+                    .name = try allocator.dupe(u8, param.name),
+                    .is_variadic = param.is_variadic,
+                };
+            }
+            
+            // Lower macro body
+            const body_ptr = try allocator.create(hir.HIR.Expression);
+            body_ptr.* = try lowerExpression(allocator, macro_def.body.*);
+            
+            // Create macro definition
+            const macro_ptr = try allocator.create(hir.HIR.MacroDef);
+            macro_ptr.* = .{
+                .name = try allocator.dupe(u8, macro_def.name),
+                .params = params,
+                .body = body_ptr,
+            };
+            
+            return .{ .macro_def = macro_ptr };
         },
-        .PseudoMacroCall => {
-            // TODO: Implement proper HIR pseudo macro call support
-            // For now, return an error as this feature is not yet implemented
-            std.debug.print("PseudoMacroCall not yet implemented in HIR\n", .{});
-            return error.NotImplemented;
+        .PseudoMacroCall => |macro_call| {
+            // Lower the macro expression
+            const macro_ptr = try allocator.create(hir.HIR.Expression);
+            macro_ptr.* = try lowerExpression(allocator, macro_call.macro.*);
+            
+            // Lower arguments as thunks (expressions that will be lazily evaluated)
+            var args = try allocator.alloc(*hir.HIR.Expression, macro_call.args.len);
+            for (macro_call.args, 0..) |arg, i| {
+                const arg_ptr = try allocator.create(hir.HIR.Expression);
+                arg_ptr.* = try lowerExpression(allocator, arg.expr.*);
+                args[i] = arg_ptr;
+            }
+            
+            return .{
+                .macro_call = .{
+                    .macro = macro_ptr,
+                    .args = args,
+                }
+            };
         },
         .CExternDecl => {
             // TODO: Implement proper HIR C external declaration support

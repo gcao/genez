@@ -85,6 +85,8 @@ pub const HIR = struct {
         field_access: FieldAccess, // Accessing fields on instances
         field_assignment: FieldAssignment, // Assigning fields on instances
         match_expr: *MatchExpr, // Pattern matching expression
+        macro_def: *MacroDef, // Macro definition
+        macro_call: MacroCall, // Macro call
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -115,6 +117,11 @@ pub const HIR = struct {
                     match_ptr.deinit(allocator);
                     allocator.destroy(match_ptr);
                 },
+                .macro_def => |macro_ptr| {
+                    macro_ptr.deinit(allocator);
+                    allocator.destroy(macro_ptr);
+                },
+                .macro_call => |*macro_call| macro_call.deinit(allocator),
             }
         }
     };
@@ -656,4 +663,44 @@ pub const HIR = struct {
             else => return error.UnsupportedExpression,
         }
     }
+    
+    pub const MacroDef = struct {
+        name: []const u8,
+        params: []MacroParam,
+        body: *Expression,
+        
+        pub const MacroParam = struct {
+            name: []const u8,
+            is_variadic: bool,
+            
+            pub fn deinit(self: *MacroParam, allocator: std.mem.Allocator) void {
+                allocator.free(self.name);
+            }
+        };
+        
+        pub fn deinit(self: *MacroDef, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            for (self.params) |*param| {
+                param.deinit(allocator);
+            }
+            allocator.free(self.params);
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+    };
+    
+    pub const MacroCall = struct {
+        macro: *Expression, // The macro to call
+        args: []*Expression, // Arguments (stored as thunks for lazy evaluation)
+        
+        pub fn deinit(self: *MacroCall, allocator: std.mem.Allocator) void {
+            self.macro.deinit(allocator);
+            allocator.destroy(self.macro);
+            for (self.args) |arg| {
+                arg.deinit(allocator);
+                allocator.destroy(arg);
+            }
+            allocator.free(self.args);
+        }
+    };
 };

@@ -1,0 +1,10 @@
+#!/usr/bin/env gene run
+
+(macro m [a]
+  (print "macro called with" a)
+  %a
+)
+
+(var x = 10)
+(var macro_result = (m x))
+(print "result:" macro_result)

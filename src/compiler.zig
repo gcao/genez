@@ -10,6 +10,7 @@ const mir_to_lir = @import("transforms/mir_to_lir.zig");
 const lir_to_bytecode = @import("transforms/lir_to_bytecode.zig");
 const mir_to_bytecode = @import("transforms/mir_to_bytecode.zig");
 const hir_typechecker = @import("core/hir_typechecker.zig");
+const macro_expander = @import("transforms/macro_expander.zig");
 
 pub const CompilerOptions = struct {
     debug_mode: bool = false,
@@ -36,9 +37,19 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
     // Display AST
     try debug.writeAST(nodes, "AST");
 
+    // Macro expansion
+    debug.writeMessage("\n=== Macro Expansion ===\n", .{});
+    const expanded_nodes = try macro_expander.expandMacros(ctx.allocator, nodes);
+    defer ctx.allocator.free(expanded_nodes);
+    
+    // Display expanded AST if macros were expanded
+    if (ctx.options.debug_mode) {
+        try debug.writeAST(expanded_nodes, "Expanded AST");
+    }
+
     // AST -> HIR
     debug.writeMessage("\n=== AST to HIR ===\n", .{});
-    var hir_prog = try ast_to_hir.convert(ctx.allocator, nodes);
+    var hir_prog = try ast_to_hir.convert(ctx.allocator, expanded_nodes);
     defer hir_prog.deinit();
 
     // Display HIR

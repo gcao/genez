@@ -659,6 +659,31 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 block.instructions.items[jump_index].Jump = match_end;
             }
         },
+        .macro_def => {
+            // Macro definitions are not evaluated at runtime in the traditional sense
+            // They need to be stored in the environment for later expansion
+            // For now, we'll skip them in MIR as they need special handling
+            // TODO: Implement proper macro storage and expansion
+            std.debug.print("Warning: Macro definitions not yet fully implemented in MIR\n", .{});
+            try block.instructions.append(.LoadNil);
+        },
+        .macro_call => |macro_call| {
+            // Macro calls need special handling for lazy evaluation
+            // For now, we'll evaluate them as regular function calls
+            // TODO: Implement proper lazy evaluation for macro arguments
+            std.debug.print("Warning: Macro calls not yet fully implemented in MIR (treating as regular function call)\n", .{});
+            
+            // Evaluate the macro expression
+            try convertExpressionWithContext(block, macro_call.macro.*, context);
+            
+            // Evaluate arguments (should be lazy, but for now evaluate eagerly)
+            for (macro_call.args) |arg| {
+                try convertExpressionWithContext(block, arg.*, context);
+            }
+            
+            // Call with argument count
+            try block.instructions.append(.{ .Call = @intCast(macro_call.args.len) });
+        },
     }
 }
 

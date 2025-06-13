@@ -276,6 +276,34 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             
             try writer.writeAll(")");
         },
+        .macro_def => |macro_ptr| {
+            try writer.writeAll("(macro ");
+            try writer.writeAll(macro_ptr.name);
+            
+            // Write parameters
+            try writer.writeAll(" [");
+            for (macro_ptr.params, 0..) |param, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.writeAll(param.name);
+                if (param.is_variadic) try writer.writeAll("...");
+            }
+            try writer.writeAll("] ");
+            
+            // Write body
+            try serializeExpression(writer, macro_ptr.body.*, indent + 1);
+            try writer.writeAll(")");
+        },
+        .macro_call => |macro_call| {
+            try writer.writeAll("(");
+            try serializeExpression(writer, macro_call.macro.*, indent);
+            
+            // Write arguments
+            for (macro_call.args) |arg| {
+                try writer.writeAll(" ");
+                try serializeExpression(writer, arg.*, indent);
+            }
+            try writer.writeAll(")");
+        },
     }
 }
 
