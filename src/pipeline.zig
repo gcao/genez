@@ -19,16 +19,16 @@ pub const CompiledResult = struct {
 
     pub fn deinit(self: *CompiledResult) void {
         // Clean up created functions
+        // Note: The functions themselves are allocated in the arena, so we don't destroy them
         for (self.created_functions.items) |func| {
             func.deinit();
-            self.allocator.destroy(func);
         }
         self.created_functions.deinit();
 
         // Clean up main function
         self.main_func.deinit();
 
-        // Clean up parse arena
+        // Clean up parse arena - this will free all arena-allocated memory
         self.parse_arena.deinit();
         self.allocator.destroy(self.parse_arena);
     }
@@ -41,7 +41,9 @@ pub fn compileSource(allocator: std.mem.Allocator, source: []const u8, options: 
     const nodes = parse_result.nodes;
 
     // Compile nodes to bytecode
-    const ctx = compiler.CompilationContext.init(allocator, options);
+    // Use the arena allocator for compilation to ensure consistent memory management
+    const arena_allocator = parse_result.arena.allocator();
+    const ctx = compiler.CompilationContext.init(arena_allocator, options);
     const conversion_result = try compiler.compile(ctx, nodes);
 
     return CompiledResult{

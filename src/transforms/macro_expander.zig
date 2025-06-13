@@ -115,6 +115,8 @@ fn expandExpression(allocator: std.mem.Allocator, expr: ast.Expression, env: *Ma
                         // This is a macro call!
                         // Convert arguments to MacroArg format
                         var macro_args = try allocator.alloc(ast.PseudoMacroCall.MacroArg, func_call.args.items.len);
+                        defer allocator.free(macro_args);
+                        
                         for (func_call.args.items, 0..) |arg, i| {
                             macro_args[i] = .{ .expr = arg };
                         }

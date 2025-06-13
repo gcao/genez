@@ -13,6 +13,10 @@ echo $ gene run examples/fibonacci.gene
 zig-out/bin/gene run examples/fibonacci.gene
 
 echo
+echo $ gene run examples/macro.gene
+zig-out/bin/gene run examples/macro.gene
+
+echo
 echo $ gene compile examples/default.gene
 zig-out/bin/gene compile examples/default.gene
 
