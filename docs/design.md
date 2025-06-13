@@ -19,18 +19,19 @@
 10. Memory Management
 11. Metaprogramming
 12. Error Handling
-13. Standard Library
+13. Foreign Function Interface (FFI)
+14. Standard Library
 
 **Part II: Reference Implementation**
-14. Architecture Overview
-15. Lexer and Parser
-16. IR Pipeline (HIR, MIR, LIR)
-17. Type Checker and Inference
-18. Register-Based Virtual Machine
-19. Garbage Collector
-20. JIT Compiler
-21. Runtime System
-22. Tooling and Development Environment
+15. Architecture Overview
+16. Lexer and Parser
+17. IR Pipeline (HIR, MIR, LIR)
+18. Type Checker and Inference
+19. Register-Based Virtual Machine
+20. Garbage Collector
+21. JIT Compiler
+22. Runtime System
+23. Tooling and Development Environment
 
 ---
 
@@ -293,6 +294,11 @@ Any                    # Root type - all values are Any
 ├── Atom              # Atomic reference
 ├── Chan              # Channel for concurrency
 ├── Promise           # Future value
+├── CPtr              # C pointer (for FFI)
+├── CArray            # C array (for FFI)
+├── CStruct           # C struct (for FFI)
+├── CUnion            # C union (for FFI)
+├── CFn               # C function pointer (for FFI)
 └── ...               # User-defined types
 ```
 
@@ -371,6 +377,22 @@ Any                    # Root type - all values are Any
 # Fn - function type
 (var f :Fn = (fnx [x] (* x 2)))
 (var f2 :(Fn Int Int) = (fnx [x :Int => :Int] (* x 2)))
+
+# FFI Types - for C interoperability
+(var ptr :CPtr = (c-malloc 100))     # Raw C pointer
+(var arr :(CArray Int) = (c-array :Int 10))  # C array
+(var fn-ptr :CFn = (c-dlsym "sqrt")) # C function pointer
+
+# Additional numeric types for FFI
+(var i8 :Int8 = 127)         # 8-bit signed
+(var u8 :UInt8 = 255)        # 8-bit unsigned
+(var i16 :Int16 = 32767)     # 16-bit signed
+(var u16 :UInt16 = 65535)    # 16-bit unsigned
+(var i32 :Int32)             # 32-bit signed
+(var u32 :UInt32)            # 32-bit unsigned
+(var i64 :Int64)             # 64-bit signed
+(var u64 :UInt64)            # 64-bit unsigned
+(var f32 :Float32)           # 32-bit float
 ```
 
 ### 3.3.2 Type Constructors
@@ -1314,7 +1336,7 @@ Gene supports three core method types with visibility modifiers:
 ```gene
 (class Component
   (.prop state Map = {})
-  
+
   # Regular public method
   (.fn update [key value]
     (/state .set key value))
@@ -2125,14 +2147,14 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 # Question mark operator for Result types
 (fn process-file [path :Str => :(Result Data Error)]
   (var file = (open-file? path))   # ? unwraps Ok or returns Err
-  (var data = (read-data? file))   
-  (var parsed = (parse? data))     
+  (var data = (read-data? file))
+  (var parsed = (parse? data))
   [:ok parsed])
 
 # Bang operator for exceptions
 (fn process-file-unsafe [path :Str => Data]
   (var file = (open-file! path))   # ! unwraps Ok or throws
-  (var data = (read-data! file))   
+  (var data = (read-data! file))
   (parse! data))
 
 # Error context and stack traces
@@ -2149,7 +2171,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 
 # Error boundaries for fault isolation
 (with-error-boundary
-  ^on-error (fnx [e] 
+  ^on-error (fnx [e]
     (log/error "Operation failed" e)
     (metric/increment :errors)
     default-value)
@@ -2182,7 +2204,449 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 
 ---
 
-# Chapter 13: Package Management and Tooling
+# Chapter 13: Foreign Function Interface (FFI)
+
+## 13.1 Overview
+
+Gene provides a fast, zero-copy Foreign Function Interface (FFI) for seamless interoperability with C and other languages that expose C-compatible ABIs. The FFI system is designed to:
+
+- Minimize overhead when calling native functions
+- Provide automatic type marshalling between Gene and C types
+- Support both calling C from Gene and embedding Gene in C applications
+- Enable direct memory sharing where safe
+- Maintain memory safety through careful API design
+
+## 13.2 C Type Mapping
+
+Gene provides direct mappings between its types and C types:
+
+```gene
+# Primitive type mappings
+Gene Type    C Type         Notes
+---------    ------         -----
+Int          int64_t        48-bit in Gene, promoted to 64-bit for C
+Float        double         Direct mapping
+Bool         bool           0/1 in C, true/false in Gene
+Char         uint32_t       Unicode codepoint
+Nil          void*          NULL pointer
+Str          const char*    UTF-8 null-terminated (with caveats)
+
+# Pointer types
+(CPtr T)     T*             Raw C pointer
+(CArray T)   T[]            C array with known size
+(CStruct)    struct         C struct (see below)
+(CUnion)     union          C union
+(CFn ...)    T(*)(...)      C function pointer
+```
+
+### 13.2.1 C Type Declarations
+
+```gene
+# Declare C types
+(c-type size_t :UInt64)
+(c-type FILE :CPtr)
+
+# C struct declaration
+(c-struct Point
+  (^x :Float)
+  (^y :Float))
+
+# C union declaration
+(c-union Value
+  (^i :Int)
+  (^f :Float)
+  (^p :CPtr))
+
+# Opaque pointer type
+(c-type SDL_Window :CPtr)  # Opaque struct pointer
+```
+
+## 13.3 Declaring External Functions
+
+### 13.3.1 Basic Function Declaration
+
+```gene
+# Simple C function
+(c-extern printf [format :CStr &rest => :Int]
+  ^lib "libc")
+
+# Function with specific calling convention
+(c-extern MessageBoxA [hwnd :CPtr title :CStr text :CStr type :UInt32 => :Int]
+  ^lib "user32.dll"
+  ^calling-conv :stdcall)
+
+# Function that may not exist (optional binding)
+(c-extern? experimental_feature [x :Int => :Int]
+  ^lib "mylib"
+  ^symbol "exp_feat_v2")  # Actual symbol name
+```
+
+### 13.3.2 Complex Function Signatures
+
+```gene
+# Function taking/returning structs
+(c-extern SDL_CreateWindow [
+  title :CStr
+  x :Int y :Int
+  w :Int h :Int
+  flags :UInt32
+  => :SDL_Window]
+  ^lib "SDL2")
+
+# Function with callbacks
+(c-type Comparator :CFn [:CPtr :CPtr => :Int])
+
+(c-extern qsort [
+  base :CPtr
+  n :size_t
+  size :size_t
+  cmp :Comparator
+  => :Void]
+  ^lib "libc")
+
+# Variadic functions
+(c-extern open [path :CStr flags :Int &rest => :Int]
+  ^lib "libc"
+  ^variadic true)
+```
+
+## 13.4 Memory Management
+
+### 13.4.1 Automatic Memory Handling
+
+```gene
+# String conversion (automatic)
+(printf "Hello %s\n" "World")  # Gene string auto-converted to C string
+
+# Explicit string management
+(let [c-str (str-to-cstr "Hello")]
+  (some-c-function c-str)
+  (free-cstr c-str))  # Manual cleanup
+
+# Pinned memory for C access
+(with-pinned [buffer (make-array :UInt8 1024)]
+  (read-file fd buffer 1024))  # Buffer memory won't move during GC
+```
+
+### 13.4.2 Manual Memory Management
+
+```gene
+# Allocate C memory
+(let [ptr (c-malloc (* 100 (c-sizeof :Float)))]
+  (when ptr
+    # Use the memory
+    (c-memset ptr 0 (* 100 (c-sizeof :Float)))
+    # Must free manually
+    (c-free ptr)))
+
+# Stack allocation for temporary C memory
+(with-c-stack [buffer :Float 100]  # 100 floats on stack
+  (process-floats buffer 100))
+
+# Managed C memory (auto-freed)
+(let [ptr (c-alloc :Float 100)]  # Freed when out of scope
+  (process-floats ptr 100))
+```
+
+## 13.5 Struct and Union Access
+
+### 13.5.1 Struct Manipulation
+
+```gene
+# Define struct
+(c-struct Rectangle
+  (^x :Float)
+  (^y :Float)
+  (^width :Float)
+  (^height :Float))
+
+# Create and use struct
+(let [rect (Rectangle ^x 10 ^y 20 ^width 100 ^height 50)]
+  (rect .x)           # Get field: 10
+  (rect .x = 15)      # Set field
+  (rect .width))      # Get field: 100
+
+# Pass to C function
+(c-extern draw_rect [r :(CPtr Rectangle) => :Void] ^lib "graphics")
+(draw_rect (c-ref rect))  # Pass pointer to struct
+
+# Struct arrays
+(let [rects (c-array Rectangle 10)]
+  ((rects . 0) .x = 5)      # First element's x
+  ((rects . 1) .y = 10))    # Second element's y
+```
+
+### 13.5.2 Nested Structures
+
+```gene
+(c-struct Color
+  (^r :UInt8)
+  (^g :UInt8)
+  (^b :UInt8)
+  (^a :UInt8))
+
+(c-struct Vertex
+  (^position :Point)      # Nested struct
+  (^color :Color)
+  (^texcoord :(CArray Float 2)))  # Fixed array
+
+# Access nested fields
+(let [v (Vertex)]
+  (v .position .x = 10.0)
+  (v .color .r = 255)
+  (v .texcoord . 0 = 0.5))
+```
+
+## 13.6 Callbacks and Function Pointers
+
+### 13.6.1 Gene Functions as C Callbacks
+
+```gene
+# Define callback signature
+(c-type EventHandler :CFn [:(CPtr Event) => :Void])
+
+# Gene function as callback
+(fn handle-event [event :(CPtr Event)]
+  (match (event .type)
+    EVENT_CLICK (println "Click!")
+    EVENT_KEY   (println "Key press!")
+    _           nil))
+
+# Register callback (automatic conversion)
+(c-extern register_handler [handler :EventHandler => :Void] ^lib "mylib")
+(register_handler handle-event)  # Gene fn auto-converted to C fn pointer
+
+# Callback with closure (requires wrapper)
+(let [counter (ref 0)]
+  (register_handler
+    (c-callback [event :(CPtr Event) => :Void]
+      (counter = (+ @counter 1))
+      (println "Event #" @counter))))
+```
+
+### 13.6.2 Calling C Function Pointers
+
+```gene
+# Get function pointer from C
+(c-extern get_handler [] => :EventHandler] ^lib "mylib")
+
+(let [handler (get-handler)]
+  (when handler
+    (handler event-ptr)))  # Call like normal function
+
+# Function pointer in struct
+(c-struct VTable
+  (^init :CFn [:(CPtr Self) => :Void])
+  (^update :CFn [:(CPtr Self) :Float => :Void])
+  (^render :CFn [:(CPtr Self) => :Void]))
+
+(let [obj (get-object)]
+  ((obj .vtable .init) obj)
+  ((obj .vtable .update) obj 0.016)
+  ((obj .vtable .render) obj))
+```
+
+## 13.7 Library Management
+
+### 13.7.1 Loading Libraries
+
+```gene
+# Load library explicitly
+(c-load-lib "mylib"
+  ^search-paths ["/usr/local/lib" "~/lib"]
+  ^version "2.0")
+
+# Lazy loading (on first use)
+(c-extern some_func [] ^lib "biglib" ^lazy true)
+
+# Platform-specific loading
+(c-extern windows_func []
+  ^lib (if (windows?) "mylib.dll"
+        (if (macos?) "libmylib.dylib"
+            "libmylib.so")))
+
+# Load with dependencies
+(c-load-lib "complex_lib"
+  ^deps ["dependency1" "dependency2"])
+```
+
+### 13.7.2 Dynamic Symbol Resolution
+
+```gene
+# Runtime symbol lookup
+(when-let [sym (c-dlsym "experimental_function" ^lib "mylib")]
+  (let [func (c-cast sym :CFn [:Int => :Int])]
+    (func 42)))
+
+# Versioned symbols
+(c-extern foo []
+  ^lib "mylib"
+  ^symbol "foo@@VERS_2.0")  # Specific version
+```
+
+## 13.8 Safety and Error Handling
+
+### 13.8.1 Null Pointer Handling
+
+```gene
+# Safe pointer dereferencing
+(when-valid ptr
+  (ptr .field))  # Only executes if ptr is non-null
+
+# Null checks in function calls
+(c-extern risky_func [p :(CPtr Data) => :Int]
+  ^lib "lib"
+  ^null-check true)  # Auto-check args for null
+
+# Manual null checking
+(if (c-null? ptr)
+  (error "Null pointer!")
+  (process ptr))
+```
+
+### 13.8.2 Bounds Checking
+
+```gene
+# Array with bounds checking
+(let [arr (c-array :Int 10 ^checked true)]
+  (arr . 5 = 42)    # OK
+  (arr . 20 = 99))  # Runtime error
+
+# Unsafe array access (faster)
+(let [arr (c-array :Int 10)]
+  (unsafe
+    (arr . 5 = 42)))  # No bounds check
+```
+
+### 13.8.3 Resource Management
+
+```gene
+# RAII-style resource management
+(c-resource SDL_Window
+  ^create SDL_CreateWindow
+  ^destroy SDL_DestroyWindow)
+
+(with-c-resource [window (SDL_CreateWindow "Test" 0 0 640 480 0)]
+  # Window automatically destroyed on scope exit
+  (render-loop window))
+
+# Manual resource tracking
+(c-track ptr ^finalizer (fnx [] (cleanup-func ptr)))
+```
+
+## 13.9 Embedding Gene in C
+
+### 13.9.1 C API for Gene
+
+```c
+// Initialize Gene runtime
+gene_runtime* rt = gene_init();
+
+// Create Gene values
+gene_value* num = gene_make_int(rt, 42);
+gene_value* str = gene_make_string(rt, "Hello from C");
+
+// Call Gene functions
+gene_value* result = gene_call(rt, "my-gene-func", 2, num, str);
+
+// Extract C values
+if (gene_is_int(result)) {
+    int64_t n = gene_get_int(result);
+}
+
+// Cleanup
+gene_shutdown(rt);
+```
+
+### 13.9.2 Exposing C Functions to Embedded Gene
+
+```c
+// C function to expose
+gene_value* c_add(gene_runtime* rt, int argc, gene_value** argv) {
+    if (argc != 2) return gene_make_error(rt, "Expected 2 arguments");
+
+    int64_t a = gene_get_int(argv[0]);
+    int64_t b = gene_get_int(argv[1]);
+
+    return gene_make_int(rt, a + b);
+}
+
+// Register with Gene
+gene_register_function(rt, "c-add", c_add, 2);
+```
+
+## 13.10 Performance Optimization
+
+### 13.10.1 Zero-Copy Operations
+
+```gene
+# Share memory between Gene and C
+(let [buffer (make-direct-buffer :Float 1000)]
+  # Buffer memory is directly accessible from C
+  (c-process-floats (buffer .ptr) (buffer .size))
+  # Changes visible in Gene immediately
+  (buffer . 0))  # See C's modifications
+
+# String views (no copy)
+(let [s "Large string"]
+  (with-string-view [ptr len] s
+    (c-func-expecting-string ptr len)))
+```
+
+### 13.10.2 Inline FFI Calls
+
+```gene
+# Inline C code (JIT compilation)
+(c-inline [x :Int y :Int => :Int]
+  "return x + y;")
+
+# Inline with Gene value access
+(c-inline [arr :(Array Int) => :Int]
+  "int sum = 0;"
+  "for (int i = 0; i < GENE_ARRAY_LENGTH(arr); i++) {"
+  "  sum += GENE_ARRAY_GET_INT(arr, i);"
+  "}"
+  "return sum;")
+```
+
+## 13.11 Platform-Specific Features
+
+### 13.11.1 Windows COM Interop
+
+```gene
+(when (windows?)
+  (c-com-interface IUnknown
+    (^QueryInterface [:REFIID :(CPtr CPtr) => :HRESULT])
+    (^AddRef [=> :ULONG])
+    (^Release [=> :ULONG]))
+
+  (with-com-object [obj (create-com-object CLSID_Something)]
+    (obj .SomeMethod)))
+```
+
+### 13.11.2 Objective-C Interop (macOS)
+
+```gene
+(when (macos?)
+  (objc-class NSString)
+
+  (let [s (NSString stringWithUTF8String: "Hello")]
+    (s length)))
+```
+
+## 13.12 Best Practices
+
+1. **Prefer High-Level Wrappers**: Wrap low-level FFI in Gene functions
+2. **Validate at Boundaries**: Check types and nulls at FFI boundaries
+3. **Use Resource Management**: Leverage with-* forms for cleanup
+4. **Minimize Allocations**: Reuse buffers when calling C repeatedly
+5. **Document Memory Ownership**: Be clear about who frees what
+6. **Test Extensively**: FFI code needs extra testing
+7. **Profile Performance**: Ensure FFI overhead is acceptable
+
+---
+
+# Chapter 14: Package Management and Tooling
 
 ## 13.1 Package Manager
 
@@ -2255,7 +2719,7 @@ A simple HTTP client for making web requests.
   ...)
 ```
 
-# Chapter 14: Standard Library
+# Chapter 15: Standard Library
 
 ## 14.1 Core Functions
 
@@ -2381,7 +2845,7 @@ math/e
 
 # Part II: Reference Implementation
 
-# Chapter 14: Architecture Overview
+# Chapter 15: Architecture Overview
 
 ## 14.1 High-Level Architecture
 
@@ -2574,7 +3038,7 @@ Gene Binary {
 
 ---
 
-# Chapter 15: Lexer and Parser
+# Chapter 16: Lexer and Parser
 
 ## 15.1 Lexer Design
 
@@ -2660,7 +3124,7 @@ The parser implements error recovery strategies:
 
 ---
 
-# Chapter 16: IR Pipeline (HIR, MIR, LIR)
+# Chapter 17: IR Pipeline (HIR, MIR, LIR)
 
 ## 16.1 Overview
 
@@ -2998,7 +3462,7 @@ Future LIR implementation will include sophisticated register allocation:
 
 ---
 
-# Chapter 17: Type Checker and Inference
+# Chapter 18: Type Checker and Inference
 
 ## 17.1 Type System Architecture
 
@@ -3191,7 +3655,7 @@ Gene seamlessly integrates static and dynamic typing.
 
 ---
 
-# Chapter 18: Register-Based Virtual Machine
+# Chapter 19: Register-Based Virtual Machine
 
 ## Current Implementation Status
 
@@ -3298,12 +3762,12 @@ The VM executes bytecode instructions in a tight loop with efficient dispatch.
    - Validate callable value
    - Allocate new register window
    - Create activation frame
-   
+
 2. **Parameter Passing:**
    - Copy arguments to parameter registers
    - Handle default parameters
    - Support variadic functions
-   
+
 3. **Execution Transfer:**
    - Push call frame
    - Set instruction pointer to function start
@@ -3514,7 +3978,7 @@ pub const HeapObject = union(enum) {
 
 ---
 
-# Chapter 19: Garbage Collector
+# Chapter 20: Garbage Collector
 
 ## 19.1 GC Design Overview
 
@@ -3579,7 +4043,7 @@ Gene uses a snapshot-at-the-beginning (SATB) write barrier:
 
 ---
 
-# Chapter 20: JIT Compiler
+# Chapter 21: JIT Compiler
 
 ## 20.1 JIT Architecture
 
@@ -3650,7 +4114,7 @@ When assumptions fail:
 
 ---
 
-# Chapter 21: Runtime System
+# Chapter 22: Runtime System
 
 ## 21.1 Runtime Architecture
 
@@ -3697,21 +4161,102 @@ When assumptions fail:
 - Lazy loading supported
 - Hot reloading capability
 
-## 21.4 Native Interface (FFI)
+## 22.4 Native Interface (FFI)
+
+The FFI system is a critical component of the Gene runtime, providing seamless bidirectional interoperability with C and other native code. See Chapter 13 for the complete FFI design and usage.
 
 ### Calling C/Zig Functions:
-- Type marshalling
-- Calling convention adaptation
-- GC safe points
-- Error handling
+
+**Type Marshalling:**
+- Automatic conversion between Gene and C types
+- NaN-boxing aware marshalling for numeric types
+- String conversion with UTF-8 validation
+- Struct packing/unpacking with alignment handling
+- Array and pointer translation
+
+**Calling Convention Adaptation:**
+- Support for multiple calling conventions (cdecl, stdcall, fastcall)
+- Register vs stack parameter passing
+- Variadic function support
+- Platform-specific ABI compliance
+
+**GC Safe Points:**
+- Automatic GC suspension during C calls
+- Pinned memory regions for C access
+- Safe point insertion for long-running C functions
+- Stack scanning for conservative GC
+
+**Error Handling:**
+- errno preservation and translation
+- Exception to error code mapping
+- Signal handling during FFI calls
+- Longjmp safety
 
 ### Embedding Gene:
-- C API for host applications
-- Callback registration
-- Memory management coordination
-- Thread safety
 
-## 21.5 Actor Runtime
+**C API for Host Applications:**
+```c
+// Core runtime management
+gene_runtime* gene_init(gene_config* config);
+void gene_shutdown(gene_runtime* rt);
+
+// Value creation and manipulation
+gene_value* gene_make_int(gene_runtime* rt, int64_t n);
+gene_value* gene_make_float(gene_runtime* rt, double f);
+gene_value* gene_make_string(gene_runtime* rt, const char* s);
+gene_value* gene_make_array(gene_runtime* rt, size_t capacity);
+
+// Type checking and conversion
+bool gene_is_int(gene_value* v);
+int64_t gene_get_int(gene_value* v);
+const char* gene_to_string(gene_runtime* rt, gene_value* v);
+
+// Function calls
+gene_value* gene_call(gene_runtime* rt, const char* fn_name,
+                      int argc, gene_value** argv);
+gene_value* gene_call_method(gene_runtime* rt, gene_value* obj,
+                            const char* method, int argc, gene_value** argv);
+```
+
+**Callback Registration:**
+- Function pointer wrapping with closure support
+- Automatic parameter marshalling for callbacks
+- Callback lifetime management
+- Thread-safe callback invocation
+
+**Memory Management Coordination:**
+- Reference counting for shared objects
+- GC root registration for C-held references
+- Memory pressure notifications
+- Custom allocator support
+
+**Thread Safety:**
+- Per-thread runtime contexts
+- Lock-free message passing to Gene threads
+- Safe concurrent FFI calls
+- Thread-local storage integration
+
+### FFI Performance Optimizations:
+
+**Fast Path for Common Types:**
+- Inline type checks and conversions
+- Specialized paths for integers and floats
+- String interning for repeated conversions
+- Struct layout caching
+
+**Zero-Copy Operations:**
+- Direct memory access for arrays
+- Shared memory buffers
+- Memory-mapped file support
+- DMA-friendly memory allocation
+
+**JIT Integration:**
+- Inline C function calls in JIT code
+- Constant folding for known C functions
+- Type-specialized call stubs
+- Profile-guided optimization
+
+## 22.5 Actor Runtime
 
 ### Actor Scheduling:
 - Work-stealing scheduler
@@ -3727,7 +4272,7 @@ When assumptions fail:
 
 ---
 
-# Chapter 22: Tooling and Development Environment
+# Chapter 23: Tooling and Development Environment
 
 ## 22.1 REPL (Read-Eval-Print Loop)
 
