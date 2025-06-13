@@ -776,6 +776,16 @@ pub const VM = struct {
                             try self.stdout.print("Object(invalid ID: {})\n", .{obj_id});
                         }
                     },
+                    .CPtr => |ptr| {
+                        if (ptr) |p| {
+                            try self.stdout.print("CPtr: {*}\n", .{p});
+                        } else {
+                            try self.stdout.print("CPtr: null\n", .{});
+                        }
+                    },
+                    .CFunction => |func| try self.stdout.print("CFunction: {*}\n", .{func}),
+                    .CStruct => |ptr| try self.stdout.print("CStruct: {*}\n", .{ptr}),
+                    .CArray => |arr| try self.stdout.print("CArray: ptr={*}, len={}, element_size={}\n", .{ arr.ptr, arr.len, arr.element_size }),
                 }
             },
             .Call => {
@@ -834,6 +844,16 @@ pub const VM = struct {
                                         try self.stdout.print("Object(invalid ID: {})", .{obj_id});
                                     }
                                 },
+                                .CPtr => |ptr| {
+                                    if (ptr) |p| {
+                                        try self.stdout.print("CPtr: {*}", .{p});
+                                    } else {
+                                        try self.stdout.print("CPtr: null", .{});
+                                    }
+                                },
+                                .CFunction => |func| try self.stdout.print("CFunction: {*}", .{func}),
+                                .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
+                                .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                             }
 
                             // Add space between arguments except for the last one
@@ -1114,6 +1134,16 @@ pub const VM = struct {
                                         try self.stdout.print("Object(invalid ID: {})", .{obj_id});
                                     }
                                 },
+                                .CPtr => |ptr| {
+                                    if (ptr) |p| {
+                                        try self.stdout.print("CPtr: {*}", .{p});
+                                    } else {
+                                        try self.stdout.print("CPtr: null", .{});
+                                    }
+                                },
+                                .CFunction => |func| try self.stdout.print("CFunction: {*}", .{func}),
+                                .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
+                                .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                             }
 
                             // Add space between arguments except for the last one

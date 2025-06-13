@@ -131,6 +131,16 @@ pub const Value = union(enum) {
     BuiltinOperator: BuiltinOperatorType,
     Class: *ClassDefinition,
     Object: u32, // Object ID instead of pointer for reference semantics
+    
+    // FFI types
+    CPtr: ?*anyopaque, // C pointer (nullable)
+    CFunction: *const fn() callconv(.C) void, // C function pointer
+    CStruct: *anyopaque, // Opaque pointer to C struct
+    CArray: struct {
+        ptr: [*]u8, // Pointer to first element
+        len: usize, // Number of elements
+        element_size: usize, // Size of each element
+    },
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -166,6 +176,10 @@ pub const Value = union(enum) {
             .Object => {
                 // Objects are managed by the VM's object pool, not freed here
             },
+            .CPtr => {}, // C pointers are not owned by Gene, don't free
+            .CFunction => {}, // Function pointers are not owned by Gene
+            .CStruct => {}, // C structs are not owned by Gene
+            .CArray => {}, // C arrays are not owned by Gene
             else => {},
         }
     }
@@ -222,6 +236,10 @@ pub const Value = union(enum) {
             .BuiltinOperator => |op| Value{ .BuiltinOperator = op },
             .Class => |class| Value{ .Class = class }, // Classes are immutable, shallow copy
             .Object => |id| Value{ .Object = id }, // Just copy the object ID
+            .CPtr => |ptr| Value{ .CPtr = ptr }, // Just copy the pointer
+            .CFunction => |func| Value{ .CFunction = func }, // Just copy the function pointer
+            .CStruct => |ptr| Value{ .CStruct = ptr }, // Just copy the struct pointer
+            .CArray => |arr| Value{ .CArray = arr }, // Copy the array descriptor
         };
     }
 };
@@ -289,6 +307,13 @@ pub const Type = union(enum) {
     
     // User-defined and extension types  
     UserDefined: *UserDefinedType, // User-defined types
+    
+    // FFI types
+    CPtr: *CPtrType, // C pointer type
+    CFunction: *CFunctionType, // C function pointer type
+    CStruct: *CStructType, // C struct type
+    CUnion: *CUnionType, // C union type
+    CArray: *CArrayType, // C array type with fixed size
 
     pub const ArrayType = struct {
         element_type: *Type,
@@ -433,6 +458,61 @@ pub const Type = union(enum) {
             };
         };
     };
+    
+    // FFI type definitions
+    pub const CPtrType = struct {
+        pointee_type: ?*Type, // null for void* / opaque pointers
+        is_const: bool,
+    };
+    
+    pub const CFunctionType = struct {
+        params: []const CParam,
+        return_type: ?*Type, // null for void
+        calling_convention: CallingConvention,
+        is_variadic: bool,
+        
+        pub const CParam = struct {
+            name: ?[]const u8, // Optional parameter name
+            type: *Type,
+        };
+        
+        pub const CallingConvention = enum {
+            C, // Default C calling convention
+            Stdcall, // Windows stdcall
+            Fastcall, // Fast calling convention
+            Thiscall, // C++ this calling convention
+        };
+    };
+    
+    pub const CStructType = struct {
+        name: []const u8,
+        fields: []const CField,
+        is_packed: bool, // Whether struct is packed
+        alignment: ?usize, // Explicit alignment requirement
+        
+        pub const CField = struct {
+            name: []const u8,
+            type: *Type,
+            offset: ?usize, // Explicit offset for layout control
+            bit_size: ?u8, // For bit fields
+        };
+    };
+    
+    pub const CUnionType = struct {
+        name: []const u8,
+        fields: []const CField,
+        alignment: ?usize,
+        
+        pub const CField = struct {
+            name: []const u8,
+            type: *Type,
+        };
+    };
+    
+    pub const CArrayType = struct {
+        element_type: *Type,
+        size: usize, // Fixed size for C arrays
+    };
 
     pub const Function = struct {
         type: *FunctionType,
@@ -529,6 +609,37 @@ pub const Type = union(enum) {
                 }
             },
             .UserDefined => |user| try writer.print("UserDefined({s})", .{user.name}),
+            .CPtr => |ptr| {
+                if (ptr.pointee_type) |pointee| {
+                    try writer.print("CPtr[{}]", .{pointee});
+                } else {
+                    try writer.writeAll("CPtr[void]");
+                }
+            },
+            .CFunction => |cfunc| {
+                try writer.writeAll("CFn(");
+                for (cfunc.params, 0..) |param, i| {
+                    if (i > 0) try writer.writeAll(", ");
+                    if (param.name) |name| {
+                        try writer.print("{s}: {}", .{ name, param.type });
+                    } else {
+                        try writer.print("{}", .{param.type});
+                    }
+                }
+                if (cfunc.is_variadic) {
+                    if (cfunc.params.len > 0) try writer.writeAll(", ");
+                    try writer.writeAll("...");
+                }
+                try writer.writeAll(") -> ");
+                if (cfunc.return_type) |ret| {
+                    try writer.print("{}", .{ret});
+                } else {
+                    try writer.writeAll("void");
+                }
+            },
+            .CStruct => |cstruct| try writer.print("CStruct({s})", .{cstruct.name}),
+            .CUnion => |cunion| try writer.print("CUnion({s})", .{cunion.name}),
+            .CArray => |carr| try writer.print("CArray[{}, {}]", .{ carr.element_type, carr.size }),
         }
     }
 };

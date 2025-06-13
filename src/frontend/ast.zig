@@ -401,10 +401,23 @@ pub const ClassDef = struct {
         params: []Parameter,
         return_type: ?[]const u8, // Optional return type annotation
         body: *Expression,
-        is_public: bool,
+        visibility: Visibility,
+        method_type: MethodType,
         is_virtual: bool, // Can be overridden
         is_abstract: bool, // Must be implemented by subclasses
-        is_static: bool, // Class method vs instance method
+        
+        pub const Visibility = enum {
+            Public,    // Default - accessible everywhere
+            Private,   // .-fn - only accessible within the class
+            Protected, // .#fn - accessible in class and subclasses
+        };
+        
+        pub const MethodType = enum {
+            Regular,    // .fn - standard evaluation with implicit self
+            Macro,      // .macro - lazy evaluation with implicit self
+            Static,     // .static fn - class method without self
+            Function,   // fn - explicit self parameter (unified system)
+        };
     };
     
     pub const Parameter = struct {
@@ -511,10 +524,10 @@ pub const ClassDef = struct {
                 .params = new_params,
                 .return_type = if (method.return_type) |ret_type| try allocator.dupe(u8, ret_type) else null,
                 .body = new_body,
-                .is_public = method.is_public,
+                .visibility = method.visibility,
+                .method_type = method.method_type,
                 .is_virtual = method.is_virtual,
                 .is_abstract = method.is_abstract,
-                .is_static = method.is_static,
             };
         }
         
@@ -1042,6 +1055,197 @@ pub const ImportStmt = struct {
     }
 };
 
+pub const PseudoMacroDef = struct {
+    name: []const u8,
+    params: []MacroParam,
+    body: *Expression,
+    
+    pub const MacroParam = struct {
+        name: []const u8,
+        is_variadic: bool, // For rest parameters
+    };
+    
+    pub fn deinit(self: *PseudoMacroDef, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        for (self.params) |*param| {
+            allocator.free(param.name);
+        }
+        allocator.free(self.params);
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+    }
+    
+    pub fn clone(self: PseudoMacroDef, allocator: std.mem.Allocator) !PseudoMacroDef {
+        const new_name = try allocator.dupe(u8, self.name);
+        
+        var new_params = try allocator.alloc(MacroParam, self.params.len);
+        errdefer allocator.free(new_params);
+        for (self.params, 0..) |param, i| {
+            new_params[i] = MacroParam{
+                .name = try allocator.dupe(u8, param.name),
+                .is_variadic = param.is_variadic,
+            };
+        }
+        
+        const new_body = try allocator.create(Expression);
+        new_body.* = try self.body.clone(allocator);
+        
+        return PseudoMacroDef{
+            .name = new_name,
+            .params = new_params,
+            .body = new_body,
+        };
+    }
+};
+
+pub const PseudoMacroCall = struct {
+    macro: *Expression, // The macro to call (can be a method macro)
+    args: []MacroArg, // Arguments (not evaluated at call time)
+    
+    pub const MacroArg = struct {
+        expr: *Expression, // The expression (stored for lazy evaluation)
+    };
+    
+    pub fn deinit(self: *PseudoMacroCall, allocator: std.mem.Allocator) void {
+        self.macro.deinit(allocator);
+        allocator.destroy(self.macro);
+        for (self.args) |*arg| {
+            arg.expr.deinit(allocator);
+            allocator.destroy(arg.expr);
+        }
+        allocator.free(self.args);
+    }
+    
+    pub fn clone(self: PseudoMacroCall, allocator: std.mem.Allocator) !PseudoMacroCall {
+        const new_macro = try allocator.create(Expression);
+        new_macro.* = try self.macro.clone(allocator);
+        
+        var new_args = try allocator.alloc(MacroArg, self.args.len);
+        errdefer allocator.free(new_args);
+        for (self.args, 0..) |arg, i| {
+            const new_expr = try allocator.create(Expression);
+            new_expr.* = try arg.expr.clone(allocator);
+            new_args[i] = MacroArg{ .expr = new_expr };
+        }
+        
+        return PseudoMacroCall{
+            .macro = new_macro,
+            .args = new_args,
+        };
+    }
+};
+
+pub const CExternDecl = struct {
+    name: []const u8, // Function name in Gene
+    params: []CParam,
+    return_type: ?[]const u8, // null for void
+    lib: []const u8, // Library name
+    symbol: ?[]const u8, // Optional actual symbol name in C
+    calling_convention: ?[]const u8, // Optional calling convention
+    is_variadic: bool,
+    
+    pub const CParam = struct {
+        name: []const u8,
+        c_type: []const u8,
+    };
+    
+    pub fn deinit(self: *CExternDecl, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        for (self.params) |*param| {
+            allocator.free(param.name);
+            allocator.free(param.c_type);
+        }
+        allocator.free(self.params);
+        if (self.return_type) |ret| allocator.free(ret);
+        allocator.free(self.lib);
+        if (self.symbol) |sym| allocator.free(sym);
+        if (self.calling_convention) |cc| allocator.free(cc);
+    }
+    
+    pub fn clone(self: CExternDecl, allocator: std.mem.Allocator) !CExternDecl {
+        const new_name = try allocator.dupe(u8, self.name);
+        
+        var new_params = try allocator.alloc(CParam, self.params.len);
+        errdefer allocator.free(new_params);
+        for (self.params, 0..) |param, i| {
+            new_params[i] = CParam{
+                .name = try allocator.dupe(u8, param.name),
+                .c_type = try allocator.dupe(u8, param.c_type),
+            };
+        }
+        
+        return CExternDecl{
+            .name = new_name,
+            .params = new_params,
+            .return_type = if (self.return_type) |ret| try allocator.dupe(u8, ret) else null,
+            .lib = try allocator.dupe(u8, self.lib),
+            .symbol = if (self.symbol) |sym| try allocator.dupe(u8, sym) else null,
+            .calling_convention = if (self.calling_convention) |cc| try allocator.dupe(u8, cc) else null,
+            .is_variadic = self.is_variadic,
+        };
+    }
+};
+
+pub const CStructDecl = struct {
+    name: []const u8,
+    fields: []CField,
+    is_packed: bool,
+    alignment: ?usize,
+    
+    pub const CField = struct {
+        name: []const u8,
+        c_type: []const u8,
+        bit_size: ?u8, // For bit fields
+    };
+    
+    pub fn deinit(self: *CStructDecl, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        for (self.fields) |*field| {
+            allocator.free(field.name);
+            allocator.free(field.c_type);
+        }
+        allocator.free(self.fields);
+    }
+    
+    pub fn clone(self: CStructDecl, allocator: std.mem.Allocator) !CStructDecl {
+        const new_name = try allocator.dupe(u8, self.name);
+        
+        var new_fields = try allocator.alloc(CField, self.fields.len);
+        errdefer allocator.free(new_fields);
+        for (self.fields, 0..) |field, i| {
+            new_fields[i] = CField{
+                .name = try allocator.dupe(u8, field.name),
+                .c_type = try allocator.dupe(u8, field.c_type),
+                .bit_size = field.bit_size,
+            };
+        }
+        
+        return CStructDecl{
+            .name = new_name,
+            .fields = new_fields,
+            .is_packed = self.is_packed,
+            .alignment = self.alignment,
+        };
+    }
+};
+
+pub const CTypeDecl = struct {
+    name: []const u8, // Type alias name
+    c_type: []const u8, // Underlying C type
+    
+    pub fn deinit(self: *CTypeDecl, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.c_type);
+    }
+    
+    pub fn clone(self: CTypeDecl, allocator: std.mem.Allocator) !CTypeDecl {
+        return CTypeDecl{
+            .name = try allocator.dupe(u8, self.name),
+            .c_type = try allocator.dupe(u8, self.c_type),
+        };
+    }
+};
+
 pub const ExportStmt = struct {
     items: []ExportItem, // Items to export
     
@@ -1097,6 +1301,11 @@ pub const Expression = union(enum) {
     ModuleDef: ModuleDef, // New - Module definitions
     ImportStmt: ImportStmt, // New - Import statements
     ExportStmt: ExportStmt, // New - Export statements
+    PseudoMacroDef: PseudoMacroDef, // New - Pseudo macro definitions
+    PseudoMacroCall: PseudoMacroCall, // New - Pseudo macro calls
+    CExternDecl: CExternDecl, // New - FFI external function declaration
+    CStructDecl: CStructDecl, // New - FFI struct declaration
+    CTypeDecl: CTypeDecl, // New - FFI type declaration
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -1120,6 +1329,11 @@ pub const Expression = union(enum) {
             .ModuleDef => |*module_def| module_def.deinit(allocator), // New
             .ImportStmt => |*import_stmt| import_stmt.deinit(allocator), // New
             .ExportStmt => |*export_stmt| export_stmt.deinit(allocator), // New
+            .PseudoMacroDef => |*macro_def| macro_def.deinit(allocator), // New
+            .PseudoMacroCall => |*macro_call| macro_call.deinit(allocator), // New
+            .CExternDecl => |*extern_decl| extern_decl.deinit(allocator), // New
+            .CStructDecl => |*struct_decl| struct_decl.deinit(allocator), // New
+            .CTypeDecl => |*type_decl| type_decl.deinit(allocator), // New
         }
     }
 
@@ -1145,6 +1359,11 @@ pub const Expression = union(enum) {
             .ModuleDef => |module_def| Expression{ .ModuleDef = try module_def.clone(allocator) }, // New
             .ImportStmt => |import_stmt| Expression{ .ImportStmt = try import_stmt.clone(allocator) }, // New
             .ExportStmt => |export_stmt| Expression{ .ExportStmt = try export_stmt.clone(allocator) }, // New
+            .PseudoMacroDef => |macro_def| Expression{ .PseudoMacroDef = try macro_def.clone(allocator) }, // New
+            .PseudoMacroCall => |macro_call| Expression{ .PseudoMacroCall = try macro_call.clone(allocator) }, // New
+            .CExternDecl => |extern_decl| Expression{ .CExternDecl = try extern_decl.clone(allocator) }, // New
+            .CStructDecl => |struct_decl| Expression{ .CStructDecl = try struct_decl.clone(allocator) }, // New
+            .CTypeDecl => |type_decl| Expression{ .CTypeDecl = try type_decl.clone(allocator) }, // New
         };
     }
 };

@@ -47,6 +47,14 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
             switch (operand) {
                 .Int => |val| std.debug.print(" {}", .{val}),
                 .String => |val| std.debug.print(" \"{s}\"", .{val}),
+                .Bool => |val| std.debug.print(" {}", .{val}),
+                .Float => |val| std.debug.print(" {d}", .{val}),
+                .Nil => std.debug.print(" nil", .{}),
+                .Symbol => |val| std.debug.print(" :{s}", .{val}),
+                .CPtr => |ptr| if (ptr) |p| std.debug.print(" CPtr({*})", .{p}) else std.debug.print(" CPtr(null)", .{}),
+                .CFunction => |cfunc| std.debug.print(" CFunction({*})", .{cfunc}),
+                .CStruct => |ptr| std.debug.print(" CStruct({*})", .{ptr}),
+                .CArray => |arr| std.debug.print(" CArray[{} x {}]", .{ arr.len, arr.element_size }),
                 else => std.debug.print(" (other operand)", .{}),
             }
         }

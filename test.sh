@@ -14,12 +14,13 @@ zig-out/bin/gene run examples/fibonacci.gene
 
 echo
 echo $ gene compile examples/default.gene
-rm examples/*.gbc
 zig-out/bin/gene compile examples/default.gene
 
 echo
 echo $ gene run examples/default.gbc
 zig-out/bin/gene run examples/default.gbc
+
+rm examples/*.gbc
 
 echo
 echo $ zig build test

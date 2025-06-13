@@ -29,6 +29,10 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .BuiltinOperator => |op| log("BuiltinOperator: {any}", .{op}),
         .Class => |class| log("Class: {s}", .{class.name}),
         .Object => |obj_id| log("Object ID: {}", .{obj_id}),
+        .CPtr => |ptr| if (ptr) |p| log("CPtr: {*}", .{p}) else log("CPtr: null", .{}),
+        .CFunction => |func| log("CFunction: {*}", .{func}),
+        .CStruct => |ptr| log("CStruct: {*}", .{ptr}),
+        .CArray => |arr| log("CArray[{} x {}]", .{ arr.len, arr.element_size }),
     }
 }
 

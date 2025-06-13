@@ -115,6 +115,10 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .Object => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Object
             .Array => |_| unreachable, // Should be handled by ast.Expression.ArrayLiteral
             .Map => |_| unreachable, // Should be handled by ast.Expression.MapLiteral
+            .CPtr => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CPtr
+            .CFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CFunction
+            .CStruct => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CStruct
+            .CArray => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CArray
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -503,10 +507,10 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                     .name = try allocator.dupe(u8, method.name),
                     .params = hir_params,
                     .body = body_ptr,
-                    .is_public = method.is_public,
+                    .is_public = method.visibility == .Public,
                     .is_virtual = method.is_virtual,
                     .is_abstract = method.is_abstract,
-                    .is_static = method.is_static,
+                    .is_static = method.method_type == .Static,
                 };
             }
             
@@ -692,6 +696,36 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                     .args = args,
                 }
             };
+        },
+        .PseudoMacroDef => {
+            // TODO: Implement proper HIR pseudo macro definition support
+            // For now, return an error as this feature is not yet implemented
+            std.debug.print("PseudoMacroDef not yet implemented in HIR\n", .{});
+            return error.NotImplemented;
+        },
+        .PseudoMacroCall => {
+            // TODO: Implement proper HIR pseudo macro call support
+            // For now, return an error as this feature is not yet implemented
+            std.debug.print("PseudoMacroCall not yet implemented in HIR\n", .{});
+            return error.NotImplemented;
+        },
+        .CExternDecl => {
+            // TODO: Implement proper HIR C external declaration support
+            // For now, return an error as this feature is not yet implemented
+            std.debug.print("CExternDecl not yet implemented in HIR\n", .{});
+            return error.NotImplemented;
+        },
+        .CStructDecl => {
+            // TODO: Implement proper HIR C struct declaration support
+            // For now, return an error as this feature is not yet implemented
+            std.debug.print("CStructDecl not yet implemented in HIR\n", .{});
+            return error.NotImplemented;
+        },
+        .CTypeDecl => {
+            // TODO: Implement proper HIR C type declaration support
+            // For now, return an error as this feature is not yet implemented
+            std.debug.print("CTypeDecl not yet implemented in HIR\n", .{});
+            return error.NotImplemented;
         },
     };
 }

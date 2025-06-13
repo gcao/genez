@@ -167,10 +167,14 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
                     try serializeExpression(writer, method.body.*, indent + 1);
                     
                     // Method flags
-                    if (!method.is_public) try writer.writeAll(" :private");
+                    if (method.visibility != .Public) {
+                        try writer.print(" :{s}", .{@tagName(method.visibility)});
+                    }
                     if (method.is_virtual) try writer.writeAll(" :virtual");
                     if (method.is_abstract) try writer.writeAll(" :abstract");
-                    if (method.is_static) try writer.writeAll(" :static");
+                    if (method.method_type != .Regular) {
+                        try writer.print(" :{s}", .{@tagName(method.method_type)});
+                    }
                     
                     try writer.writeAll(")");
                 }
@@ -315,6 +319,9 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
                 try serializeExpression(writer, arg.*, indent);
             }
             try writer.writeAll(")");
+        },
+        else => |tag| {
+            try writer.print("(; unsupported: {s} ;)", .{@tagName(tag)});
         },
     }
 }
