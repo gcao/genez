@@ -1,0 +1,65 @@
+{
+  "name": "gene-lang",
+  "displayName": "Gene Language Support",
+  "description": "Language support for the Gene programming language",
+  "version": "0.1.0",
+  "publisher": "gene-lang",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "gene",
+    "lisp",
+    "functional"
+  ],
+  "activationEvents": [
+    "onLanguage:gene"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [{
+      "id": "gene",
+      "aliases": ["Gene", "gene"],
+      "extensions": [".gene"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "gene",
+      "scopeName": "source.gene",
+      "path": "./syntaxes/gene.tmLanguage.json"
+    }],
+    "configuration": {
+      "type": "object",
+      "title": "Gene Language",
+      "properties": {
+        "gene.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the gene-lang-server executable"
+        },
+        "gene.languageServer.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}

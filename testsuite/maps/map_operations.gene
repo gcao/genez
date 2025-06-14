@@ -1,7 +1,7 @@
 #!/usr/bin/env gene run
 
 # Test: Map operations
-(var person {"name" "Alice" "age" 30})
+(var person {^name "Alice" ^age 30})
 
 # Map access
 (print "Name: " (person .get "name"))

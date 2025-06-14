@@ -606,16 +606,65 @@ fn parseMap(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
     var entries = std.ArrayList(ast.MapEntry).init(alloc);
 
     while (current_pos < toks.len and toks[current_pos].kind != .RBrace) {
-        // Parse key (expression)
-        const key_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        current_pos += key_result.consumed;
+        // Check if this is a property syntax (^name)
+        var key_ptr: *ast.Expression = undefined;
+        if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+            const ident = toks[current_pos].kind.Ident;
+            if (std.mem.startsWith(u8, ident, "^")) {
+                // Property syntax: convert ^name to string "name"
+                const property_name = ident[1..]; // Remove the ^ prefix
+                
+                // Handle boolean property shortcuts
+                if (property_name.len > 0 and property_name[0] == '^') {
+                    // ^^name means ^name true
+                    const actual_name = property_name[1..];
+                    key_ptr = try alloc.create(ast.Expression);
+                    key_ptr.* = .{ .Literal = .{ .value = .{ .String = try alloc.dupe(u8, actual_name) } } };
+                    current_pos += 1;
+                    
+                    // Value is true
+                    const value_ptr = try alloc.create(ast.Expression);
+                    value_ptr.* = .{ .Literal = .{ .value = .{ .Bool = true } } };
+                    
+                    try entries.append(.{ .key = key_ptr, .value = value_ptr });
+                    continue;
+                } else if (property_name.len > 0 and property_name[0] == '!') {
+                    // ^!name means ^name nil
+                    const actual_name = property_name[1..];
+                    key_ptr = try alloc.create(ast.Expression);
+                    key_ptr.* = .{ .Literal = .{ .value = .{ .String = try alloc.dupe(u8, actual_name) } } };
+                    current_pos += 1;
+                    
+                    // Value is nil
+                    const value_ptr = try alloc.create(ast.Expression);
+                    value_ptr.* = .{ .Literal = .{ .value = .Nil } };
+                    
+                    try entries.append(.{ .key = key_ptr, .value = value_ptr });
+                    continue;
+                } else {
+                    // Regular property: ^name becomes string "name"
+                    key_ptr = try alloc.create(ast.Expression);
+                    key_ptr.* = .{ .Literal = .{ .value = .{ .String = try alloc.dupe(u8, property_name) } } };
+                    current_pos += 1;
+                }
+            } else {
+                // Regular expression key
+                const key_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                current_pos += key_result.consumed;
+                key_ptr = try alloc.create(ast.Expression);
+                key_ptr.* = key_result.node.Expression;
+            }
+        } else {
+            // Regular expression key
+            const key_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += key_result.consumed;
+            key_ptr = try alloc.create(ast.Expression);
+            key_ptr.* = key_result.node.Expression;
+        }
 
         // Parse value (expression)
         const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
         current_pos += value_result.consumed;
-
-        const key_ptr = try alloc.create(ast.Expression);
-        key_ptr.* = key_result.node.Expression;
 
         const value_ptr = try alloc.create(ast.Expression);
         value_ptr.* = value_result.node.Expression;

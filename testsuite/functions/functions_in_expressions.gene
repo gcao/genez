@@ -4,4 +4,4 @@
 # Test: Defining functions inside do blocks
 (do
   (fn local_add [a b] (+ a b))
-  (print "local_add(3, 4) = " (local_add 3 4)))
+  (print "(local_add 3 4) = " (local_add 3 4)))

@@ -43,6 +43,26 @@ pub fn build(b: *std.Build) void {
     wasi.root_module.addOptions("build_options", options);
     b.installArtifact(wasi);
 
+    // Language Server
+    const lang_server = b.addExecutable(.{
+        .name = "gene-lang-server",
+        .root_source_file = b.path("tools/gene-lang-server/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    // Add Gene parser module to language server
+    const parser_module = b.addModule("gene_parser", .{
+        .root_source_file = b.path("src/frontend/parser.zig"),
+    });
+    lang_server.root_module.addImport("gene_parser", parser_module);
+    
+    b.installArtifact(lang_server);
+    
+    // Add a step to build just the language server
+    const lang_server_step = b.step("lang-server", "Build the language server");
+    lang_server_step.dependOn(&lang_server.step);
+
     // Tests
     const types_module = b.addModule("types", .{ .root_source_file = b.path("src/core/types.zig") });
 

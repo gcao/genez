@@ -6,8 +6,8 @@
     1
     (* n (factorial (- n 1)))))
 
-(print "factorial(5) = " (factorial 5))
-(print "factorial(0) = " (factorial 0))
+(print "(factorial 5) = " (factorial 5))
+(print "(factorial 0) = " (factorial 0))
 
 # Fibonacci
 (fn fib [n]
@@ -15,4 +15,4 @@
     n
     (+ (fib (- n 1)) (fib (- n 2)))))
 
-(print "fib(10) = " (fib 10))
+(print "(fib 10) = " (fib 10))
