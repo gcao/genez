@@ -117,15 +117,15 @@ pub fn tokenizeData(allocator: std.mem.Allocator, source: []const u8) !std.Array
         if (std.ascii.isDigit(c) or ((c == '+' or c == '-') and i + 1 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 1]))) {
             const start = i;
             var has_dot = false;
-            
+
             // Handle optional sign
             if (c == '+' or c == '-') {
                 i += 1;
             }
-            
+
             // Parse integer part
             while (i < source_to_parse.len and std.ascii.isDigit(source_to_parse[i])) : (i += 1) {}
-            
+
             // Check for decimal point
             if (i < source_to_parse.len and source_to_parse[i] == '.') {
                 has_dot = true;
@@ -133,9 +133,9 @@ pub fn tokenizeData(allocator: std.mem.Allocator, source: []const u8) !std.Array
                 // Parse optional decimal part
                 while (i < source_to_parse.len and std.ascii.isDigit(source_to_parse[i])) : (i += 1) {}
             }
-            
+
             const num_str = source_to_parse[start..i];
-            
+
             if (has_dot) {
                 const float_val = try std.fmt.parseFloat(f64, num_str);
                 try tokens.append(.{ .kind = .{ .Float = float_val }, .loc = start });
@@ -150,19 +150,20 @@ pub fn tokenizeData(allocator: std.mem.Allocator, source: []const u8) !std.Array
         if (c == ':' and (i + 1 >= source_to_parse.len or source_to_parse[i + 1] != ':')) {
             const start = i;
             i += 1;
-            
+
             // Parse keyword name - can be any non-delimiter chars
             while (i < source_to_parse.len) {
                 const ch = source_to_parse[i];
-                if (std.ascii.isWhitespace(ch) or ch == '(' or ch == ')' or 
-                    ch == '[' or ch == ']' or ch == '{' or ch == '}') {
+                if (std.ascii.isWhitespace(ch) or ch == '(' or ch == ')' or
+                    ch == '[' or ch == ']' or ch == '{' or ch == '}')
+                {
                     break;
                 }
                 i += 1;
             }
-            
+
             if (i > start + 1) {
-                const kw = try allocator.dupe(u8, source_to_parse[start+1..i]);
+                const kw = try allocator.dupe(u8, source_to_parse[start + 1 .. i]);
                 try tokens.append(.{ .kind = .{ .Keyword = kw }, .loc = start });
                 continue;
             }
@@ -172,20 +173,21 @@ pub fn tokenizeData(allocator: std.mem.Allocator, source: []const u8) !std.Array
         // Symbols cannot start with digits unless escaped
         if (!std.ascii.isDigit(c)) {
             const start = i;
-            
+
             // Handle escaped symbols starting with \
             if (c == '\\' and i + 1 < source_to_parse.len) {
                 i += 1; // Skip the backslash
             }
-            
+
             // Parse symbol - can contain almost anything except delimiters and whitespace
             while (i < source_to_parse.len) {
                 const ch = source_to_parse[i];
-                if (std.ascii.isWhitespace(ch) or ch == '(' or ch == ')' or 
-                    ch == '[' or ch == ']' or ch == '{' or ch == '}' or ch == '"') {
+                if (std.ascii.isWhitespace(ch) or ch == '(' or ch == ')' or
+                    ch == '[' or ch == ']' or ch == '{' or ch == '}' or ch == '"')
+                {
                     break;
                 }
-                
+
                 // Handle escapes within symbol
                 if (ch == '\\' and i + 1 < source_to_parse.len) {
                     i += 2; // Skip escape and next char
@@ -193,9 +195,9 @@ pub fn tokenizeData(allocator: std.mem.Allocator, source: []const u8) !std.Array
                     i += 1;
                 }
             }
-            
+
             const sym_str = source_to_parse[start..i];
-            
+
             // Check for special symbols
             if (std.mem.eql(u8, sym_str, "true")) {
                 try tokens.append(.{ .kind = .{ .Bool = true }, .loc = start });
@@ -215,7 +217,7 @@ pub fn tokenizeData(allocator: std.mem.Allocator, source: []const u8) !std.Array
         // Skip unknown character
         i += 1;
     }
-    
+
     return tokens;
 }
 
@@ -223,16 +225,16 @@ pub fn tokenizeData(allocator: std.mem.Allocator, source: []const u8) !std.Array
 pub const GeneData = struct {
     /// The head of the Gene expression (can be any expression)
     head: DataValue,
-    
+
     /// Properties (^key value pairs)
     props: std.StringHashMap(DataValue),
-    
+
     /// Positional children
     children: std.ArrayList(DataValue),
-    
+
     /// Allocator used for this structure
     allocator: std.mem.Allocator,
-    
+
     pub fn init(allocator: std.mem.Allocator, head: DataValue) !*GeneData {
         const gene = try allocator.create(GeneData);
         gene.* = GeneData{
@@ -243,30 +245,30 @@ pub const GeneData = struct {
         };
         return gene;
     }
-    
+
     pub fn deinit(self: *GeneData) void {
         self.head.deinit(self.allocator);
-        
+
         var prop_iter = self.props.iterator();
         while (prop_iter.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
             entry.value_ptr.deinit(self.allocator);
         }
         self.props.deinit();
-        
+
         for (self.children.items) |*child| {
             child.deinit(self.allocator);
         }
         self.children.deinit();
-        
+
         self.allocator.destroy(self);
     }
-    
+
     pub fn addProperty(self: *GeneData, key: []const u8, value: DataValue) !void {
         const key_copy = try self.allocator.dupe(u8, key);
         try self.props.put(key_copy, value);
     }
-    
+
     pub fn addChild(self: *GeneData, child: DataValue) !void {
         try self.children.append(child);
     }
@@ -284,7 +286,7 @@ pub const DataValue = union(enum) {
     Map: std.StringHashMap(DataValue),
     Gene: *GeneData,
     Document: *Document,
-    
+
     pub fn deinit(self: *DataValue, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .String => |s| allocator.free(s),
@@ -312,7 +314,7 @@ pub const DataValue = union(enum) {
             else => {},
         }
     }
-    
+
     pub fn clone(self: DataValue, allocator: std.mem.Allocator) !DataValue {
         return switch (self) {
             .Nil => .Nil,
@@ -340,20 +342,20 @@ pub const DataValue = union(enum) {
             },
             .Gene => |gene| blk: {
                 const new_gene = try GeneData.init(allocator, try gene.head.clone(allocator));
-                
+
                 // Clone properties
                 var prop_iter = gene.props.iterator();
                 while (prop_iter.next()) |entry| {
                     const val_copy = try entry.value_ptr.clone(allocator);
                     try new_gene.addProperty(entry.key_ptr.*, val_copy);
                 }
-                
+
                 // Clone children
                 for (gene.children.items) |child| {
                     const child_copy = try child.clone(allocator);
                     try new_gene.addChild(child_copy);
                 }
-                
+
                 break :blk .{ .Gene = new_gene };
             },
             .Document => |doc| blk: {
@@ -376,7 +378,7 @@ pub const DataValue = union(enum) {
 pub const Document = struct {
     expressions: []DataValue,
     allocator: std.mem.Allocator,
-    
+
     pub fn deinit(self: *Document) void {
         for (self.expressions) |*expr| {
             var mut_expr = expr;
@@ -384,18 +386,18 @@ pub const Document = struct {
         }
         self.allocator.free(self.expressions);
     }
-    
+
     /// Convert to a GeneDocument data value
     pub fn toDataValue(self: *Document) !DataValue {
-        // Create a GeneDocument 
+        // Create a GeneDocument
         const gene_doc = try GeneData.init(self.allocator, .{ .Symbol = try self.allocator.dupe(u8, "GeneDocument") });
-        
+
         // Add all expressions as children
         for (self.expressions) |expr| {
             const expr_copy = try expr.clone(self.allocator);
             try gene_doc.addChild(expr_copy);
         }
-        
+
         return .{ .Gene = gene_doc };
     }
 };
@@ -415,11 +417,11 @@ pub fn parseData(allocator: std.mem.Allocator, source: []const u8) !DataValue {
         }
         tokens.deinit();
     }
-    
+
     if (tokens.items.len == 0) {
         return DataValue.Nil;
     }
-    
+
     var pos: usize = 0;
     return try parseDataExpression(allocator, tokens.items, &pos);
 }
@@ -439,16 +441,16 @@ pub fn parseDocument(allocator: std.mem.Allocator, source: []const u8) !Document
         }
         tokens.deinit();
     }
-    
+
     var expressions = std.ArrayList(DataValue).init(allocator);
     defer expressions.deinit();
-    
+
     var pos: usize = 0;
     while (pos < tokens.items.len) {
         const expr = try parseDataExpression(allocator, tokens.items, &pos);
         try expressions.append(expr);
     }
-    
+
     return Document{
         .expressions = try expressions.toOwnedSlice(),
         .allocator = allocator,
@@ -460,10 +462,10 @@ fn parseDataExpression(allocator: std.mem.Allocator, tokens: []const DataToken, 
     if (pos.* >= tokens.len) {
         return error.UnexpectedEOF;
     }
-    
+
     const token = tokens[pos.*];
     pos.* += 1;
-    
+
     switch (token.kind) {
         .Int => |val| return .{ .Int = val },
         .Float => |val| return .{ .Float = val },
@@ -485,17 +487,17 @@ fn parseDataExpression(allocator: std.mem.Allocator, tokens: []const DataToken, 
             // Parse array
             var items = std.ArrayList(DataValue).init(allocator);
             defer items.deinit();
-            
+
             while (pos.* < tokens.len and tokens[pos.*].kind != .RBracket) {
                 const item = try parseDataExpression(allocator, tokens, pos);
                 try items.append(item);
             }
-            
+
             if (pos.* >= tokens.len or tokens[pos.*].kind != .RBracket) {
                 return error.ExpectedRBracket;
             }
             pos.* += 1; // Skip RBracket
-            
+
             return .{ .Array = try items.toOwnedSlice() };
         },
         .LBrace => {
@@ -509,43 +511,43 @@ fn parseDataExpression(allocator: std.mem.Allocator, tokens: []const DataToken, 
                 }
                 map.deinit();
             }
-            
+
             while (pos.* < tokens.len and tokens[pos.*].kind != .RBrace) {
                 // Parse key (must be a keyword)
                 if (pos.* >= tokens.len) return error.UnexpectedEOF;
-                
+
                 const key_token = tokens[pos.*];
                 const key = switch (key_token.kind) {
                     .Keyword => |kw| kw,
                     else => return error.MapKeyMustBeKeyword,
                 };
                 pos.* += 1;
-                
+
                 // Parse value
                 const value = try parseDataExpression(allocator, tokens, pos);
-                
+
                 // Add to map
                 const key_copy = try allocator.dupe(u8, key);
                 try map.put(key_copy, value);
             }
-            
+
             if (pos.* >= tokens.len or tokens[pos.*].kind != .RBrace) {
                 return error.ExpectedRBrace;
             }
             pos.* += 1; // Skip RBrace
-            
+
             return .{ .Map = map };
         },
         .LParen => {
             // Parse Gene expression
             if (pos.* >= tokens.len) return error.UnexpectedEOF;
-            
+
             // Parse the head expression - can be any valid expression
             const head_expr = try parseDataExpression(allocator, tokens, pos);
-            
+
             const gene = try GeneData.init(allocator, head_expr);
             errdefer gene.deinit();
-            
+
             // Parse properties and children
             while (pos.* < tokens.len and tokens[pos.*].kind != .RParen) {
                 // Check for property syntax (^prop value)
@@ -554,40 +556,94 @@ fn parseDataExpression(allocator: std.mem.Allocator, tokens: []const DataToken, 
                     if (std.mem.startsWith(u8, sym, "^")) {
                         // This is a property
                         pos.* += 1;
-                        const prop_name = sym[1..]; // Skip the ^
-                        
-                        // Check if there's a value or if it's shorthand syntax
+
+                        // Parse property chain (e.g., ^a^^b^^c or ^^required)
+                        var prop_parts = std.ArrayList([]const u8).init(allocator);
+                        defer prop_parts.deinit();
+
+                        var i: usize = 1; // Skip first ^
+                        var start: usize = 1;
+
+                        // Special case: if property starts with another ^, it's ^^prop syntax
+                        if (i < sym.len and sym[i] == '^') {
+                            // This is ^^prop, treat the whole thing as one property with ^ prefix
+                            try prop_parts.append(sym[i..]); // Include the second ^
+                        } else {
+                            // Normal property parsing
+                            while (i < sym.len) {
+                                if (i + 1 < sym.len and sym[i] == '^' and sym[i + 1] == '^') {
+                                    // Found ^^, this is a property separator
+                                    try prop_parts.append(sym[start..i]);
+                                    i += 2; // Skip ^^
+                                    start = i;
+                                } else {
+                                    i += 1;
+                                }
+                            }
+                            // Add the last part
+                            try prop_parts.append(sym[start..]);
+                        }
+
+                        const parts = prop_parts.items;
+
+                        // Parse the value (or use shorthand)
+                        var prop_value: DataValue = undefined;
+
+                        // Check if there's an explicit value or if it's shorthand
                         if (pos.* < tokens.len and tokens[pos.*].kind != .RParen) {
                             // Check if next token is another property
                             if (tokens[pos.*].kind == .Symbol) {
                                 const next_sym = tokens[pos.*].kind.Symbol;
                                 if (std.mem.startsWith(u8, next_sym, "^")) {
                                     // Next token is another property, so this is shorthand
-                                    try gene.addProperty(prop_name, .{ .Symbol = try allocator.dupe(u8, prop_name) });
-                                    continue;
+                                    prop_value = .{ .Bool = true };
+                                } else {
+                                    // Parse property value
+                                    prop_value = try parseDataExpression(allocator, tokens, pos);
                                 }
+                            } else {
+                                // Parse property value
+                                prop_value = try parseDataExpression(allocator, tokens, pos);
                             }
-                            // Parse property value
-                            const prop_value = try parseDataExpression(allocator, tokens, pos);
-                            try gene.addProperty(prop_name, prop_value);
                         } else {
                             // At end of expression, shorthand property
-                            try gene.addProperty(prop_name, .{ .Symbol = try allocator.dupe(u8, prop_name) });
+                            prop_value = .{ .Bool = true };
+                        }
+
+                        // Now build the nested property structure from right to left
+                        // For ^a^^b^^c value, we want ^a {^b {^c value}}
+                        if (parts.len == 1) {
+                            // Simple property
+                            try gene.addProperty(parts[0], prop_value);
+                        } else {
+                            // Nested properties
+                            var current_value = prop_value;
+                            var idx = parts.len;
+                            while (idx > 1) {
+                                idx -= 1;
+                                // Create a map with the property
+                                var prop_map = std.StringHashMap(DataValue).init(allocator);
+                                const key_copy = try allocator.dupe(u8, parts[idx]);
+                                try prop_map.put(key_copy, current_value);
+                                current_value = .{ .Map = prop_map };
+                            }
+                            // Add the top-level property
+                            try gene.addProperty(parts[0], current_value);
                         }
                         continue;
                     }
                 }
-                
+
                 // Regular child
                 const child = try parseDataExpression(allocator, tokens, pos);
                 try gene.addChild(child);
             }
-            
+
             if (pos.* >= tokens.len or tokens[pos.*].kind != .RParen) {
                 return error.ExpectedRParen;
             }
             pos.* += 1; // Skip RParen
-            
+
             return .{ .Gene = gene };
         },
         else => {
@@ -596,7 +652,6 @@ fn parseDataExpression(allocator: std.mem.Allocator, tokens: []const DataToken, 
         },
     }
 }
-
 
 /// Pretty print a data value (reproduces original Gene syntax)
 pub fn printDataValue(writer: anytype, value: DataValue, indent: usize) !void {
@@ -637,20 +692,20 @@ pub fn printDataValue(writer: anytype, value: DataValue, indent: usize) !void {
         .Gene => |gene| {
             try writer.print("(", .{});
             try printDataValue(writer, gene.head, indent);
-            
+
             // Print properties
             var prop_iter = gene.props.iterator();
             while (prop_iter.next()) |entry| {
                 try writer.print(" ^{s} ", .{entry.key_ptr.*});
                 try printDataValue(writer, entry.value_ptr.*, indent);
             }
-            
+
             // Print children
             for (gene.children.items) |child| {
                 try writer.print(" ", .{});
                 try printDataValue(writer, child, indent);
             }
-            
+
             try writer.print(")", .{});
         },
         .Document => |doc| {
@@ -668,7 +723,7 @@ pub fn printDataValue(writer: anytype, value: DataValue, indent: usize) !void {
 /// Print parsed data structure (shows internal representation)
 pub fn printParsedData(writer: anytype, value: DataValue, indent: usize) !void {
     try writeIndent(writer, indent);
-    
+
     switch (value) {
         .Nil => try writer.print("Nil", .{}),
         .Bool => |b| try writer.print("Bool({})", .{b}),
@@ -704,7 +759,7 @@ pub fn printParsedData(writer: anytype, value: DataValue, indent: usize) !void {
             try writer.print("Gene(", .{});
             try printDataValue(writer, gene.head, 0);
             try writer.print("):\n", .{});
-            
+
             // Print properties
             if (gene.props.count() > 0) {
                 try writeIndent(writer, indent + 2);
@@ -716,7 +771,7 @@ pub fn printParsedData(writer: anytype, value: DataValue, indent: usize) !void {
                     try printParsedData(writer, entry.value_ptr.*, indent + 4);
                 }
             }
-            
+
             // Print children
             if (gene.children.items.len > 0) {
                 try writeIndent(writer, indent + 2);
@@ -737,7 +792,7 @@ pub fn printParsedData(writer: anytype, value: DataValue, indent: usize) !void {
             }
         },
     }
-    
+
     // Add newline for non-nested types
     switch (value) {
         .Array, .Map, .Gene, .Document => {},
@@ -799,7 +854,7 @@ pub fn toJson(writer: anytype, value: DataValue) !void {
             try writer.print("\"_type\":\"gene\",", .{});
             try writer.print("\"_head\":", .{});
             try toJson(writer, gene.head);
-            
+
             // Add properties
             if (gene.props.count() > 0) {
                 try writer.print(",\"_props\":{{", .{});
@@ -813,7 +868,7 @@ pub fn toJson(writer: anytype, value: DataValue) !void {
                 }
                 try writer.print("}}", .{});
             }
-            
+
             // Add children
             if (gene.children.items.len > 0) {
                 try writer.print(",\"_children\":[", .{});
@@ -823,7 +878,7 @@ pub fn toJson(writer: anytype, value: DataValue) !void {
                 }
                 try writer.print("]", .{});
             }
-            
+
             try writer.print("}}", .{});
         },
         .Document => |doc| {
