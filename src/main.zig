@@ -53,7 +53,13 @@ pub fn main() !void {
         var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
 
-        try rt.runFile(file);
+        if (std.mem.eql(u8, file, "-")) {
+            const source = try std.io.getStdIn().readToEndAlloc(allocator, std.math.maxInt(usize));
+            defer allocator.free(source);
+            try rt.runSource(source);
+        } else {
+            try rt.runFile(file);
+        }
     } else if (std.mem.eql(u8, command, "compile")) {
         if (args.len < 3) {
             std.debug.print("Usage: gene compile <file> [--debug]\n", .{});
@@ -64,18 +70,30 @@ pub fn main() !void {
         var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
 
-        try rt.compileFile(file);
+        if (std.mem.eql(u8, file, "-")) {
+            const source = try std.io.getStdIn().readToEndAlloc(allocator, std.math.maxInt(usize));
+            defer allocator.free(source);
+            try rt.compileSource(source, "stdin.gbc");
+        } else {
+            try rt.compileFile(file);
+        }
     } else if (std.mem.eql(u8, command, "eval")) {
         if (args.len < 3) {
             std.debug.print("Usage: gene eval <source> [--debug]\n", .{});
             return;
         }
 
-        const source = args[2];
+        const source_arg = args[2];
         var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
 
-        try rt.eval(source);
+        if (std.mem.eql(u8, source_arg, "-")) {
+            const source = try std.io.getStdIn().readToEndAlloc(allocator, std.math.maxInt(usize));
+            defer allocator.free(source);
+            try rt.eval(source);
+        } else {
+            try rt.eval(source_arg);
+        }
     } else if (std.mem.eql(u8, command, "repl")) {
         var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
@@ -95,11 +113,11 @@ pub fn main() !void {
         }
 
         const file = args[2];
-        
+
         // Parse output format flags
         const OutputFormat = enum { raw, json, parsed };
         var output_format = OutputFormat.raw;
-        
+
         for (args) |arg| {
             if (std.mem.eql(u8, arg, "--json")) {
                 output_format = .json;
@@ -109,7 +127,7 @@ pub fn main() !void {
                 output_format = .raw;
             }
         }
-        
+
         // Handle stdin
         const stdout = std.io.getStdOut().writer();
         if (std.mem.eql(u8, file, "-")) {
@@ -117,7 +135,7 @@ pub fn main() !void {
             const stdin = std.io.getStdIn();
             const source = try stdin.readToEndAlloc(allocator, std.math.maxInt(usize));
             defer allocator.free(source);
-            
+
             const doc = data_parser.parseDocument(allocator, source) catch |err| {
                 if (err == error.GeneHeadMustBeSymbol) {
                     std.debug.print("\nHint: For Gene code files, use 'gene run -'\n", .{});
@@ -130,7 +148,7 @@ pub fn main() !void {
                 var doc_mut = doc;
                 doc_mut.deinit();
             }
-            
+
             // Convert document to GeneDocument value
             var mut_doc = doc;
             const doc_value = try mut_doc.toDataValue();
@@ -138,7 +156,7 @@ pub fn main() !void {
                 var mut_value = doc_value;
                 mut_value.deinit(allocator);
             }
-            
+
             switch (output_format) {
                 .json => {
                     try data_parser.toJson(stdout, doc_value);
@@ -157,10 +175,10 @@ pub fn main() !void {
             // Read from file
             const source_file = try std.fs.cwd().openFile(file, .{});
             defer source_file.close();
-            
+
             const source = try source_file.readToEndAlloc(allocator, std.math.maxInt(usize));
             defer allocator.free(source);
-            
+
             const doc = data_parser.parseDocument(allocator, source) catch |err| {
                 if (err == error.GeneHeadMustBeSymbol) {
                     std.debug.print("\nHint: For Gene code files, use 'gene run {s}'\n", .{file});
@@ -173,7 +191,7 @@ pub fn main() !void {
                 var doc_mut = doc;
                 doc_mut.deinit();
             }
-            
+
             // Convert document to GeneDocument value
             var mut_doc = doc;
             const doc_value = try mut_doc.toDataValue();
@@ -181,7 +199,7 @@ pub fn main() !void {
                 var mut_value = doc_value;
                 mut_value.deinit(allocator);
             }
-            
+
             switch (output_format) {
                 .json => {
                     try data_parser.toJson(stdout, doc_value);

@@ -15,7 +15,7 @@ pub const Runtime = struct {
     pub fn init(allocator: std.mem.Allocator, debug_mode: bool, stdout: std.fs.File.Writer) Runtime {
         // Set the global debug flag
         debug.setDebugEnabled(debug_mode);
-        
+
         return Runtime{
             .allocator = allocator,
             .debug_mode = debug_mode,
@@ -31,7 +31,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
-            .type_check = false,  // Disable type checking for now
+            .type_check = false, // Disable type checking for now
         };
 
         // Use pipeline to compile source
@@ -69,7 +69,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
-            .type_check = false,  // Disable type checking for now
+            .type_check = false, // Disable type checking for now
         };
 
         // Use pipeline to compile file
@@ -81,6 +81,24 @@ pub const Runtime = struct {
         try self.executeWithFunctions(@constCast(&result.main_func), result.created_functions.items);
 
         debug.log("File execution completed successfully!", .{});
+    }
+
+    /// Run Gene source code provided as a string.
+    pub fn runSource(self: *Runtime, source: []const u8) !void {
+        const options = compiler.CompilerOptions{
+            .debug_mode = self.debug_mode,
+            .optimize = false,
+            .type_check = false,
+        };
+
+        var result = try pipeline.compileSource(self.allocator, source, options);
+        defer result.deinit();
+
+        debug.log("Compilation completed, starting execution...", .{});
+
+        try self.executeWithFunctions(@constCast(&result.main_func), result.created_functions.items);
+
+        debug.log("Source execution completed successfully!", .{});
     }
 
     fn execute(self: *Runtime, func: *bytecode.Function) !void {
@@ -109,7 +127,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
-            .type_check = false,  // Disable type checking for now
+            .type_check = false, // Disable type checking for now
         };
 
         // Use pipeline to compile file
@@ -157,6 +175,44 @@ pub const Runtime = struct {
         debug.log("Bytecode written to: {s}", .{output_path});
         if (!self.debug_mode) {
             try self.stdout.print("Compiled {s} -> {s}\n", .{ file_path, output_path });
+        }
+    }
+
+    /// Compile Gene source code from a string and write bytecode to `output_path`.
+    pub fn compileSource(self: *Runtime, source: []const u8, output_path: []const u8) !void {
+        const options = compiler.CompilerOptions{
+            .debug_mode = self.debug_mode,
+            .optimize = false,
+            .type_check = false,
+        };
+
+        var result = try pipeline.compileSource(self.allocator, source, options);
+        defer result.deinit();
+
+        debug.log("Compilation completed, writing bytecode...", .{});
+
+        const output_file = try std.fs.cwd().createFile(output_path, .{});
+        defer output_file.close();
+
+        var functions = try self.allocator.alloc(bytecode.Function, 1 + result.created_functions.items.len);
+        functions[0] = result.main_func;
+        for (result.created_functions.items, 0..) |func, i| {
+            functions[i + 1] = func.*;
+        }
+
+        var module = bytecode.Module{
+            .functions = functions,
+            .allocator = self.allocator,
+            .deserialized_functions = std.ArrayList(*bytecode.Function).init(self.allocator),
+            .owns_functions = false,
+        };
+        defer module.deinit();
+
+        try module.writeToFile(output_file.writer());
+
+        debug.log("Bytecode written to: {s}", .{output_path});
+        if (!self.debug_mode) {
+            try self.stdout.print("Compiled stdin -> {s}\n", .{output_path});
         }
     }
 
