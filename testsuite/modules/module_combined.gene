@@ -1,0 +1,29 @@
+#!/usr/bin/env gene run
+
+# Test combined namespace and import usage
+
+# Define a namespace
+(ns mylib
+  (var VERSION "1.0.0")
+  
+  (fn greet [name]
+    (print "Hello, " name))
+    
+  (class Config
+    [debug false]
+    [verbose false]))
+
+# Import from other modules
+(import "std/io")
+(import "std/math" :as math)
+(import "std/string" [concat split trim])
+
+# Another namespace
+(ns myapp
+  (import "../mylib" :as lib)
+  
+  (fn main []
+    (print "Module system test completed")))
+
+# Call the print directly for now
+(print "Combined module features parsed successfully")

@@ -43,7 +43,8 @@ pub fn compileSource(allocator: std.mem.Allocator, source: []const u8, options: 
     // Compile nodes to bytecode
     // Use the arena allocator for compilation to ensure consistent memory management
     const arena_allocator = parse_result.arena.allocator();
-    const ctx = compiler.CompilationContext.init(arena_allocator, options);
+    var ctx = try compiler.CompilationContext.init(arena_allocator, options);
+    defer ctx.deinit();
     const conversion_result = try compiler.compile(ctx, nodes);
 
     return CompiledResult{
@@ -57,7 +58,8 @@ pub fn compileSource(allocator: std.mem.Allocator, source: []const u8, options: 
 /// Compile AST nodes into bytecode (useful for testing or when AST is already available)
 /// Note: This function does not properly clean up created_functions - use compileSource instead
 pub fn compileNodes(allocator: std.mem.Allocator, nodes: []ast.AstNode, options: compiler.CompilerOptions) !bytecode.Function {
-    const ctx = compiler.CompilationContext.init(allocator, options);
+    var ctx = try compiler.CompilationContext.init(allocator, options);
+    defer ctx.deinit();
     var conversion_result = try compiler.compile(ctx, nodes);
     defer conversion_result.deinit();
 

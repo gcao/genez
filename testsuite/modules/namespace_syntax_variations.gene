@@ -1,0 +1,35 @@
+#!/usr/bin/env gene run
+
+# Test various namespace syntax variations
+
+# Test 1: Namespace with single expression (no do block needed)
+(ns simple
+  (var message "Single expression namespace"))
+
+# Test 2: Namespace with macro definition
+(ns macros
+  (macro when [condition body]
+    (if %condition %body nil)))
+
+# Test 3: Namespace with mixed content
+(ns mixed
+  (var counter 0)
+  
+  (fn increment []
+    (+ counter 1))
+    
+  (macro unless [condition body]
+    (if %condition nil %body))
+    
+  (class State
+    [value nil]))
+
+# Test 4: Namespace with nested do blocks
+(ns nested-do
+  (do
+    (var a 1)
+    (do
+      (var b 2)
+      (+ a b))))
+
+(print "Namespace syntax variations parsed successfully")

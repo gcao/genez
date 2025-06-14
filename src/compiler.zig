@@ -2,6 +2,7 @@ const std = @import("std");
 const ast = @import("frontend/ast.zig");
 const bytecode = @import("backend/bytecode.zig");
 const debug_output = @import("core/debug_output.zig");
+const module = @import("core/module.zig");
 
 // Stage transformation modules (direct imports, no interfaces)
 const ast_to_hir = @import("transforms/ast_to_hir.zig");
@@ -21,12 +22,19 @@ pub const CompilerOptions = struct {
 pub const CompilationContext = struct {
     allocator: std.mem.Allocator,
     options: CompilerOptions,
+    module_loader: *module.ModuleLoader,
 
-    pub fn init(allocator: std.mem.Allocator, options: CompilerOptions) CompilationContext {
+    pub fn init(allocator: std.mem.Allocator, options: CompilerOptions) !CompilationContext {
+        const loader = try module.ModuleLoader.init(allocator);
         return .{
             .allocator = allocator,
             .options = options,
+            .module_loader = loader,
         };
+    }
+    
+    pub fn deinit(self: *CompilationContext) void {
+        self.module_loader.deinit();
     }
 };
 

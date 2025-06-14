@@ -1,0 +1,23 @@
+#!/usr/bin/env gene run
+
+# Test basic namespace declarations
+
+# Test 1: Simple namespace
+(ns math
+  (fn add [a b] (+ a b))
+  (fn subtract [a b] (- a b)))
+
+# Test 2: Nested namespace path
+(ns geometry/shapes
+  (fn area-square [side] (* side side))
+  (fn area-circle [radius] (* 3.14159 radius radius)))
+
+# Test 3: Multiple namespace declarations
+(ns utils
+  (fn double [x] (* x 2)))
+
+(ns helpers  
+  (fn triple [x] (* x 3)))
+
+# For now, just verify parsing works
+(print "Namespace declarations parsed successfully")

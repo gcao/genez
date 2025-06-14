@@ -1,0 +1,25 @@
+#!/usr/bin/env gene run
+
+# This test documents current limitations of the module system
+# These features are parsed but not yet executed
+
+# 1. Namespace resolution not implemented
+# (ns math
+#   (fn square [x] (* x x)))
+# (math/square 5)  # Would fail - namespace resolution not implemented
+
+# 2. Import doesn't actually load modules
+# (import "std/math")
+# (math/sin 1.0)  # Would fail - imports not resolved
+
+# 3. Namespaces don't create isolated scopes yet
+# (ns test
+#   (var x 10))
+# (print x)  # Would work incorrectly - x would leak to global scope
+
+# 4. Slash notation for namespace access not implemented
+# (ns geometry
+#   (class Point))
+# (new geometry/Point)  # Would fail - slash notation not resolved
+
+(print "Module system limitations documented")

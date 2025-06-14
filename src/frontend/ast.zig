@@ -1280,6 +1280,27 @@ pub const ExportStmt = struct {
     }
 };
 
+pub const NamespaceDecl = struct {
+    name: []const u8, // Namespace path (e.g., "x" or "x/y")
+    body: *Expression, // Namespace body (usually a DoBlock)
+    
+    pub fn deinit(self: *NamespaceDecl, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+    }
+    
+    pub fn clone(self: NamespaceDecl, allocator: std.mem.Allocator) !NamespaceDecl {
+        const new_body = try allocator.create(Expression);
+        new_body.* = try self.body.clone(allocator);
+        
+        return NamespaceDecl{
+            .name = try allocator.dupe(u8, self.name),
+            .body = new_body,
+        };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
@@ -1306,6 +1327,7 @@ pub const Expression = union(enum) {
     CExternDecl: CExternDecl, // New - FFI external function declaration
     CStructDecl: CStructDecl, // New - FFI struct declaration
     CTypeDecl: CTypeDecl, // New - FFI type declaration
+    NamespaceDecl: NamespaceDecl, // New - Namespace declaration
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -1334,6 +1356,7 @@ pub const Expression = union(enum) {
             .CExternDecl => |*extern_decl| extern_decl.deinit(allocator), // New
             .CStructDecl => |*struct_decl| struct_decl.deinit(allocator), // New
             .CTypeDecl => |*type_decl| type_decl.deinit(allocator), // New
+            .NamespaceDecl => |*ns_decl| ns_decl.deinit(allocator), // New
         }
     }
 
@@ -1364,6 +1387,7 @@ pub const Expression = union(enum) {
             .CExternDecl => |extern_decl| Expression{ .CExternDecl = try extern_decl.clone(allocator) }, // New
             .CStructDecl => |struct_decl| Expression{ .CStructDecl = try struct_decl.clone(allocator) }, // New
             .CTypeDecl => |type_decl| Expression{ .CTypeDecl = try type_decl.clone(allocator) }, // New
+            .NamespaceDecl => |ns_decl| Expression{ .NamespaceDecl = try ns_decl.clone(allocator) }, // New
         };
     }
 };

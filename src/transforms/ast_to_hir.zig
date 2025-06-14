@@ -759,6 +759,13 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             std.debug.print("CTypeDecl not yet implemented in HIR\n", .{});
             return error.NotImplemented;
         },
+        .NamespaceDecl => {
+            // TODO: Implement proper HIR namespace support
+            // For now, convert namespace declarations to nil literals as placeholder
+            return hir.HIR.Expression{
+                .literal = .{ .nil = {} }
+            };
+        },
     };
 }
 

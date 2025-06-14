@@ -1,0 +1,14 @@
+#!/usr/bin/env gene run
+
+# This test verifies that namespace and import create proper AST nodes
+# by using them in a way that would fail if they were parsed as regular function calls
+
+# If ns was parsed as a function call, this would try to call an undefined function "ns"
+(ns test-ns
+  (var x 42))
+
+# If import was parsed as a function call, this would try to call an undefined function "import"  
+(import "nonexistent-module")
+
+# If we get here, the parsing worked correctly
+(print "AST structure verified - ns and import are special forms")

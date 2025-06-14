@@ -1,0 +1,34 @@
+#!/usr/bin/env gene run
+
+# Test namespace declarations with classes
+
+# Namespace with class definition
+(ns geometry
+  (class Point
+    [x 0]
+    [y 0]
+    
+    (.fn distance-to [other]
+      (do
+        (var dx (- other/x /x))
+        (var dy (- other/y /y))
+        (+ (* dx dx) (* dy dy)))))
+  
+  (class Line
+    [start]
+    [end]
+    
+    (.fn length []
+      (start .distance-to end))))
+
+# Namespace with multiple classes
+(ns ui/components
+  (class Button
+    [text ""]
+    [enabled true])
+    
+  (class Label
+    [text ""]
+    [visible true]))
+
+(print "Namespace with classes parsed successfully")

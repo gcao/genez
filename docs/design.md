@@ -1956,99 +1956,278 @@ Math/PI
 
 # Chapter 8: Module System and Namespaces
 
-## 8.1 Namespace Definition
+## 8.1 Core Concepts
+
+Gene's module system is based on these principles:
+- Each file or source string corresponds to a module
+- Each module corresponds to a namespace
+- There is a global namespace available everywhere
+- Namespaces can be created explicitly within a module
+- Slash notation (`/`) is used for namespace member access
+
+## 8.2 Module and File Correspondence
 
 ```gene
-# Define namespace
-(ns myapp/utils
-  ^export [helper1 helper2 MyClass]
-  ^import {std/io [read write]
-           math [sin cos]})
+# File: math/utils.gene
+# This file automatically creates the namespace 'math/utils'
 
-# Nested namespaces
-(ns myapp/utils/string
-  ^export [trim split join])
+(fn square [x]
+  (* x x))
 
-# File organization mirrors namespace
-# myapp/utils.gene
-# myapp/utils/string.gene
+(fn cube [x]
+  (* x x x))
+
+# Another file can access these as:
+# math/utils/square
+# math/utils/cube
 ```
 
-## 8.2 Import and Export
+## 8.3 Explicit Namespace Creation
 
 ```gene
-# Export declarations
-(ns mylib
-  # Export specific items
-  ^export [public-fn :function
-           PublicClass :class
-           PUBLIC-CONST :value]
+# Create a namespace explicitly within a module
+(ns geometry
+  (class Point
+    (x Int)
+    (y Int))
+  
+  (class Circle
+    (center Point)
+    (radius Float))
+  
+  (fn area [c]
+    (* 3.14159 c/radius c/radius)))
 
-  # Export with renaming
-  ^export [internal-name as public-name]
+# Access from outside:
+(var p (new geometry/Point))
+(p/x = 10)
+(p/y = 20)
 
-  # Export all public definitions
-  ^export *
-
-  # Re-export from another module
-  ^export-from other/module [item1 item2])
-
-# Import variations
-(import mylib [public-fn PublicClass])
-(import mylib [[public-fn :as fn]])
-(import mylib *)  # Import all
-(import mylib)    # Import namespace object
+(var c (new geometry/Circle))
+(c/center = p)
+(c/radius = 5.0)
+(print (geometry/area c))
 ```
 
-## 8.3 Namespace Access
+## 8.4 Import System
 
 ```gene
-# Fully qualified access
-myapp/utils/helper1
+# Import specific members from a module
+(import math/utils [square cube])
+# Now can use square and cube directly
+(print (square 5))
+(print (cube 3))
+
+# Import with alias
+(import math/utils [square as sq])
+(print (sq 4))
+
+# Import entire module under a namespace
+(import math/utils as mu)
+(print (mu/square 5))
+(print (mu/cube 3))
+
+# Import from explicit namespace
+(import geometry [Point Circle area])
+(var p (new Point))  # Can use Point directly
+```
+
+## 8.5 Global Namespace
+
+```gene
+# Items defined at the top level without ns are in the global namespace
+(fn global-helper [x]
+  (+ x 1))
+
+# Available everywhere without import
+(print (global-helper 5))
+
+# Built-in functions are in the global namespace
+(print "Hello")  # print is global
+(+ 1 2)          # + is global
+```
+
+## 8.6 Namespace Access Patterns
+
+```gene
+# Slash notation for accessing namespace members
+math/utils/square      # Fully qualified access
+geometry/Point         # Access class from namespace
+obj/field             # Object field access (same syntax)
 
 # After import
-(import myapp/utils [helper1])
-helper1  # Direct access
+(import math/utils [square])
+square                 # Direct access after import
 
-# Namespace alias
-(alias mu myapp/utils)
-mu/helper1
+# Namespace nesting
+(ns company
+  (ns department
+    (class Employee
+      (name String)
+      (id Int))))
 
-# Dynamic import
-(require :myapp/utils)
-((resolve :myapp/utils/helper1) args)
+# Access: company/department/Employee
+(var emp (new company/department/Employee))
 ```
 
-## 8.4 Private Definitions
+## 8.7 Module Loading
 
 ```gene
-(ns mylib
-  # Private by default with -
-  (-fn private-helper []
-    ...)
+# Modules are loaded lazily on first access or import
+# File: config.gene
+(var database-url "localhost:5432")
+(var api-key "secret")
 
-  # Public function
-  (fn public-fn []
-    (private-helper))
+# File: main.gene
+(import config [database-url])  # Loads config.gene
+(print database-url)
 
-  # Private variable
-  (-var secret-key = "...")
-
-  ^export [public-fn])  # Only export public items
+# Or direct access (also loads the module)
+(print config/api-key)
 ```
 
-## 8.5 Module Properties
+## 8.8 Visibility and Exports
 
 ```gene
-(ns mylib
-  ^version "1.2.3"
-  ^author "John Doe"
-  ^license "MIT"
+# By default, all top-level definitions in a module are accessible
+# Future enhancement: private definitions with - prefix
 
-  ^export [])
+# File: lib.gene
+(fn public-fn []      # Accessible from other modules
+  (helper))
 
-# Access module metadata
-mylib/.version  # "1.2.3"
+(fn -private-fn []    # Future: Not accessible from other modules
+  ...)
+
+# Future: explicit export lists
+# ^export [public-fn]
+```
+
+## 8.9 Name Collision Resolution
+
+Gene handles name collisions with these rules:
+
+### 8.9.1 Import Precedence
+
+```gene
+# Local definitions always win over imports
+(import math [max])    # Imports math/max
+
+(fn max [a b]         # Local max shadows imported max
+  (if (> a b) a b))
+
+(print (max 5 3))     # Uses local max, not math/max
+(print (math/max 5 3)) # Can still use fully qualified name
+```
+
+### 8.9.2 Multiple Import Conflicts
+
+```gene
+# File: lib1.gene
+(fn process [x] (+ x 1))
+
+# File: lib2.gene  
+(fn process [x] (* x 2))
+
+# File: main.gene
+(import lib1 [process])
+(import lib2 [process])  # Error: 'process' already imported from lib1
+
+# Solutions:
+
+# Option 1: Use aliases
+(import lib1 [process as process1])
+(import lib2 [process as process2])
+(print (process1 5))  # 6
+(print (process2 5))  # 10
+
+# Option 2: Use qualified names
+(import lib1)
+(import lib2)
+(print (lib1/process 5))  # 6
+(print (lib2/process 5))  # 10
+
+# Option 3: Selective import
+(import lib1 [process])
+(import lib2 [other-fn])  # Import different members
+```
+
+### 8.9.3 Namespace Collisions
+
+```gene
+# Explicit namespaces can shadow module namespaces
+# File: geometry.gene exists
+
+(ns geometry          # Local namespace shadows module
+  (class Square
+    (side Float)))
+
+# Access patterns:
+geometry/Square       # Refers to local namespace
+./geometry/Square     # Future: Refers to module (file)
+
+# Or use import to be explicit
+(import geometry as geom-module)
+geom-module/Point     # From module
+geometry/Square       # From local namespace
+```
+
+### 8.9.4 Global vs Local Precedence
+
+```gene
+# Local definitions shadow global ones
+(fn print [x]         # Shadows global print
+  (global/print "Custom: " x))  # Can access global via global/
+
+(print "Hello")       # Uses local print
+
+# Imported names shadow globals but not locals
+(import custom [+])   # Custom + operator
+(+ 1 2)              # Uses imported +, not global
+(global/+ 1 2)       # Access global + explicitly
+```
+
+### 8.9.5 Resolution Order
+
+The name resolution order in Gene is:
+1. Local variables and parameters
+2. Local function/class definitions  
+3. Imported names
+4. Module-level definitions in current module
+5. Namespace members (via / notation)
+6. Global namespace
+
+```gene
+(var x 10)           # Local variable
+
+(import math [x])    # Error: local 'x' already defined
+
+(fn test []
+  (var x 20)         # Function-local x
+  (print x)          # Prints 20, not 10
+  (print module/x))  # Future: Access module-level x
+```
+
+### 8.9.6 Best Practices
+
+```gene
+# 1. Use qualified names when clarity is needed
+(import utils)
+(import helpers)
+(utils/process data)
+(helpers/process data)
+
+# 2. Use aliases for common conflicts
+(import threading [lock as thread-lock])
+(import database [lock as db-lock])
+
+# 3. Group related imports
+(import geometry [Point Circle Rectangle])
+(import math [sin cos tan])
+
+# 4. Avoid shadowing built-ins unless intentional
+# Bad: (fn print [...])
+# Good: (fn custom-print [...])
 ```
 
 ---

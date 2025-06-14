@@ -1,0 +1,24 @@
+#!/usr/bin/env gene run
+
+# Test various import syntax variations
+
+# Test 1: Import from nested path
+(import "std/collections/map")
+(import "std/collections/set" :as set)
+
+# Test 2: Import multiple items with different patterns
+(import "graphics" [Color [Point2D Point] [Rectangle Rect] Line])
+
+# Test 3: Import with very long names
+(import "com/example/very/long/module/path/utilities" :as utils)
+
+# Test 4: Import with numbers in names
+(import "math/vec3")
+(import "opengl/gl4" :as gl)
+
+# Test 5: Import with underscores and hyphens
+(import "my-module")
+(import "my_module")
+(import "my-module_v2")
+
+(print "Import syntax variations parsed successfully")

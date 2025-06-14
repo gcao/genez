@@ -56,6 +56,8 @@ pub const TokenKind = union(enum) {
     Match, // New: for pattern matching
     Macro, // New: for pseudo macro definitions
     Percent, // New: for unquote syntax (%identifier)
+    Ns, // New: for namespace declarations
+    Import, // New: for import statements
 };
 
 /// Tokenize a Gene source string.
@@ -236,6 +238,14 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             else if (std.mem.eql(u8, word, "new")) token_kind = .New // New keyword
             else if (std.mem.eql(u8, word, "match")) token_kind = .Match // New keyword
             else if (std.mem.eql(u8, word, "macro")) token_kind = .Macro // New keyword
+            else if (std.mem.eql(u8, word, "ns")) {
+                debug.log("Tokenizing 'ns' as Ns keyword", .{});
+                token_kind = .Ns; // New keyword
+            }
+            else if (std.mem.eql(u8, word, "import")) {
+                debug.log("Tokenizing 'import' as Import keyword", .{});
+                token_kind = .Import; // New keyword
+            }
             else if (std.mem.eql(u8, word, "true")) token_kind = .{ .Bool = true } else if (std.mem.eql(u8, word, "false")) token_kind = .{ .Bool = false } else {
                 // Store the slice directly, parser will dupe if needed
                 token_kind = .{ .Ident = word };
@@ -456,6 +466,8 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .New => return parseNew(alloc, toks, depth + 1),
                 .Match => return parseMatch(alloc, toks, depth + 1),
                 .Macro => return parseMacro(alloc, toks, depth + 1),
+                .Ns => return parseNamespace(alloc, toks, depth + 1),
+                .Import => return parseImport(alloc, toks, depth + 1),
                 .Ident => {
                     // Check if this is a method call pattern (obj .method ...)
                     if (toks.len > 2 and toks[2].kind == .Dot) {
@@ -1148,6 +1160,144 @@ fn parseMacro(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
             .name = name_copy,
             .params = params_slice,
             .body = body_ptr,
+        }}},
+        .consumed = current_pos,
+    };
+}
+
+/// Parse a namespace declaration.
+///
+/// Expects (ns name body)
+/// Example: (ns geometry (class Point ...))
+fn parseNamespace(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .Ns) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Ns
+
+    // Parse namespace name/path
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
+    const ns_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    current_pos += 1;
+
+    // Parse namespace body (usually expressions that define classes, functions, etc.)
+    var body_exprs = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer body_exprs.deinit();
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const expr_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += expr_result.consumed;
+        
+        const expr_ptr = try alloc.create(ast.Expression);
+        expr_ptr.* = expr_result.node.Expression;
+        try body_exprs.append(expr_ptr);
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
+
+    // Create namespace body (do block if multiple expressions, single expression otherwise)
+    const body_ptr = try alloc.create(ast.Expression);
+    if (body_exprs.items.len == 1) {
+        body_ptr.* = body_exprs.items[0].*;
+        alloc.destroy(body_exprs.items[0]);
+        body_exprs.deinit();
+    } else {
+        body_ptr.* = .{ .DoBlock = .{ .statements = try body_exprs.toOwnedSlice() } };
+    }
+
+    return .{
+        .node = .{ .Expression = .{ .NamespaceDecl = .{
+            .name = ns_name,
+            .body = body_ptr,
+        }}},
+        .consumed = current_pos,
+    };
+}
+
+/// Parse an import statement.
+///
+/// Supports various forms:
+/// - (import "module/path")              - Import all
+/// - (import "module/path" :as alias)    - Import with alias
+/// - (import "module/path" [item1 item2]) - Import specific items
+/// - (import "module/path" [[old new]])   - Import with renaming
+fn parseImport(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    if (toks.len < 3 or toks[0].kind != .LParen or toks[1].kind != .Import) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Import
+
+    // Parse module path (string or identifier)
+    if (current_pos >= toks.len) return error.UnexpectedEOF;
+    
+    const module_path = switch (toks[current_pos].kind) {
+        .String => |str| try alloc.dupe(u8, str),
+        .Ident => |ident| try alloc.dupe(u8, ident),
+        else => return error.UnexpectedToken,
+    };
+    current_pos += 1;
+
+    var alias: ?[]const u8 = null;
+    var items: ?[]ast.ImportStmt.ImportItem = null;
+
+    // Check for :as alias or specific imports
+    if (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        // Check for :as pattern
+        if (toks[current_pos].kind == .Ident and std.mem.eql(u8, toks[current_pos].kind.Ident, ":as")) {
+            current_pos += 1; // Skip :as
+            if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
+            alias = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+            current_pos += 1;
+        } else if (toks[current_pos].kind == .LBracket) {
+            // Parse specific imports [item1 item2 ...] or [[old new] ...]
+            current_pos += 1; // Skip LBracket
+            
+            var import_items = std.ArrayList(ast.ImportStmt.ImportItem).init(alloc);
+            errdefer import_items.deinit();
+            
+            while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+                if (toks[current_pos].kind == .LBracket) {
+                    // Parse [old new] for renaming
+                    current_pos += 1; // Skip inner LBracket
+                    
+                    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
+                    const old_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+                    current_pos += 1;
+                    
+                    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
+                    const new_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+                    current_pos += 1;
+                    
+                    if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
+                    current_pos += 1; // Skip inner RBracket
+                    
+                    try import_items.append(.{ .name = old_name, .alias = new_name });
+                } else if (toks[current_pos].kind == .Ident) {
+                    // Simple import item
+                    const item_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+                    current_pos += 1;
+                    try import_items.append(.{ .name = item_name, .alias = null });
+                } else {
+                    return error.UnexpectedToken;
+                }
+            }
+            
+            if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
+            current_pos += 1; // Skip RBracket
+            
+            items = try import_items.toOwnedSlice();
+        }
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
+
+    return .{
+        .node = .{ .Expression = .{ .ImportStmt = .{
+            .module_path = module_path,
+            .alias = alias,
+            .items = items,
         }}},
         .consumed = current_pos,
     };

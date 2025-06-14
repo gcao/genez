@@ -1,0 +1,29 @@
+#!/usr/bin/env gene run
+
+# Test edge cases and special scenarios
+
+# Test 1: Empty namespace
+(ns empty)
+
+# Test 2: Namespace with only variables
+(ns constants
+  (var PI 3.14159)
+  (var E 2.71828)
+  (var GOLDEN_RATIO 1.618))
+
+# Test 3: Deeply nested namespace path
+(ns com/example/app/models/user
+  (var DEFAULT_ROLE "user"))
+
+# Test 4: Import with empty item list
+# This might be invalid syntax, so it's commented out
+# (import "utils" [])
+
+# Test 5: Namespace with do block
+(ns with-do
+  (do
+    (var x 1)
+    (var y 2)
+    (+ x y)))
+
+(print "Edge cases handled correctly")

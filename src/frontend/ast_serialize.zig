@@ -320,6 +320,11 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             }
             try writer.writeAll(")");
         },
+        .NamespaceDecl => |ns_decl| {
+            try writer.print("(ns \"{s}\" ", .{ns_decl.name});
+            try serializeExpression(writer, ns_decl.body.*, indent + 1);
+            try writer.writeAll(")");
+        },
         else => |tag| {
             try writer.print("(; unsupported: {s} ;)", .{@tagName(tag)});
         },
