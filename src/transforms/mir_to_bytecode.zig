@@ -245,7 +245,7 @@ const StackTracker = struct {
     }
 
     fn pop(self: *StackTracker) u16 {
-        return self.registers.popOrNull() orelse 0;
+        return self.registers.pop() orelse 0;
     }
 
     fn peek(self: *StackTracker, offset: usize) u16 {
@@ -843,6 +843,9 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             });
             // std.debug.print("  -> Generated: SetField r{}.{s} = r{}\n", .{ instance_reg, field_name, value_reg });
         },
+        // Commented out unimplemented instructions for now
+        // .Dup, .Pop, .IsArray, .IsMap, .GetLength, .GetArrayElement, .GetMapValue
+        // will be implemented when VM support is added
         .CallMethod => |method_call| {
             // Pop arguments and instance from stack
             const total_args = method_call.arg_count + 1; // +1 for instance
@@ -875,6 +878,129 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .immediate = types.Value{ .Int = @intCast(method_call.arg_count) },
             });
             // std.debug.print("  -> Generated: CallMethod r{} = r{}.{s}({} args)\n", .{ dst_reg, instance_reg, method_call.method_name, method_call.arg_count });
+        },
+        
+        // Pattern matching support instructions
+        .Length => {
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: Length needs 1 operand but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            
+            const src_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Length,
+                .dst = dst_reg,
+                .src1 = src_reg,
+            });
+        },
+        
+        .ArrayGet => {
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: ArrayGet needs 2 operands but stack has {}\n", .{stack.len()});
+                return error.StackUnderflow;
+            }
+            
+            const index_reg = stack.pop();
+            const array_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.ArrayGet,
+                .dst = dst_reg,
+                .src1 = array_reg,
+                .src2 = index_reg,
+            });
+        },
+        
+        .MapGet => {
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: MapGet needs 2 operands but stack has {}\n", .{stack.len()});
+                return error.StackUnderflow;
+            }
+            
+            const key_reg = stack.pop();
+            const map_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.MapGet,
+                .dst = dst_reg,
+                .src1 = map_reg,
+                .src2 = key_reg,
+            });
+        },
+        
+        .Duplicate => {
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: Duplicate needs 1 operand but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            
+            const src_reg = stack.peek(0); // Get top without popping
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Move,
+                .dst = dst_reg,
+                .src1 = src_reg,
+            });
+        },
+        
+        .Pop => {
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: Pop needs 1 operand but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            
+            _ = stack.pop(); // Just discard the value
+            // No bytecode instruction needed - register will be reused
+        },
+        
+        .IsArray => {
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: IsArray needs 1 operand but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            
+            const src_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.IsArray,
+                .dst = dst_reg,
+                .src1 = src_reg,
+            });
+        },
+        
+        .IsMap => {
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: IsMap needs 1 operand but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            
+            const src_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.IsMap,
+                .dst = dst_reg,
+                .src1 = src_reg,
+            });
         },
     }
 }

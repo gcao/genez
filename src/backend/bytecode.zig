@@ -52,6 +52,14 @@ pub const OpCode = enum {
     GetField, // Get object field: GetField Rd, obj_reg, field_name
     SetField, // Set object field: SetField obj_reg, field_name, value_reg
     CallMethod, // Call method: CallMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
+    
+    // Type checking operations
+    IsArray, // Check if value is array: IsArray Rd, Rs
+    IsMap, // Check if value is map: IsMap Rd, Rs
+    
+    // Stack operations (needed for pattern matching)
+    Dup, // Duplicate top of stack: Dup Rs -> push Rs value again
+    Pop, // Pop and discard: Pop Rs
 };
 
 // Register identifier - u16 allows for 65,536 virtual registers

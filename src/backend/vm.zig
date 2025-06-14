@@ -2055,6 +2055,38 @@ pub const VM = struct {
                 }
                 try map.put(try self.allocator.dupe(u8, key), try value.clone(self.allocator));
             },
+            .IsArray => {
+                // Check if value is an array: IsArray Rd, Rs
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const src_reg = instruction.src1 orelse return error.InvalidInstruction;
+                
+                var src_val = try self.getRegister(src_reg);
+                defer src_val.deinit(self.allocator);
+                
+                const is_array = src_val == .Array;
+                try self.setRegister(dst_reg, .{ .Bool = is_array });
+            },
+            .IsMap => {
+                // Check if value is a map: IsMap Rd, Rs
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const src_reg = instruction.src1 orelse return error.InvalidInstruction;
+                
+                var src_val = try self.getRegister(src_reg);
+                defer src_val.deinit(self.allocator);
+                
+                const is_map = src_val == .Map;
+                try self.setRegister(dst_reg, .{ .Bool = is_map });
+            },
+            .Dup => {
+                // Duplicate register value: Dup Rs -> same register used as source
+                // Note: In our MIR->bytecode, we use Move to implement Dup
+                return error.UnsupportedInstruction;
+            },
+            .Pop => {
+                // Pop is a no-op in register-based VM - handled by register allocation
+                // Note: Our MIR->bytecode handles Pop by not generating any instruction
+                return error.UnsupportedInstruction;
+            },
         }
     }
 

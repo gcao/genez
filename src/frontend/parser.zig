@@ -14,13 +14,16 @@ pub const ParserError = error{
     ExpectedParameterName,
     InvalidTypeAnnotation,
     ExpectedRBracket,
+    ExpectedRBrace,
     MaxRecursionDepthExceeded,
     UnexpectedToken,
+    UnexpectedEndOfInput,
     EmptyExpression,
     InvalidExpression,
     OutOfMemory,
     ExpectedClassName,
     ExpectedPropertyName,
+    ExpectedProperty,
     ExpectedMethodName,
     ExpectedMethodBody,
 };
@@ -237,17 +240,10 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
         }
 
         // Handle identifiers and keywords (including operators)
-        const ident_chars = "_!$&*:<=>?@^~"; // Removed '.', '/', '%', '+', and '-' as they have special handling
+        const ident_chars = "_!$&*:<=>?@^~+-"; // Added '+' and '-' to allow multi-character operators like ++
         const ident_start_chars = "_!$&*+:<=>?@^~-"; // '+' and '-' can start an identifier if not followed by digit
         if (std.ascii.isAlphabetic(c) or std.mem.indexOfScalar(u8, ident_start_chars, c) != null) {
             const start = i;
-            // Special case: single '+' or '-' are valid identifiers
-            if ((c == '+' or c == '-') and (i + 1 >= source_to_parse.len or !std.ascii.isAlphanumeric(source_to_parse[i + 1]))) {
-                const word = source_to_parse[start .. i + 1];
-                try tokens.append(.{ .kind = .{ .Ident = word }, .loc = start });
-                i += 1;
-                continue;
-            }
             while (i + 1 < source_to_parse.len and (std.ascii.isAlphanumeric(source_to_parse[i + 1]) or std.mem.indexOfScalar(u8, ident_chars, source_to_parse[i + 1]) != null)) : (i += 1) {}
             const word = source_to_parse[start .. i + 1];
             var token_kind: TokenKind = undefined;
@@ -2003,6 +1999,51 @@ fn parsePattern(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pa
             const elements_slice = try elements.toOwnedSlice();
             return PatternParseResult{
                 .pattern = .{ .Array = .{ .elements = elements_slice, .rest = null } },
+                .consumed = current_pos,
+            };
+        },
+        .LBrace => {
+            // Map pattern
+            var current_pos: usize = 1; // Skip LBrace
+            var fields = std.ArrayList(ast.MatchExpr.Pattern.MapPattern.MapFieldPattern).init(alloc);
+            errdefer fields.deinit();
+
+            while (current_pos < toks.len and toks[current_pos].kind != .RBrace) {
+                // Parse key (must be an identifier starting with ^)
+                if (current_pos >= toks.len) {
+                    return error.UnexpectedEndOfInput;
+                }
+                
+                const key_ident = switch (toks[current_pos].kind) {
+                    .Ident => |ident| ident,
+                    else => return error.ExpectedProperty,
+                };
+                
+                if (!std.mem.startsWith(u8, key_ident, "^")) {
+                    return error.ExpectedProperty;
+                }
+                
+                // Remove the ^ prefix to get the actual key
+                const key = try alloc.dupe(u8, key_ident[1..]);
+                current_pos += 1;
+
+                // Parse value pattern
+                const value_result = try parsePattern(alloc, toks[current_pos..], depth + 1);
+                try fields.append(.{
+                    .key = key,
+                    .pattern = value_result.pattern,
+                });
+                current_pos += value_result.consumed;
+            }
+
+            if (current_pos >= toks.len or toks[current_pos].kind != .RBrace) {
+                return error.ExpectedRBrace;
+            }
+            current_pos += 1;
+
+            const fields_slice = try fields.toOwnedSlice();
+            return PatternParseResult{
+                .pattern = .{ .Map = .{ .fields = fields_slice, .rest = null } },
                 .consumed = current_pos,
             };
         },

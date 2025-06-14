@@ -152,6 +152,15 @@ pub const MIR = struct {
         GetField: []const u8, // Field name
         SetField: []const u8, // Field name
         CallMethod: MethodCall,
+        
+        // Pattern matching support
+        Length, // Get length of array/map/string
+        ArrayGet, // Get array element (index on stack)
+        MapGet, // Get map value (key on stack)
+        Duplicate, // Duplicate top of stack
+        Pop, // Pop and discard top of stack
+        IsArray, // Check if value is array
+        IsMap, // Check if value is map
     };
     
     pub const ClassDefinition = struct {

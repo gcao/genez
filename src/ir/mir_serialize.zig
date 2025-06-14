@@ -135,6 +135,27 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .CallMethod => |method_call| {
             try writer.print("call-method \"{s}\" {d}", .{ method_call.method_name, method_call.arg_count });
         },
+        .Length => {
+            try writer.writeAll("length");
+        },
+        .ArrayGet => {
+            try writer.writeAll("array-get");
+        },
+        .MapGet => {
+            try writer.writeAll("map-get");
+        },
+        .Duplicate => {
+            try writer.writeAll("duplicate");
+        },
+        .Pop => {
+            try writer.writeAll("pop");
+        },
+        .IsArray => {
+            try writer.writeAll("is-array");
+        },
+        .IsMap => {
+            try writer.writeAll("is-map");
+        },
     }
 }
 

@@ -690,12 +690,10 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 // Helper function to compile HIR patterns to MIR instructions
 // Returns the instruction index where pattern matching succeeds
 fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: ConversionContext) !usize {
-    _ = context; // Suppress unused parameter warning for now
-    
     switch (pattern) {
         .literal => |lit| {
             // Generate code to compare scrutinee with literal value
-            try convertExpression(block, lit.value.*);
+            try convertExpressionWithContext(block, lit.value.*, context);
             try block.instructions.append(.Equal);
             
             // Jump to next pattern if not equal
@@ -731,22 +729,83 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: Conv
             return 0;
         },
         .array => |arr| {
-            // Array pattern matching would involve:
-            // 1. Check if scrutinee is an array
-            // 2. Check length constraints
-            // 3. Match each element pattern
-            // 4. Handle rest patterns
-            _ = arr;
-            try block.instructions.append(.LoadNil);
-            return 0;
+            // Array pattern matching implementation
+            // The scrutinee (array being matched) is already on the stack
+            
+            // For empty array pattern [], check length == 0
+            if (arr.elements.len == 0) {
+                // Get length of scrutinee (it's on stack)
+                try block.instructions.append(.Duplicate); // Keep scrutinee for later
+                try block.instructions.append(.Length);
+                // Load 0 for comparison
+                try block.instructions.append(.{ .LoadInt = 0 });
+                try block.instructions.append(.Equal);
+                // Jump if not equal (pattern fails)
+                const jump_index = block.instructions.items.len;
+                try block.instructions.append(.{ .JumpIfFalse = 0 });
+                // Pop the scrutinee on success
+                try block.instructions.append(.Pop);
+                return jump_index;
+            }
+            
+            // For non-empty patterns, check array length first
+            try block.instructions.append(.Duplicate); // Keep scrutinee on stack
+            try block.instructions.append(.Length);
+            try block.instructions.append(.{ .LoadInt = @intCast(arr.elements.len) });
+            try block.instructions.append(.Equal);
+            
+            const length_check_jump = block.instructions.items.len;
+            try block.instructions.append(.{ .JumpIfFalse = 0 });
+            
+            // Length matches, now extract and bind each element
+            // We need to load the scrutinee again for each element extraction
+            for (arr.elements, 0..) |elem_pattern, i| {
+                // Load the scrutinee array again
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
+                
+                // Load the index
+                try block.instructions.append(.{ .LoadInt = @intCast(i) });
+                
+                // Get array element at index i
+                try block.instructions.append(.ArrayGet);
+                
+                // Now handle the element pattern
+                switch (elem_pattern) {
+                    .variable => |var_pat| {
+                        // Store the extracted value in the variable
+                        const var_name_copy = try block.allocator.dupe(u8, var_pat.name);
+                        try block.instructions.append(.{ .StoreVariable = var_name_copy });
+                    },
+                    .literal => |lit| {
+                        // Compare with literal
+                        try convertExpressionWithContext(block, lit.value.*, context);
+                        try block.instructions.append(.Equal);
+                        // For now, we don't handle nested pattern failures properly
+                        // A full implementation would need to track all failure points
+                    },
+                    .wildcard => {
+                        // Just discard the extracted value
+                        try block.instructions.append(.Pop);
+                    },
+                    else => {
+                        // For other patterns, just pop for now
+                        try block.instructions.append(.Pop);
+                    },
+                }
+            }
+            
+            // Pop the original scrutinee that we duplicated at the beginning
+            try block.instructions.append(.Pop);
+            
+            return length_check_jump;
         },
         .map => |map| {
-            // Map pattern matching would involve:
-            // 1. Check if scrutinee is a map
-            // 2. Match each field pattern
-            // 3. Handle rest patterns
+            // Map pattern matching - simplified version
+            // For now, just succeed and bind variables
+            
             _ = map;
-            try block.instructions.append(.LoadNil);
+            
+            // Map patterns always succeed for now
             return 0;
         },
         .or_pattern => |or_pat| {
