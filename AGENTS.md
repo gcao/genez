@@ -4,7 +4,7 @@ This repository hosts the Gene compiler and virtual machine written in Zig.
 Compilation proceeds through multiple stages, transforming source code to bytecode.
 
 - **Design details:** see `docs/design.md`.
-- **Migration notes:** see `docs/migrate_to_new_design.md`.
+- **Implementation status:** see `docs/implementation_status.md`.
 
 ## Directory overview
 - `src/frontend/` – parser and AST definitions.
@@ -13,10 +13,8 @@ Compilation proceeds through multiple stages, transforming source code to byteco
 - `src/backend/` – bytecode generation and the VM.
 
 ## Building and testing
-Before building, install Zig:
-```
-apt-get install zig
-```
+Before building, download and install Zig.
+
 - Build: `zig build`
 - Tests: `zig build test`
 - Run example: `./zig-out/bin/gene run examples/default.gene`
@@ -27,4 +25,4 @@ Example: `./zig-out/bin/gene run examples/default.gene --debug`.
 WASM builds can be run with `wasmtime --dir . zig-out/bin/gene-wasi.wasm run examples/default.gene`.
 Example `.gene` files live in the `examples/` directory.
 
-After making changes, run the tests and try the examples to verify behavior.
+After making changes, run test.sh to verify everything still works.

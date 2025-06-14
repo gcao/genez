@@ -1619,9 +1619,15 @@ fn parseMethodCall(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
     if (current_pos >= toks.len or toks[current_pos].kind != .Dot) return error.UnexpectedToken;
     current_pos += 1; // Skip dot
 
-    // Expect method name
-    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedMethodName;
-    const method_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    // Expect method name (could be identifier or operator)
+    if (current_pos >= toks.len) return error.ExpectedMethodName;
+    
+    const method_name = switch (toks[current_pos].kind) {
+        .Ident => |name| try alloc.dupe(u8, name),
+        .Slash => try alloc.dupe(u8, "/"),
+        .Percent => try alloc.dupe(u8, "%"),
+        else => return error.ExpectedMethodName,
+    };
     current_pos += 1;
 
     // Parse arguments

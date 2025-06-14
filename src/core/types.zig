@@ -43,6 +43,15 @@ pub const ClassDefinition = struct {
         }
         self.fields.deinit();
         
+        // Clean up method functions
+        var method_iter = self.methods.iterator();
+        while (method_iter.next()) |entry| {
+            // Free the method name key
+            self.allocator.free(entry.key_ptr.*);
+            // Deinit and destroy the function
+            entry.value_ptr.*.deinit();
+            self.allocator.destroy(entry.value_ptr.*);
+        }
         self.methods.deinit();
     }
 };
@@ -65,6 +74,9 @@ pub const ObjectInstance = struct {
     pub fn deinit(self: *ObjectInstance) void {
         var iter = self.fields.iterator();
         while (iter.next()) |entry| {
+            // Free the field name (key)
+            self.allocator.free(entry.key_ptr.*);
+            // Free the value
             var value = entry.value_ptr.*;
             value.deinit(self.allocator);
         }

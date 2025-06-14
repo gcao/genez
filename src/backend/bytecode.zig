@@ -37,6 +37,14 @@ pub const OpCode = enum {
     // Collection operations
     Array, // Create array: Array Rd, [Rs1, Rs2, ...]
     Map, // Create map: Map Rd, [Rkey1, Rval1, ...]
+    Length, // Get length: Length Rd, Rs (string/array/map)
+    ArrayGet, // Get array element: ArrayGet Rd, array_reg, index_reg
+    ArraySet, // Set array element: ArraySet array_reg, index_reg, value_reg
+    MapGet, // Get map value: MapGet Rd, map_reg, key_reg
+    MapSet, // Set map value: MapSet map_reg, key_reg, value_reg
+    
+    // String operations
+    Substring, // Get substring: Substring Rd, str_reg, start_reg, end_reg
     
     // Class operations
     DefineClass, // Define a class: DefineClass Rd, class_name, parent_reg (optional)

@@ -89,10 +89,10 @@ pub const HIRTypeChecker = struct {
             .errors = std.ArrayList(TypeCheckError).init(allocator),
             .allocated_params = std.ArrayList([]TypeInfo).init(allocator),
         };
-        
+
         // Initialize built-in functions
         checker.initBuiltins() catch {};
-        
+
         return checker;
     }
 
@@ -102,7 +102,7 @@ pub const HIRTypeChecker = struct {
             self.allocator.free(error_item.message);
         }
         self.errors.deinit();
-        
+
         // Free allocated parameter arrays
         for (self.allocated_params.items) |params| {
             self.allocator.free(params);
@@ -118,13 +118,13 @@ pub const HIRTypeChecker = struct {
 
         // Arithmetic operators (work with both int and float)
         const arithmetic_ops = [_][]const u8{ "+", "-", "*", "/" };
-        
+
         // We need to allocate the params array
         var int_params = try self.allocator.alloc(TypeInfo, 2);
         int_params[0] = int_type;
         int_params[1] = int_type;
         try self.allocated_params.append(int_params);
-        
+
         for (arithmetic_ops) |op| {
             try self.global_env.functions.put(op, .{
                 .params = int_params,
@@ -145,7 +145,7 @@ pub const HIRTypeChecker = struct {
         var print_params = try self.allocator.alloc(TypeInfo, 1);
         print_params[0] = int_type;
         try self.allocated_params.append(print_params);
-        
+
         try self.global_env.functions.put("print", .{
             .params = print_params,
             .return_type = void_type,
@@ -238,7 +238,7 @@ pub const HIRTypeChecker = struct {
                             try self.addError("Right operand of arithmetic operation must be numeric", .{});
                             return TypeError.InvalidOperandType;
                         }
-                        
+
                         // Result type is float if either operand is float
                         if (left_type.type_enum == .float or right_type.type_enum == .float) {
                             return TypeInfo{ .type_enum = .float };
@@ -263,7 +263,7 @@ pub const HIRTypeChecker = struct {
                 }
 
                 const then_type = try self.checkExpression(if_expr.then_branch, env);
-                
+
                 if (if_expr.else_branch) |else_branch| {
                     const else_type = try self.checkExpression(else_branch, env);
                     // Both branches should have compatible types
@@ -272,14 +272,14 @@ pub const HIRTypeChecker = struct {
                         return TypeError.TypeMismatch;
                     }
                 }
-                
+
                 return then_type;
             },
             .func_call => |call| {
                 // Handle built-in function calls
                 if (call.func.* == .variable) {
                     const func_name = call.func.variable.name;
-                    
+
                     if (env.lookupFunction(func_name)) |func_type| {
                         // Check argument count
                         if (call.args.items.len != func_type.params.len) {
@@ -290,7 +290,7 @@ pub const HIRTypeChecker = struct {
                             });
                             return TypeError.ArgumentCountMismatch;
                         }
-                        
+
                         // Check argument types
                         for (call.args.items, func_type.params) |arg, expected_type| {
                             const arg_type = try self.checkExpression(arg, env);
@@ -299,14 +299,14 @@ pub const HIRTypeChecker = struct {
                                 return TypeError.TypeMismatch;
                             }
                         }
-                        
+
                         return func_type.return_type;
                     } else {
                         try self.addError("Undefined function: {s}", .{func_name});
                         return TypeError.UndefinedFunction;
                     }
                 }
-                
+
                 // For other call types, return void for now
                 return TypeInfo{ .type_enum = .void };
             },

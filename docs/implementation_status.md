@@ -74,6 +74,8 @@ The type hierarchy is well-designed. Next steps should focus on:
    - Comparison operators (<, >, =) ✓
    - Variables (var) ✓
    - Print function ✓
+   - Macros with lazy evaluation ✓
+   - Unquote syntax (%) ✓
 
 3. **VM Execution**
    - Register-based bytecode ✓
@@ -83,11 +85,17 @@ The type hierarchy is well-designed. Next steps should focus on:
 
 ## In Progress 🚧
 
-1. **Type System**
+1. **Object-Oriented Programming**
+   - AST parsing for classes completed
+   - Runtime support for classes and objects in progress
+   - VM instructions for OOP added (DefineClass, New, GetField, SetField, CallMethod)
+   - Need to complete the full implementation
+
+2. **Type System**
    - Type checking infrastructure exists but not active
    - Runtime values support all basic types
 
-2. **Error Handling**
+3. **Error Handling**
    - Basic error propagation in Zig
    - No language-level try/catch yet
 
@@ -111,10 +119,10 @@ The type hierarchy is well-designed. Next steps should focus on:
 
 4. **Language Features**
    - Pattern matching (AST support only)
-   - Classes and OOP (AST support only)
    - Modules and imports
-   - Macros and metaprogramming
-   - Properties (`^` syntax)
+   - Properties (`^` shorthand syntax)
+   - Automatic constructor calls with arguments
+   - do blocks returning last expression value
 
 5. **Standard Library**
    - Collections
@@ -126,10 +134,14 @@ The type hierarchy is well-designed. Next steps should focus on:
 
 1. **Keep Current Architecture**: The 4-stage pipeline is working well. Don't add LIR until needed for JIT.
 
-2. **Focus on Type Checking**: The next major feature should be basic type checking in HIR.
+2. **Focus on Type Checking**: Enable the basic type checking that's already implemented in HIR.
 
-3. **Add Classes Next**: Since AST support exists, implementing runtime support for classes would unlock OOP.
+3. **Improve Error Messages**: Add better error reporting with line numbers and context.
 
-4. **Defer Advanced Features**: JIT, GC, and concurrency can wait until the core language is more complete.
+4. **Complete Pattern Matching**: The AST support exists, implement the runtime execution.
 
-5. **Update Design.md**: Consider updating the design to reflect the current pragmatic approach while keeping the long-term vision.
+5. **Add Module System**: This is essential for larger programs and code organization.
+
+6. **Defer Advanced Features**: JIT, GC, and concurrency can wait until the core language is more complete.
+
+7. **Update Design.md**: Consider updating the design to reflect the current pragmatic approach while keeping the long-term vision.

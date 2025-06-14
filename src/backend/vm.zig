@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const debug = @import("../core/debug.zig");
 const bytecode = @import("bytecode.zig");
+const builtin_classes = @import("../core/builtin_classes.zig");
 
 pub const VMError = error{
     StackOverflow,
@@ -58,8 +59,7 @@ pub const VM = struct {
     object_pool: std.ArrayList(*types.ObjectInstance), // Object pool for reference semantics
     next_object_id: u32, // Next available object ID
     allocated_classes: std.ArrayList(*types.ClassDefinition), // Track allocated class objects for cleanup
-    metaclass: ?*types.ClassDefinition, // The Class metaclass
-    any_class: ?*types.ClassDefinition, // The Any root class
+    core_classes: ?builtin_classes.CoreClasses, // Core built-in classes
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
 
@@ -122,12 +122,11 @@ pub const VM = struct {
             .object_pool = std.ArrayList(*types.ObjectInstance).init(allocator),
             .next_object_id = 0,
             .allocated_classes = std.ArrayList(*types.ClassDefinition).init(allocator),
-            .metaclass = null,
-            .any_class = null,
+            .core_classes = null,
         };
 
-        // Initialize the metaclass system
-        vm.initMetaclassSystem() catch unreachable;
+        // Initialize core classes
+        vm.initCoreClasses() catch unreachable;
 
         return vm;
     }
@@ -181,29 +180,28 @@ pub const VM = struct {
         return null;
     }
 
-    fn initMetaclassSystem(self: *VM) !void {
-        // Create the Class metaclass
-        const metaclass = try self.allocator.create(types.ClassDefinition);
-        metaclass.* = types.ClassDefinition.init(self.allocator, try self.allocator.dupe(u8, "Class"));
-        metaclass.parent = null; // Class has no parent
-        try self.allocated_classes.append(metaclass);
-        self.metaclass = metaclass;
-
-        // Add Class methods: .prop, .ctor, .fn, .macro
-        // These will be implemented as special built-in functions
-        try self.variables.put("Class", .{ .Class = metaclass });
-
-        // Create the Any class (instance of Class, root of type hierarchy)
-        const any_class = try self.allocator.create(types.ClassDefinition);
-        any_class.* = types.ClassDefinition.init(self.allocator, try self.allocator.dupe(u8, "Any"));
-        any_class.parent = null; // Any is the root, no parent
-        try self.allocated_classes.append(any_class);
-        self.any_class = any_class;
-
-        try self.variables.put("Any", .{ .Class = any_class });
-
-        // TODO: Add methods to Class for defining classes
-        // For now, we'll handle .prop, .ctor, .fn, .macro in the parser/compiler
+    fn initCoreClasses(self: *VM) !void {
+        // Initialize all core classes
+        self.core_classes = try builtin_classes.CoreClasses.init(self.allocator);
+        
+        // Register all core classes in the global variables
+        try self.core_classes.?.registerInVM(&self.variables);
+        
+        // Track all created classes for cleanup
+        try self.allocated_classes.append(self.core_classes.?.class_class);
+        try self.allocated_classes.append(self.core_classes.?.any_class);
+        try self.allocated_classes.append(self.core_classes.?.number_class);
+        try self.allocated_classes.append(self.core_classes.?.int_class);
+        try self.allocated_classes.append(self.core_classes.?.float_class);
+        try self.allocated_classes.append(self.core_classes.?.string_class);
+        try self.allocated_classes.append(self.core_classes.?.bool_class);
+        try self.allocated_classes.append(self.core_classes.?.nil_class);
+        try self.allocated_classes.append(self.core_classes.?.symbol_class);
+        try self.allocated_classes.append(self.core_classes.?.fn_class);
+        try self.allocated_classes.append(self.core_classes.?.builtin_fn_class);
+        try self.allocated_classes.append(self.core_classes.?.macro_class);
+        try self.allocated_classes.append(self.core_classes.?.array_class);
+        try self.allocated_classes.append(self.core_classes.?.map_class);
     }
     
     pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
@@ -1096,6 +1094,47 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Handle greater than or equal operator
+                    if (builtin_op == .GreaterEqual) {
+                        if (arg_count != 2) {
+                            debug.log("GreaterEqual operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        // Perform comparison based on types
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val >= right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) >= right_val,
+                                else => {
+                                    debug.log("TypeMismatch in GreaterEqual: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val >= @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val >= right_val,
+                                else => {
+                                    debug.log("TypeMismatch in GreaterEqual: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in GreaterEqual: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
                     // Handle other built-in operators here...
                     debug.log("Unsupported built-in operator: {any}", .{builtin_op});
                     return error.UnsupportedFunction;
@@ -1376,10 +1415,12 @@ pub const VM = struct {
                 var field_iter = class.fields.iterator();
                 while (field_iter.next()) |entry| {
                     const field_def = entry.value_ptr.*;
+                    // Duplicate the field name for the object's own copy
+                    const field_name_copy = try self.allocator.dupe(u8, entry.key_ptr.*);
                     if (field_def.default_value) |default| {
-                        try obj.fields.put(entry.key_ptr.*, try default.clone(self.allocator));
+                        try obj.fields.put(field_name_copy, try default.clone(self.allocator));
                     } else {
-                        try obj.fields.put(entry.key_ptr.*, .{ .Nil = {} });
+                        try obj.fields.put(field_name_copy, .{ .Nil = {} });
                     }
                 }
                 
@@ -1502,13 +1543,17 @@ pub const VM = struct {
                 var value = try self.getRegister(value_reg);
                 defer value.deinit(self.allocator);
                 
-                // Remove old value if exists
+                // Check if field already exists
                 if (obj.fields.get(field_name)) |old_value| {
+                    // Field exists, just update the value
                     var old_value_copy = old_value;
                     old_value_copy.deinit(self.allocator);
+                    // Update existing entry
+                    try obj.fields.put(field_name, try value.clone(self.allocator));
+                } else {
+                    // Field doesn't exist, create new entry with duplicated key
+                    try obj.fields.put(try self.allocator.dupe(u8, field_name), try value.clone(self.allocator));
                 }
-                
-                try obj.fields.put(try self.allocator.dupe(u8, field_name), try value.clone(self.allocator));
                 debug.log("Set field {s} on object", .{field_name});
             },
             .CallMethod => {
@@ -1523,27 +1568,42 @@ pub const VM = struct {
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
                 
-                if (obj_val != .Object) {
-                    debug.log("CallMethod requires an Object, got {}", .{obj_val});
-                    return error.TypeMismatch;
-                }
-                
-                const obj = self.getObjectById(obj_val.Object) orelse {
-                    debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                // Get the class for the value (works for both objects and primitives)
+                const class = if (obj_val == .Object) blk: {
+                    const obj = self.getObjectById(obj_val.Object) orelse {
+                        debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                        return error.InvalidInstruction;
+                    };
+                    break :blk obj.class;
+                } else if (self.core_classes) |core| 
+                    core.getClassForValue(obj_val)
+                else {
+                    debug.log("Core classes not initialized", .{});
                     return error.InvalidInstruction;
                 };
                 
                 // Look up the method in the class
-                debug.log("Looking for method {s} in class {s}", .{ method_name, obj.class.name });
-                debug.log("Class has {} methods", .{obj.class.methods.count()});
-                var method_iter = obj.class.methods.iterator();
+                debug.log("Looking for method {s} in class {s}", .{ method_name, class.name });
+                debug.log("Class has {} methods", .{class.methods.count()});
+                var method_iter = class.methods.iterator();
                 while (method_iter.next()) |entry| {
                     debug.log("  Method: {s}", .{entry.key_ptr.*});
                 }
                 
-                // First check if method is in the class
-                if (obj.class.methods.get(method_name)) |method| {
-                    debug.log("Calling method {s} on object of class {s}", .{ method_name, obj.class.name });
+                // First check if method is in the class (including inherited methods)
+                var current_class: ?*types.ClassDefinition = class;
+                var found_method: ?*bytecode.Function = null;
+                
+                while (current_class) |c| {
+                    if (c.methods.get(method_name)) |method| {
+                        found_method = method;
+                        break;
+                    }
+                    current_class = c.parent;
+                }
+                
+                if (found_method) |method| {
+                    debug.log("Calling method {s} on value of class {s}", .{ method_name, class.name });
                     
                     // Set up new call frame for the method
                     const new_register_base = self.next_free_register;
@@ -1580,10 +1640,11 @@ pub const VM = struct {
                     self.current_func = method;
                     self.pc = 0;
                     self.current_register_base = allocated_base;
+                    self.next_free_register = allocated_base + needed_regs;
                     self.function_called = true;
                 } else {
                     // Try to find a function with the pattern ClassName_methodName
-                    const func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ obj.class.name, method_name });
+                    const func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ class.name, method_name });
                     defer self.allocator.free(func_name);
                     
                     debug.log("Method {s} not found in class, looking for function {s}", .{ method_name, func_name });
@@ -1632,9 +1693,195 @@ pub const VM = struct {
                         }
                     }
                     
-                    debug.log("Method {s} not found on class {s} or as function {s}", .{ method_name, obj.class.name, func_name });
+                    debug.log("Method {s} not found on class {s} or as function {s}", .{ method_name, class.name, func_name });
                     return error.MethodNotFound;
                 }
+            },
+            .Length => {
+                // Get length: Length Rd, Rs
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const src_reg = instruction.src1 orelse return error.InvalidInstruction;
+                
+                var value = try self.getRegister(src_reg);
+                defer value.deinit(self.allocator);
+                
+                const length: i64 = switch (value) {
+                    .String => |s| @intCast(s.len),
+                    .Array => |arr| @intCast(arr.len),
+                    .Map => |map| @intCast(map.count()),
+                    else => {
+                        debug.log("Length not supported for type: {}", .{value});
+                        return error.TypeMismatch;
+                    },
+                };
+                
+                try self.setRegister(dst_reg, .{ .Int = length });
+            },
+            .ArrayGet => {
+                // Get array element: ArrayGet Rd, array_reg, index_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const array_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const index_reg = instruction.src2 orelse return error.InvalidInstruction;
+                
+                var array_val = try self.getRegister(array_reg);
+                defer array_val.deinit(self.allocator);
+                var index_val = try self.getRegister(index_reg);
+                defer index_val.deinit(self.allocator);
+                
+                if (array_val != .Array) {
+                    debug.log("ArrayGet requires an Array, got {}", .{array_val});
+                    return error.TypeMismatch;
+                }
+                if (index_val != .Int) {
+                    debug.log("ArrayGet index must be Int, got {}", .{index_val});
+                    return error.TypeMismatch;
+                }
+                
+                const array = array_val.Array;
+                const index = index_val.Int;
+                
+                if (index < 0 or index >= array.len) {
+                    debug.log("Array index out of bounds: {} (length: {})", .{ index, array.len });
+                    return error.InvalidInstruction;
+                }
+                
+                const element = array[@intCast(index)];
+                try self.setRegister(dst_reg, try element.clone(self.allocator));
+            },
+            .ArraySet => {
+                // Set array element: ArraySet array_reg, index_reg, value_reg
+                const array_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const index_reg = instruction.src2 orelse return error.InvalidInstruction;
+                const value_reg = instruction.dst orelse return error.InvalidInstruction; // Using dst for value
+                
+                var array_val = try self.getRegister(array_reg);
+                defer array_val.deinit(self.allocator);
+                var index_val = try self.getRegister(index_reg);
+                defer index_val.deinit(self.allocator);
+                var value = try self.getRegister(value_reg);
+                defer value.deinit(self.allocator);
+                
+                if (array_val != .Array) {
+                    debug.log("ArraySet requires an Array, got {}", .{array_val});
+                    return error.TypeMismatch;
+                }
+                if (index_val != .Int) {
+                    debug.log("ArraySet index must be Int, got {}", .{index_val});
+                    return error.TypeMismatch;
+                }
+                
+                const array = array_val.Array;
+                const index = index_val.Int;
+                
+                if (index < 0 or index >= array.len) {
+                    debug.log("Array index out of bounds: {} (length: {})", .{ index, array.len });
+                    return error.InvalidInstruction;
+                }
+                
+                // Update the array element
+                array[@intCast(index)].deinit(self.allocator);
+                array[@intCast(index)] = try value.clone(self.allocator);
+            },
+            .Substring => {
+                // Get substring: Substring Rd, str_reg, start_reg, end_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const start_reg = instruction.src2 orelse return error.InvalidInstruction;
+                // For now, using immediate for end position
+                const end_val = if (instruction.immediate) |imm| switch (imm) {
+                    .Int => @as(usize, @intCast(imm.Int)),
+                    else => return error.TypeMismatch,
+                } else return error.InvalidInstruction;
+                
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+                var start_val = try self.getRegister(start_reg);
+                defer start_val.deinit(self.allocator);
+                
+                if (str_val != .String) {
+                    debug.log("Substring requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+                if (start_val != .Int) {
+                    debug.log("Substring start must be Int, got {}", .{start_val});
+                    return error.TypeMismatch;
+                }
+                
+                const str = str_val.String;
+                const start = @as(usize, @intCast(start_val.Int));
+                const end = @min(end_val, str.len);
+                
+                if (start > str.len) {
+                    debug.log("Substring start out of bounds: {} (length: {})", .{ start, str.len });
+                    return error.InvalidInstruction;
+                }
+                
+                const substring = try self.allocator.dupe(u8, str[start..end]);
+                try self.setRegister(dst_reg, .{ .String = substring });
+            },
+            .MapGet => {
+                // Get map value: MapGet Rd, map_reg, key_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const map_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const key_reg = instruction.src2 orelse return error.InvalidInstruction;
+                
+                var map_val = try self.getRegister(map_reg);
+                defer map_val.deinit(self.allocator);
+                var key_val = try self.getRegister(key_reg);
+                defer key_val.deinit(self.allocator);
+                
+                if (map_val != .Map) {
+                    debug.log("MapGet requires a Map, got {}", .{map_val});
+                    return error.TypeMismatch;
+                }
+                if (key_val != .String) {
+                    debug.log("MapGet key must be String, got {}", .{key_val});
+                    return error.TypeMismatch;
+                }
+                
+                const map = map_val.Map;
+                const key = key_val.String;
+                
+                if (map.get(key)) |value| {
+                    try self.setRegister(dst_reg, try value.clone(self.allocator));
+                } else {
+                    try self.setRegister(dst_reg, .{ .Nil = {} });
+                }
+            },
+            .MapSet => {
+                // Set map value: MapSet map_reg, key_reg, value_reg
+                const map_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const key_reg = instruction.src2 orelse return error.InvalidInstruction;
+                const value_reg = if (instruction.immediate) |imm| switch (imm) {
+                    .Int => @as(u16, @intCast(imm.Int)),
+                    else => return error.TypeMismatch,
+                } else return error.InvalidInstruction;
+                
+                var map_val = try self.getRegister(map_reg);
+                defer map_val.deinit(self.allocator);
+                var key_val = try self.getRegister(key_reg);
+                defer key_val.deinit(self.allocator);
+                var value = try self.getRegister(value_reg);
+                defer value.deinit(self.allocator);
+                
+                if (map_val != .Map) {
+                    debug.log("MapSet requires a Map, got {}", .{map_val});
+                    return error.TypeMismatch;
+                }
+                if (key_val != .String) {
+                    debug.log("MapSet key must be String, got {}", .{key_val});
+                    return error.TypeMismatch;
+                }
+                
+                var map = map_val.Map;
+                const key = key_val.String;
+                
+                // Update or insert the key-value pair
+                if (map.get(key)) |old_value| {
+                    var old_value_copy = old_value;
+                    old_value_copy.deinit(self.allocator);
+                }
+                try map.put(try self.allocator.dupe(u8, key), try value.clone(self.allocator));
             },
         }
     }
