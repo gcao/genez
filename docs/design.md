@@ -5238,7 +5238,28 @@ data.child-count   # 1
   tags ["admin" "active"])
 ```
 
-## 24.6 Implementation Details
+## 24.6 Document Type
+
+Gene data files are parsed into a special `GeneDocument` structure that represents a collection of top-level expressions. This provides a consistent way to handle Gene data files as a single entity.
+
+```gene
+# Input file: data.gene
+(config ^name "myapp")
+(user ^id 1 ^name "Alice")
+
+# Parsed result:
+(GeneDocument
+  (config ^name "myapp")
+  (user ^id 1 ^name "Alice"))
+```
+
+The GeneDocument type:
+- Has "GeneDocument" as its head
+- Contains all top-level expressions as children
+- Can be serialized to JSON, printed, or manipulated like any other Gene data
+- Provides a unified interface for working with Gene data files
+
+## 24.7 Implementation Details
 
 ### Parser Modes:
 1. **Code Mode**: Default mode, parses for execution

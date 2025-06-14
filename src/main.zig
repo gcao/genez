@@ -131,31 +131,26 @@ pub fn main() !void {
                 doc_mut.deinit();
             }
             
+            // Convert document to GeneDocument value
+            var mut_doc = doc;
+            const doc_value = try mut_doc.toDataValue();
+            defer {
+                var mut_value = doc_value;
+                mut_value.deinit(allocator);
+            }
+            
             switch (output_format) {
                 .json => {
-                    try stdout.print("[", .{});
-                    for (doc.expressions, 0..) |expr, i| {
-                        if (i > 0) try stdout.print(",", .{});
-                        try data_parser.toJson(stdout, expr);
-                    }
-                    try stdout.print("]\n", .{});
+                    try data_parser.toJson(stdout, doc_value);
+                    try stdout.print("\n", .{});
                 },
                 .raw => {
-                    for (doc.expressions) |expr| {
-                        try data_parser.printDataValue(stdout, expr, 0);
-                        try stdout.print("\n", .{});
-                    }
+                    try data_parser.printDataValue(stdout, doc_value, 0);
+                    try stdout.print("\n", .{});
                 },
                 .parsed => {
                     try stdout.print("=== Parsed Data Structure ===\n", .{});
-                    try stdout.print("Document with {} expression(s):\n\n", .{doc.expressions.len});
-                    for (doc.expressions, 0..) |expr, i| {
-                        try stdout.print("Expression [{}]:\n", .{i});
-                        try data_parser.printParsedData(stdout, expr, 2);
-                        if (i < doc.expressions.len - 1) {
-                            try stdout.print("\n", .{});
-                        }
-                    }
+                    try data_parser.printParsedData(stdout, doc_value, 0);
                 },
             }
         } else {
@@ -179,31 +174,26 @@ pub fn main() !void {
                 doc_mut.deinit();
             }
             
+            // Convert document to GeneDocument value
+            var mut_doc = doc;
+            const doc_value = try mut_doc.toDataValue();
+            defer {
+                var mut_value = doc_value;
+                mut_value.deinit(allocator);
+            }
+            
             switch (output_format) {
                 .json => {
-                    try stdout.print("[", .{});
-                    for (doc.expressions, 0..) |expr, i| {
-                        if (i > 0) try stdout.print(",", .{});
-                        try data_parser.toJson(stdout, expr);
-                    }
-                    try stdout.print("]\n", .{});
+                    try data_parser.toJson(stdout, doc_value);
+                    try stdout.print("\n", .{});
                 },
                 .raw => {
-                    for (doc.expressions) |expr| {
-                        try data_parser.printDataValue(stdout, expr, 0);
-                        try stdout.print("\n", .{});
-                    }
+                    try data_parser.printDataValue(stdout, doc_value, 0);
+                    try stdout.print("\n", .{});
                 },
                 .parsed => {
                     try stdout.print("=== Parsed Data Structure ===\n", .{});
-                    try stdout.print("Document with {} expression(s):\n\n", .{doc.expressions.len});
-                    for (doc.expressions, 0..) |expr, i| {
-                        try stdout.print("Expression [{}]:\n", .{i});
-                        try data_parser.printParsedData(stdout, expr, 2);
-                        if (i < doc.expressions.len - 1) {
-                            try stdout.print("\n", .{});
-                        }
-                    }
+                    try data_parser.printParsedData(stdout, doc_value, 0);
                 },
             }
         }
