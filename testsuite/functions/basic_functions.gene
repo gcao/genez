@@ -1,0 +1,17 @@
+#!/usr/bin/env gene run
+
+# Test: Function definition and calls
+(fn add [a b]
+  (+ a b))
+
+(fn multiply [x y]
+  (* x y))
+
+(print "add(5, 3) = " (add 5 3))
+(print "multiply(4, 7) = " (multiply 4 7))
+
+# Function with no parameters
+(fn greet []
+  (print "Hello from function!"))
+
+(greet)

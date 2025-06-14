@@ -438,6 +438,15 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                     // Handle field assignment: (= obj/field value)
                     return parseFieldAssignment(alloc, toks, depth + 1);
                 },
+                .Slash => {
+                    // Handle division operator as function call: (/ 10 5)
+                    // Create an operator token as if it were an identifier
+                    var modified_toks = try alloc.alloc(Token, toks.len);
+                    @memcpy(modified_toks, toks);
+                    modified_toks[1] = .{ .kind = .{ .Ident = "/" }, .loc = toks[1].loc };
+                    defer alloc.free(modified_toks);
+                    return parseCall(alloc, modified_toks, depth + 1);
+                },
                 else => return parseList(alloc, toks, depth + 1), // Fallback for other S-expressions e.g. ((...)) or (Literal ...)
             }
         },
@@ -974,40 +983,48 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
     }
 
     if (current_pos >= toks.len) return error.UnexpectedEOF; // Expected body
-    const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    current_pos += body_result.consumed;
+    
+    // Parse the body expressions (can be multiple)
+    var body_expressions = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer body_expressions.deinit();
+    
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const expr_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += expr_result.consumed;
+        
+        const expr_ptr = try alloc.create(ast.Expression);
+        expr_ptr.* = expr_result.node.Expression;
+        try body_expressions.append(expr_ptr);
+    }
 
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
     current_pos += 1; // Consume RParen
 
-    // Simplified body_literal extraction for SimpleFuncDef, review if complex bodies are needed for it
-    var body_literal_for_simple_fn: i64 = 0;
-    if (params_list.items.len == 0) { // Only relevant for SimpleFuncDef
-        switch (body_result.node.Expression) {
-            .Literal => |lit| switch (lit.value) {
-                .Int => |val| body_literal_for_simple_fn = val,
-                else => body_literal_for_simple_fn = 42, // Default
-            },
-            else => body_literal_for_simple_fn = 42, // Default
-        }
+    // Always create a proper FuncDef with the full body expression, regardless of parameter count
+    const params_slice = try params_list.toOwnedSlice(); // Transfers ownership
+    
+    // Create the body expression - if multiple expressions, wrap in a DoBlock
+    const body_ptr = try alloc.create(ast.Expression);
+    if (body_expressions.items.len == 1) {
+        // Single expression - use it directly
+        body_ptr.* = body_expressions.items[0].*;
+        // Free the wrapper but not the expression itself
+        alloc.destroy(body_expressions.items[0]);
+        body_expressions.deinit();
+    } else if (body_expressions.items.len > 1) {
+        // Multiple expressions - wrap in a DoBlock
+        const statements_slice = try body_expressions.toOwnedSlice();
+        body_ptr.* = .{ .DoBlock = .{ .statements = statements_slice } };
+    } else {
+        // No body expressions - create a nil literal
+        body_expressions.deinit();
+        body_ptr.* = .{ .Literal = .{ .value = .{ .Nil = {} } } };
     }
-
-    const fn_node: ast.AstNode = if (params_list.items.len > 0) blk: {
-        const params_slice = try params_list.toOwnedSlice(); // Transfers ownership
-        const body_ptr = try alloc.create(ast.Expression);
-        body_ptr.* = body_result.node.Expression;
-        break :blk .{
-            .Expression = .{
-                .FuncDef = .{ .name = name_copy, .params = params_slice, .body = body_ptr },
-            },
-        };
-    } else blk: {
-        params_list.deinit(); // Not used, deinit explicitly
-        break :blk .{
-            .Expression = .{
-                .SimpleFuncDef = .{ .name = name_copy, .param_count = 0, .body_literal = body_literal_for_simple_fn },
-            },
-        };
+    
+    const fn_node: ast.AstNode = .{
+        .Expression = .{
+            .FuncDef = .{ .name = name_copy, .params = params_slice, .body = body_ptr },
+        },
     };
 
     return .{

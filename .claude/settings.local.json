@@ -22,7 +22,9 @@
       "Bash(zig run:*)",
       "Bash(chmod:*)",
       "Bash(python3:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(./run_tests.sh:*)",
+      "Bash(./testsuite/run_tests.sh:*)"
     ],
     "deny": []
   },

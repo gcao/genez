@@ -1,0 +1,10 @@
+#!/usr/bin/env gene run
+
+# Test: Core class hierarchy
+(print "Int class: " Int)
+(print "String class: " String)
+(print "Array class: " Array)
+(print "Map class: " Map)
+
+# Everything inherits from Any
+(print "Any class: " Any)

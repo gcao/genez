@@ -1,0 +1,16 @@
+#!/usr/bin/env gene run
+
+# Test: Methods on numbers
+(var a 10)
+(var b 20)
+
+(print "a .+ b = " (a .+ b))
+(print "b .- a = " (b .- a))
+(print "a .* b = " (a .* b))
+(print "b ./ a = " (b ./ a))
+
+# Comparison methods
+(print "a .< b = " (a .< b))
+(print "b .> a = " (b .> a))
+(print "a .== a = " (a .== a))
+(print "a .== b = " (a .== b))

@@ -27,11 +27,14 @@ zig build -Ddebug=true
 
 **Testing:**
 ```bash
-# Run all tests
+# Run unit tests
 zig build test
 
 # Run comprehensive test script
 ./test.sh
+
+# Run language test suite (REQUIRED before marking tasks as completed)
+./testsuite/run_tests.sh
 ```
 
 **WebAssembly:**
@@ -72,9 +75,33 @@ Gene is a programming language implementation featuring a 4-stage compilation pi
 - Individual stage results use provided allocators
 - VM manages its own stack and execution state
 
-When modifying the compiler, always run tests and verify examples still work. The debug mode (`--debug` flag) is essential for understanding compilation pipeline behavior.
+When modifying the compiler:
+1. Always run unit tests (`zig build test`)
+2. Run the language test suite (`./testsuite/run_tests.sh`) - ALL TESTS MUST PASS before marking any task as completed
+3. Verify examples still work
+4. Use debug mode (`--debug` flag) to understand compilation pipeline behavior
 
 When creating temporary files and .gene files for testing, use `tmp/` directory to avoid polluting the main project directory.
+
+## Language Test Suite
+
+The `testsuite/` directory contains comprehensive language-level tests that verify Gene's features from a user perspective. These tests are CRITICAL for ensuring language correctness.
+
+**Test Categories:**
+- `basics/` - Literals, variables, basic syntax
+- `control_flow/` - If/else, do blocks
+- `functions/` - Function definitions and calls
+- `arithmetic/` - Math operations and comparisons
+- `strings/` - String operations and methods
+- `arrays/` & `maps/` - Data structure operations
+- `oop/` - Classes and object-oriented features
+- `macros/` - Macro definitions and usage
+
+**IMPORTANT**: Before marking ANY development task as completed, you MUST:
+1. Run `./testsuite/run_tests.sh`
+2. Ensure ALL tests pass (currently 16 tests should pass, 2 are skipped)
+3. If your changes break existing tests, fix them before proceeding
+4. Add new tests for any new features you implement
 
 ## Current Development Status
 
@@ -97,6 +124,7 @@ When creating temporary files and .gene files for testing, use `tmp/` directory 
 - Field access uses slash notation: `obj/field`
 - Parser supports operators as method names (/, %, etc.)
 - Type checking infrastructure exists but disabled by default
+- Comprehensive language test suite added in `testsuite/` with 16 passing tests
 
 **Next Development Priorities:**
 1. **Pattern Matching** - Runtime implementation (AST already parses it)

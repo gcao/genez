@@ -1,0 +1,12 @@
+#!/usr/bin/env gene run
+
+# Test: Array operations
+(var nums [10 20 30 40 50])
+
+# Array length
+(print "Array length: " (nums .length))
+
+# Array access
+(print "Element at index 0: " (nums .at 0))
+(print "Element at index 2: " (nums .at 2))
+(print "Element at index 4: " (nums .at 4))

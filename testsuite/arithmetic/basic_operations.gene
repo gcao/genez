@@ -1,0 +1,8 @@
+#!/usr/bin/env gene run
+
+# Test: Basic arithmetic operations
+(print "10 + 5 = " (+ 10 5))
+(print "10 - 5 = " (- 10 5))
+(print "10 * 5 = " (* 10 5))
+(print "10 / 5 = " (/ 10 5))
+(print "10 / 3 = " (/ 10 3))

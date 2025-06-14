@@ -1,0 +1,12 @@
+#!/usr/bin/env gene run
+
+# Test: Do blocks for sequential execution
+(do
+  (print "First statement")
+  (print "Second statement")
+  (print "Third statement"))
+
+# Do block with variable scope
+(do
+  (var x 42)
+  (print "Inside do block: x = " x))

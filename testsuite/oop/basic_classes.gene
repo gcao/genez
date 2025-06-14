@@ -1,0 +1,20 @@
+#!/usr/bin/env gene run
+
+# Test: Basic class definition and usage
+(class Point
+  (.prop x)
+  (.prop y))
+
+# Create instance
+(var p (new Point))
+(= p/x 10)
+(= p/y 20)
+
+(print "Point x: " p/x)
+(print "Point y: " p/y)
+
+# Method definition
+(fn Point_distance [self]
+  (+ (* self/x self/x) (* self/y self/y)))
+
+(print "Distance squared: " (p .distance))

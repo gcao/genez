@@ -1,0 +1,17 @@
+#!/usr/bin/env gene run
+
+# Test: Basic macro definition and usage
+(macro double [x]
+  (+ %x %x))
+
+(var a 5)
+(print "double(5) = " (double a))
+
+# Macro with print
+(macro debug [msg value]
+  (do
+    (print "DEBUG: " %msg " = " %value)
+    %value))
+
+(var result (debug "calculation" (+ 10 20)))
+(print "result = " result)

@@ -1,0 +1,8 @@
+a .+ b =  30
+b .- a =  10
+a .* b =  200
+b ./ a =  2
+a .< b =  true
+b .> a =  true
+a .== a =  true
+a .== b =  false

@@ -1,0 +1,6 @@
+#!/usr/bin/env gene run
+# SKIP: Float literals not yet supported
+
+# Test: Float literal parsing
+(var pi 3.14159)
+(print "Pi = " pi)
