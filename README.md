@@ -20,6 +20,11 @@ zig build run -- eval "(print (1 + 2))"
 
 # Run tests
 zig build test
+
+# Read code from stdin
+echo '(print "Hello")' | zig-out/bin/gene run -
+echo '(+ 1 2)' | zig-out/bin/gene eval -
+echo '(print "hi")' | zig-out/bin/gene compile -
 ```
 
 ## WebAssembly Support
@@ -67,6 +72,8 @@ Gene syntax can also be used as a data format similar to JSON or YAML. Use the `
 # Parse from stdin
 echo '(config ^version "1.0" ^debug true)' | ./zig-out/bin/gene parse -
 ```
+
+`gene run -`, `gene compile -` and `gene eval -` accept code from stdin in the same way.
 
 Gene data format supports:
 - Basic types: integers, floats, booleans, strings, nil
