@@ -171,43 +171,55 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             else => {},
         }
 
-        // Handle integers and floats
-        if (std.ascii.isDigit(c)) {
+        // Handle numbers (integers and floats)
+        // Numbers can start with optional sign followed by digits
+        if (std.ascii.isDigit(c) or ((c == '+' or c == '-') and i + 1 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 1]))) {
             const start = i;
+            var has_sign = false;
             var has_dot = false;
             
-            // Parse integer part
-            while (i + 1 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 1])) : (i += 1) {}
+            // Handle optional sign
+            if (c == '+' or c == '-') {
+                has_sign = true;
+                i += 1;
+            }
+            
+            // Parse integer part (required for floats)
+            while (i < source_to_parse.len and std.ascii.isDigit(source_to_parse[i])) : (i += 1) {}
             
             // Check for decimal point
-            if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '.') {
-                // Look ahead to ensure there's at least one digit after the dot
-                if (i + 2 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 2])) {
-                    has_dot = true;
-                    i += 2; // Skip dot and first decimal digit
-                    // Parse decimal part
-                    while (i + 1 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 1])) : (i += 1) {}
-                }
+            if (i < source_to_parse.len and source_to_parse[i] == '.') {
+                has_dot = true;
+                i += 1; // Skip the dot
+                
+                // Parse optional decimal part
+                while (i < source_to_parse.len and std.ascii.isDigit(source_to_parse[i])) : (i += 1) {}
             }
+            
+            const num_str = source_to_parse[start..i];
             
             if (has_dot) {
                 // Parse as float
-                const float_str = source_to_parse[start .. i + 1];
-                const float_val = std.fmt.parseFloat(f64, float_str) catch |err| {
-                    std.debug.print("Error parsing float '{s}': {any}\n", .{ float_str, err });
+                const float_val = std.fmt.parseFloat(f64, num_str) catch |err| {
+                    std.debug.print("Error parsing float '{s}': {any}\n", .{ num_str, err });
                     return err;
                 };
                 try tokens.append(.{ .kind = .{ .Float = float_val }, .loc = start });
+            } else if (has_sign) {
+                // Signed integer
+                const int_val = std.fmt.parseInt(i64, num_str, 10) catch |err| {
+                    std.debug.print("Error parsing int '{s}': {any}\n", .{ num_str, err });
+                    return err;
+                };
+                try tokens.append(.{ .kind = .{ .Int = int_val }, .loc = start });
             } else {
-                // Parse as integer
-                const int_str = source_to_parse[start .. i + 1];
-                const int_val = std.fmt.parseInt(i64, int_str, 10) catch |err| {
-                    std.debug.print("Error parsing int '{s}': {any}\n", .{ int_str, err });
+                // Unsigned integer
+                const int_val = std.fmt.parseInt(i64, num_str, 10) catch |err| {
+                    std.debug.print("Error parsing int '{s}': {any}\n", .{ num_str, err });
                     return err;
                 };
                 try tokens.append(.{ .kind = .{ .Int = int_val }, .loc = start });
             }
-            i += 1;
             continue;
         }
 
@@ -225,9 +237,17 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
         }
 
         // Handle identifiers and keywords (including operators)
-        const ident_chars = "_!$&*+-:<=>?@^~"; // Removed '.', '/', and '%' as they're now separate tokens
-        if (std.ascii.isAlphabetic(c) or std.mem.indexOfScalar(u8, ident_chars, c) != null) {
+        const ident_chars = "_!$&*:<=>?@^~"; // Removed '.', '/', '%', '+', and '-' as they have special handling
+        const ident_start_chars = "_!$&*+:<=>?@^~-"; // '+' and '-' can start an identifier if not followed by digit
+        if (std.ascii.isAlphabetic(c) or std.mem.indexOfScalar(u8, ident_start_chars, c) != null) {
             const start = i;
+            // Special case: single '+' or '-' are valid identifiers
+            if ((c == '+' or c == '-') and (i + 1 >= source_to_parse.len or !std.ascii.isAlphanumeric(source_to_parse[i + 1]))) {
+                const word = source_to_parse[start .. i + 1];
+                try tokens.append(.{ .kind = .{ .Ident = word }, .loc = start });
+                i += 1;
+                continue;
+            }
             while (i + 1 < source_to_parse.len and (std.ascii.isAlphanumeric(source_to_parse[i + 1]) or std.mem.indexOfScalar(u8, ident_chars, source_to_parse[i + 1]) != null)) : (i += 1) {}
             const word = source_to_parse[start .. i + 1];
             var token_kind: TokenKind = undefined;

@@ -175,8 +175,16 @@ pub fn parseData(allocator: std.mem.Allocator, source: []const u8) !DataValue {
 
 /// Parse a Gene document (multiple top-level expressions)
 pub fn parseDocument(allocator: std.mem.Allocator, source: []const u8) !Document {
+    // Skip shebang line if present
+    var actual_source = source;
+    if (std.mem.startsWith(u8, source, "#!")) {
+        if (std.mem.indexOf(u8, source, "\n")) |newline_pos| {
+            actual_source = source[newline_pos + 1..];
+        }
+    }
+    
     // Tokenize the source
-    var tokens = try parser.tokenize(allocator, source);
+    var tokens = try parser.tokenize(allocator, actual_source);
     defer {
         for (tokens.items) |*token| {
             switch (token.kind) {
@@ -248,6 +256,7 @@ fn parseExpression(allocator: std.mem.Allocator, tokens: []const parser.Token, p
             };
             return .{ .Symbol = try allocator.dupe(u8, keyword_text) };
         },
+        // Handle operator tokens as symbols
         .Dot => return .{ .Symbol = try allocator.dupe(u8, ".") },
         .Slash => return .{ .Symbol = try allocator.dupe(u8, "/") },
         .Equals => return .{ .Symbol = try allocator.dupe(u8, "=") },
@@ -332,9 +341,24 @@ fn parseExpression(allocator: std.mem.Allocator, tokens: []const parser.Token, p
                         pos.* += 1;
                         const prop_name = ident[1..]; // Skip the ^
                         
-                        // Parse property value
-                        const prop_value = try parseExpression(allocator, tokens, pos);
-                        try gene.addProperty(prop_name, prop_value);
+                        // Check if there's a value or if it's shorthand syntax
+                        if (pos.* < tokens.len and tokens[pos.*].kind != .RParen) {
+                            // Check if next token is another property
+                            if (tokens[pos.*].kind == .Ident) {
+                                const next_ident = tokens[pos.*].kind.Ident;
+                                if (std.mem.startsWith(u8, next_ident, "^")) {
+                                    // Next token is another property, so this is shorthand
+                                    try gene.addProperty(prop_name, .{ .Symbol = try allocator.dupe(u8, prop_name) });
+                                    continue;
+                                }
+                            }
+                            // Parse property value
+                            const prop_value = try parseExpression(allocator, tokens, pos);
+                            try gene.addProperty(prop_name, prop_value);
+                        } else {
+                            // At end of expression, shorthand property
+                            try gene.addProperty(prop_name, .{ .Symbol = try allocator.dupe(u8, prop_name) });
+                        }
                         continue;
                     }
                 }
@@ -351,7 +375,10 @@ fn parseExpression(allocator: std.mem.Allocator, tokens: []const parser.Token, p
             
             return .{ .Gene = gene };
         },
-        else => return error.UnexpectedToken,
+        else => {
+            std.debug.print("Unexpected token: {any}\n", .{token.kind});
+            return error.UnexpectedToken;
+        },
     }
 }
 
@@ -362,7 +389,14 @@ pub fn printDataValue(writer: anytype, value: DataValue, indent: usize) !void {
         .Nil => try writer.print("nil", .{}),
         .Bool => |b| try writer.print("{}", .{b}),
         .Int => |i| try writer.print("{}", .{i}),
-        .Float => |f| try writer.print("{d}", .{f}),
+        .Float => |f| {
+            // Always show at least one decimal place for floats
+            if (@floor(f) == f and @abs(f) < 1e10) {
+                try writer.print("{d:.1}", .{f});
+            } else {
+                try writer.print("{d}", .{f});
+            }
+        },
         .String => |s| try writer.print("\"{s}\"", .{s}),
         .Symbol => |s| try writer.print("{s}", .{s}),
         .Array => |arr| {
@@ -415,7 +449,14 @@ pub fn printParsedData(writer: anytype, value: DataValue, indent: usize) !void {
         .Nil => try writer.print("Nil", .{}),
         .Bool => |b| try writer.print("Bool({})", .{b}),
         .Int => |i| try writer.print("Int({})", .{i}),
-        .Float => |f| try writer.print("Float({d})", .{f}),
+        .Float => |f| {
+            // Always show at least one decimal place for floats in parsed output
+            if (@floor(f) == f and @abs(f) < 1e10) {
+                try writer.print("Float({d:.1})", .{f});
+            } else {
+                try writer.print("Float({d})", .{f});
+            }
+        },
         .String => |s| try writer.print("String(\"{s}\")", .{s}),
         .Symbol => |s| try writer.print("Symbol({s})", .{s}),
         .Array => |arr| {

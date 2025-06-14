@@ -1,0 +1,26 @@
+# Test float parsing edge cases
+
+# Basic floats
+5.0
+5.
+0.5
+123.456
+
+# Signed floats
+-5.0
+-5.
+-0.5
+-123.456
++5.0
++0.5
+
+# Edge cases
+0.
+-0.
++0.0
+
+# Complex expressions with floats
+(calculate (+ 1.5 2.5))
+(point ^x -10.5 ^y 20.0)
+[1.0 -2.5 +3.14]
+{:pi 3.14159 :e 2.71828}
