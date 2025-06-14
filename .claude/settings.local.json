@@ -21,7 +21,8 @@
       "Bash(true)",
       "Bash(zig run:*)",
       "Bash(chmod:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   },

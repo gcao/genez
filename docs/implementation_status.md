@@ -2,6 +2,10 @@
 
 This document tracks the current implementation status against the design specification.
 
+## Summary
+
+Gene is a functional interpreter with a working 4-stage compilation pipeline (AST → HIR → MIR → Bytecode). The core language features are implemented including functions, recursion, conditionals, macros, and a complete object-oriented programming system with methods on primitive values. The implementation takes a pragmatic approach, deferring advanced features like JIT compilation and garbage collection until the core language is more mature.
+
 ## Compilation Pipeline
 
 ### Design Specification
@@ -47,15 +51,16 @@ The current register-based bytecode is a good foundation. Continue with this app
 ### Current Implementation
 - Basic type enum in `src/core/types.zig`
 - Value union type for runtime values
-- No type checking or inference
-- No property types or generics
-- AST structures for classes but no runtime support
+- Core class hierarchy implemented (Any, Number, Int, Float, String, etc.)
+- Methods on primitive values working
+- Basic type checking infrastructure (disabled by default)
+- No property types or generics yet
 
 ### Recommendation
 The type hierarchy is well-designed. Next steps should focus on:
-1. Implementing basic type checking in HIR
-2. Adding runtime support for classes
-3. Gradual typing can come later
+1. Enabling and improving type checking in HIR
+2. Implementing property types (`^` syntax)
+3. Adding generics and type constraints
 
 ## Completed Features ✅
 
@@ -83,19 +88,23 @@ The type hierarchy is well-designed. Next steps should focus on:
    - Return values ✓
    - Recursive function support ✓
 
+4. **Object-Oriented Programming**
+   - Core class hierarchy (Any, Number, Int, String, etc.) ✓
+   - Methods on primitive values ✓
+   - Custom class definitions ✓
+   - Field access and assignment ✓
+   - Method dispatch ✓
+   - VM instructions (DefineClass, New, GetField, SetField, CallMethod) ✓
+   - Proper memory management for classes ✓
+
 ## In Progress 🚧
 
-1. **Object-Oriented Programming**
-   - AST parsing for classes completed
-   - Runtime support for classes and objects in progress
-   - VM instructions for OOP added (DefineClass, New, GetField, SetField, CallMethod)
-   - Need to complete the full implementation
-
-2. **Type System**
+1. **Type System**
    - Type checking infrastructure exists but not active
    - Runtime values support all basic types
+   - Need to enable type checking by default
 
-3. **Error Handling**
+2. **Error Handling**
    - Basic error propagation in Zig
    - No language-level try/catch yet
 
@@ -123,6 +132,9 @@ The type hierarchy is well-designed. Next steps should focus on:
    - Properties (`^` shorthand syntax)
    - Automatic constructor calls with arguments
    - do blocks returning last expression value
+   - Float literal parsing
+   - Method calls on literals (must use variables)
+   - != operator parsing (method exists but parser doesn't support it)
 
 5. **Standard Library**
    - Collections

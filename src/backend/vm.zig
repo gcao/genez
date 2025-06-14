@@ -183,10 +183,10 @@ pub const VM = struct {
     fn initCoreClasses(self: *VM) !void {
         // Initialize all core classes
         self.core_classes = try builtin_classes.CoreClasses.init(self.allocator);
-        
+
         // Register all core classes in the global variables
         try self.core_classes.?.registerInVM(&self.variables);
-        
+
         // Track all created classes for cleanup
         try self.allocated_classes.append(self.core_classes.?.class_class);
         try self.allocated_classes.append(self.core_classes.?.any_class);
@@ -203,7 +203,7 @@ pub const VM = struct {
         try self.allocated_classes.append(self.core_classes.?.array_class);
         try self.allocated_classes.append(self.core_classes.?.map_class);
     }
-    
+
     pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
         try self.variables.put(name, value);
     }
@@ -1258,7 +1258,7 @@ pub const VM = struct {
                 if (instruction.src1) |return_reg| {
                     return_value = try self.getRegister(return_reg);
                     debug.log("Return value from R{}: {any}", .{ return_reg, return_value.? });
-                    
+
                     // If the specified register contains Nil, try to find a non-Nil register
                     // This handles cases where control flow skipped some instructions
                     if (return_value.? == .Nil) {
@@ -1309,7 +1309,7 @@ pub const VM = struct {
                     }
 
                     debug.log("Restored call frame: pc={}, base={}", .{ self.pc, self.current_register_base });
-                    
+
                     // Set flag to prevent PC increment after return
                     self.function_called = true;
                 } else {
@@ -1390,27 +1390,27 @@ pub const VM = struct {
                 // Create object instance: New Rd, class_reg, [arg1, arg2, ...]
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const class_reg = instruction.src1 orelse return error.InvalidInstruction;
-                
+
                 // Get the class
                 const class_val = try self.getRegister(class_reg);
                 // Don't defer deinit for class values as they are shared
-                
+
                 if (class_val != .Class) {
                     debug.log("New instruction requires a Class, got {}", .{class_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const class = class_val.Class;
-                
+
                 // Create the object instance
                 var obj = try self.allocator.create(types.ObjectInstance);
                 const obj_id = self.next_object_id;
                 self.next_object_id += 1;
                 obj.* = types.ObjectInstance.init(self.allocator, class, obj_id);
-                
+
                 // Add to object pool
                 try self.object_pool.append(obj);
-                
+
                 // Initialize fields with default values
                 var field_iter = class.fields.iterator();
                 while (field_iter.next()) |entry| {
@@ -1423,40 +1423,40 @@ pub const VM = struct {
                         try obj.fields.put(field_name_copy, .{ .Nil = {} });
                     }
                 }
-                
+
                 try self.setRegister(dst_reg, .{ .Object = obj_id });
                 debug.log("Created instance of class {s} in R{}", .{ class.name, dst_reg });
-                
+
                 // Check if there's a constructor to call
                 // Constructor is named ClassName_init
                 const ctor_name = try std.fmt.allocPrint(self.allocator, "{s}_init", .{class.name});
                 defer self.allocator.free(ctor_name);
-                
+
                 // std.debug.print("Looking for constructor: {s}\n", .{ctor_name});
                 // std.debug.print("Class has {} methods\n", .{class.methods.count()});
                 // var method_iter = class.methods.iterator();
                 // while (method_iter.next()) |entry| {
                 //     std.debug.print("  Method: {s}\n", .{entry.key_ptr.*});
                 // }
-                
+
                 if (class.methods.get(ctor_name)) |ctor_method| {
-                    debug.log("Found constructor {s} in class {s}, calling it", .{ctor_name, class.name});
-                    
+                    debug.log("Found constructor {s} in class {s}, calling it", .{ ctor_name, class.name });
+
                     // Get number of constructor arguments from immediate value
                     const arg_count: usize = if (instruction.immediate) |imm| blk: {
                         if (imm == .Int) break :blk @intCast(imm.Int);
                         break :blk 0;
                     } else 0;
-                    
+
                     // Set up new call frame for the constructor
                     const new_register_base = self.next_free_register;
                     const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
                     try self.call_frames.append(frame);
-                    
+
                     // Allocate registers for the constructor (self + parameters + locals)
                     const needed_regs = @as(u16, @intCast(ctor_method.param_count + ctor_method.register_count));
                     const allocated_base = try self.allocateRegisters(needed_regs);
-                    
+
                     // Set 'self' as first parameter (the newly created object)
                     const self_value = types.Value{ .Object = obj_id };
                     debug.log("Setting self (object ID {}) in register {}", .{ obj_id, allocated_base });
@@ -1466,7 +1466,7 @@ pub const VM = struct {
                     }
                     self.registers.items[allocated_base].deinit(self.allocator);
                     self.registers.items[allocated_base] = self_value;
-                    
+
                     // Copy constructor arguments to parameter registers (after 'self')
                     for (0..arg_count) |i| {
                         const arg_reg = class_reg + 1 + @as(u16, @intCast(i));
@@ -1479,15 +1479,15 @@ pub const VM = struct {
                         self.registers.items[dest_reg].deinit(self.allocator);
                         self.registers.items[dest_reg] = arg;
                     }
-                    
+
                     // Switch to the constructor
                     self.current_func = ctor_method;
                     self.pc = 0;
                     self.current_register_base = allocated_base;
                     self.function_called = true;
-                    
+
                     debug.log("Called constructor with {} args, self is object ID {}", .{ arg_count, obj_id });
-                    
+
                     // Mark that we called a constructor - we need to ignore its return value
                     self.constructor_called = true;
                 } else {
@@ -1499,20 +1499,20 @@ pub const VM = struct {
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
                 const field_name = instruction.var_name orelse return error.InvalidInstruction;
-                
+
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
-                
+
                 if (obj_val != .Object) {
                     debug.log("GetField requires an Object, got {}", .{obj_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const obj = self.getObjectById(obj_val.Object) orelse {
                     debug.log("Object with ID {} not found in pool", .{obj_val.Object});
                     return error.InvalidInstruction;
                 };
-                
+
                 if (obj.fields.get(field_name)) |field_value| {
                     try self.setRegister(dst_reg, try field_value.clone(self.allocator));
                     debug.log("Got field {s} from object in R{}", .{ field_name, dst_reg });
@@ -1526,23 +1526,23 @@ pub const VM = struct {
                 const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
                 const value_reg = instruction.src2 orelse return error.InvalidInstruction;
                 const field_name = instruction.var_name orelse return error.InvalidInstruction;
-                
+
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
-                
+
                 if (obj_val != .Object) {
                     debug.log("SetField requires an Object, got {}", .{obj_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const obj = self.getObjectById(obj_val.Object) orelse {
                     debug.log("Object with ID {} not found in pool", .{obj_val.Object});
                     return error.InvalidInstruction;
                 };
-                
+
                 var value = try self.getRegister(value_reg);
                 defer value.deinit(self.allocator);
-                
+
                 // Check if field already exists
                 if (obj.fields.get(field_name)) |old_value| {
                     // Field exists, just update the value
@@ -1561,13 +1561,14 @@ pub const VM = struct {
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
                 const method_name = instruction.var_name orelse return error.InvalidInstruction;
-                const arg_count = if (instruction.immediate) |imm| 
+                const arg_count = if (instruction.immediate) |imm|
                     if (imm == .Int) @as(usize, @intCast(imm.Int)) else 0
-                else 0;
-                
+                else
+                    0;
+
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
-                
+
                 // Get the class for the value (works for both objects and primitives)
                 const class = if (obj_val == .Object) blk: {
                     const obj = self.getObjectById(obj_val.Object) orelse {
@@ -1575,13 +1576,13 @@ pub const VM = struct {
                         return error.InvalidInstruction;
                     };
                     break :blk obj.class;
-                } else if (self.core_classes) |core| 
+                } else if (self.core_classes) |core|
                     core.getClassForValue(obj_val)
                 else {
                     debug.log("Core classes not initialized", .{});
                     return error.InvalidInstruction;
                 };
-                
+
                 // Look up the method in the class
                 debug.log("Looking for method {s} in class {s}", .{ method_name, class.name });
                 debug.log("Class has {} methods", .{class.methods.count()});
@@ -1589,11 +1590,11 @@ pub const VM = struct {
                 while (method_iter.next()) |entry| {
                     debug.log("  Method: {s}", .{entry.key_ptr.*});
                 }
-                
+
                 // First check if method is in the class (including inherited methods)
                 var current_class: ?*types.ClassDefinition = class;
                 var found_method: ?*bytecode.Function = null;
-                
+
                 while (current_class) |c| {
                     if (c.methods.get(method_name)) |method| {
                         found_method = method;
@@ -1601,19 +1602,19 @@ pub const VM = struct {
                     }
                     current_class = c.parent;
                 }
-                
+
                 if (found_method) |method| {
                     debug.log("Calling method {s} on value of class {s}", .{ method_name, class.name });
-                    
+
                     // Set up new call frame for the method
                     const new_register_base = self.next_free_register;
                     const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
                     try self.call_frames.append(frame);
-                    
+
                     // Allocate registers for the method (self + parameters + locals)
                     const needed_regs = @as(u16, @intCast(method.param_count + method.register_count));
                     const allocated_base = try self.allocateRegisters(needed_regs);
-                    
+
                     // Set 'self' as first parameter
                     const self_value = try obj_val.clone(self.allocator);
                     // Directly store 'self' into the absolute register of the new frame
@@ -1622,7 +1623,7 @@ pub const VM = struct {
                     }
                     self.registers.items[allocated_base].deinit(self.allocator);
                     self.registers.items[allocated_base] = self_value;
-                    
+
                     // Copy arguments to parameter registers (after 'self')
                     for (0..arg_count) |i| {
                         const arg_reg = obj_reg + 1 + @as(u16, @intCast(i));
@@ -1635,7 +1636,7 @@ pub const VM = struct {
                         self.registers.items[dest_reg].deinit(self.allocator);
                         self.registers.items[dest_reg] = arg;
                     }
-                    
+
                     // Switch to the method
                     self.current_func = method;
                     self.pc = 0;
@@ -1646,23 +1647,23 @@ pub const VM = struct {
                     // Try to find a function with the pattern ClassName_methodName
                     const func_name = try std.fmt.allocPrint(self.allocator, "{s}_{s}", .{ class.name, method_name });
                     defer self.allocator.free(func_name);
-                    
+
                     debug.log("Method {s} not found in class, looking for function {s}", .{ method_name, func_name });
-                    
+
                     if (self.variables.get(func_name)) |func_val| {
                         if (func_val == .Function) {
                             const func = func_val.Function;
                             debug.log("Found function {s} as method implementation", .{func_name});
-                            
+
                             // Set up call similar to regular function call but with object as first argument
                             const new_register_base = self.next_free_register;
                             const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
                             try self.call_frames.append(frame);
-                            
+
                             // Allocate registers for the function (self + parameters + locals)
                             const needed_regs = @as(u16, @intCast(func.param_count + func.register_count));
                             const allocated_base = try self.allocateRegisters(needed_regs);
-                            
+
                             // Set object as first parameter (self)
                             const self_value = try obj_val.clone(self.allocator);
                             while (allocated_base >= self.registers.items.len) {
@@ -1670,7 +1671,7 @@ pub const VM = struct {
                             }
                             self.registers.items[allocated_base].deinit(self.allocator);
                             self.registers.items[allocated_base] = self_value;
-                            
+
                             // Copy arguments to parameter registers (after 'self')
                             for (0..arg_count) |i| {
                                 const arg_reg = obj_reg + 1 + @as(u16, @intCast(i));
@@ -1682,7 +1683,7 @@ pub const VM = struct {
                                 self.registers.items[dest_reg].deinit(self.allocator);
                                 self.registers.items[dest_reg] = arg;
                             }
-                            
+
                             // Switch to the function
                             self.current_func = func;
                             self.pc = 0;
@@ -1692,7 +1693,7 @@ pub const VM = struct {
                             return;
                         }
                     }
-                    
+
                     debug.log("Method {s} not found on class {s} or as function {s}", .{ method_name, class.name, func_name });
                     return error.MethodNotFound;
                 }
@@ -1701,10 +1702,10 @@ pub const VM = struct {
                 // Get length: Length Rd, Rs
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const src_reg = instruction.src1 orelse return error.InvalidInstruction;
-                
+
                 var value = try self.getRegister(src_reg);
                 defer value.deinit(self.allocator);
-                
+
                 const length: i64 = switch (value) {
                     .String => |s| @intCast(s.len),
                     .Array => |arr| @intCast(arr.len),
@@ -1714,7 +1715,7 @@ pub const VM = struct {
                         return error.TypeMismatch;
                     },
                 };
-                
+
                 try self.setRegister(dst_reg, .{ .Int = length });
             },
             .ArrayGet => {
@@ -1722,12 +1723,12 @@ pub const VM = struct {
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const array_reg = instruction.src1 orelse return error.InvalidInstruction;
                 const index_reg = instruction.src2 orelse return error.InvalidInstruction;
-                
+
                 var array_val = try self.getRegister(array_reg);
                 defer array_val.deinit(self.allocator);
                 var index_val = try self.getRegister(index_reg);
                 defer index_val.deinit(self.allocator);
-                
+
                 if (array_val != .Array) {
                     debug.log("ArrayGet requires an Array, got {}", .{array_val});
                     return error.TypeMismatch;
@@ -1736,15 +1737,15 @@ pub const VM = struct {
                     debug.log("ArrayGet index must be Int, got {}", .{index_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const array = array_val.Array;
                 const index = index_val.Int;
-                
+
                 if (index < 0 or index >= array.len) {
                     debug.log("Array index out of bounds: {} (length: {})", .{ index, array.len });
                     return error.InvalidInstruction;
                 }
-                
+
                 const element = array[@intCast(index)];
                 try self.setRegister(dst_reg, try element.clone(self.allocator));
             },
@@ -1753,14 +1754,14 @@ pub const VM = struct {
                 const array_reg = instruction.src1 orelse return error.InvalidInstruction;
                 const index_reg = instruction.src2 orelse return error.InvalidInstruction;
                 const value_reg = instruction.dst orelse return error.InvalidInstruction; // Using dst for value
-                
+
                 var array_val = try self.getRegister(array_reg);
                 defer array_val.deinit(self.allocator);
                 var index_val = try self.getRegister(index_reg);
                 defer index_val.deinit(self.allocator);
                 var value = try self.getRegister(value_reg);
                 defer value.deinit(self.allocator);
-                
+
                 if (array_val != .Array) {
                     debug.log("ArraySet requires an Array, got {}", .{array_val});
                     return error.TypeMismatch;
@@ -1769,15 +1770,15 @@ pub const VM = struct {
                     debug.log("ArraySet index must be Int, got {}", .{index_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const array = array_val.Array;
                 const index = index_val.Int;
-                
+
                 if (index < 0 or index >= array.len) {
                     debug.log("Array index out of bounds: {} (length: {})", .{ index, array.len });
                     return error.InvalidInstruction;
                 }
-                
+
                 // Update the array element
                 array[@intCast(index)].deinit(self.allocator);
                 array[@intCast(index)] = try value.clone(self.allocator);
@@ -1792,12 +1793,12 @@ pub const VM = struct {
                     .Int => @as(usize, @intCast(imm.Int)),
                     else => return error.TypeMismatch,
                 } else return error.InvalidInstruction;
-                
+
                 var str_val = try self.getRegister(str_reg);
                 defer str_val.deinit(self.allocator);
                 var start_val = try self.getRegister(start_reg);
                 defer start_val.deinit(self.allocator);
-                
+
                 if (str_val != .String) {
                     debug.log("Substring requires a String, got {}", .{str_val});
                     return error.TypeMismatch;
@@ -1806,16 +1807,16 @@ pub const VM = struct {
                     debug.log("Substring start must be Int, got {}", .{start_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const str = str_val.String;
                 const start = @as(usize, @intCast(start_val.Int));
                 const end = @min(end_val, str.len);
-                
+
                 if (start > str.len) {
                     debug.log("Substring start out of bounds: {} (length: {})", .{ start, str.len });
                     return error.InvalidInstruction;
                 }
-                
+
                 const substring = try self.allocator.dupe(u8, str[start..end]);
                 try self.setRegister(dst_reg, .{ .String = substring });
             },
@@ -1824,12 +1825,12 @@ pub const VM = struct {
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const map_reg = instruction.src1 orelse return error.InvalidInstruction;
                 const key_reg = instruction.src2 orelse return error.InvalidInstruction;
-                
+
                 var map_val = try self.getRegister(map_reg);
                 defer map_val.deinit(self.allocator);
                 var key_val = try self.getRegister(key_reg);
                 defer key_val.deinit(self.allocator);
-                
+
                 if (map_val != .Map) {
                     debug.log("MapGet requires a Map, got {}", .{map_val});
                     return error.TypeMismatch;
@@ -1838,10 +1839,10 @@ pub const VM = struct {
                     debug.log("MapGet key must be String, got {}", .{key_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const map = map_val.Map;
                 const key = key_val.String;
-                
+
                 if (map.get(key)) |value| {
                     try self.setRegister(dst_reg, try value.clone(self.allocator));
                 } else {
@@ -1856,14 +1857,14 @@ pub const VM = struct {
                     .Int => @as(u16, @intCast(imm.Int)),
                     else => return error.TypeMismatch,
                 } else return error.InvalidInstruction;
-                
+
                 var map_val = try self.getRegister(map_reg);
                 defer map_val.deinit(self.allocator);
                 var key_val = try self.getRegister(key_reg);
                 defer key_val.deinit(self.allocator);
                 var value = try self.getRegister(value_reg);
                 defer value.deinit(self.allocator);
-                
+
                 if (map_val != .Map) {
                     debug.log("MapSet requires a Map, got {}", .{map_val});
                     return error.TypeMismatch;
@@ -1872,10 +1873,10 @@ pub const VM = struct {
                     debug.log("MapSet key must be String, got {}", .{key_val});
                     return error.TypeMismatch;
                 }
-                
+
                 var map = map_val.Map;
                 const key = key_val.String;
-                
+
                 // Update or insert the key-value pair
                 if (map.get(key)) |old_value| {
                     var old_value_copy = old_value;

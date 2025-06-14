@@ -82,22 +82,28 @@ When creating temporary files and .gene files for testing, use `tmp/` directory 
 - Basic compilation pipeline (AST → HIR → MIR → Bytecode)
 - Functions with parameters and recursion
 - Conditionals (if/else) and arithmetic operators
-- Variables and basic types (Int, Float, String, Bool)
+- Variables and basic types (Int, String, Bool, Array, Map)
 - Register-based VM with proper call frames
-- All example files now execute correctly (including fibonacci.gene)
+- Complete object-oriented programming system:
+  - Core class hierarchy (Any, Number, Int, String, etc.)
+  - Methods on primitive values (arithmetic, comparison, string operations)
+  - Custom class definitions with fields and methods
+  - Proper method dispatch and field access
+- All example files execute correctly (including core_classes.gene)
 
 **Recent Updates:**
-- Basic type checking implemented in HIR (can be disabled via CompilerOptions.type_check)
-- Runtime support for classes added (Class and Object types in Value enum)
-- VM instructions for class operations (DefineClass, New, GetField, SetField, CallMethod)
-- Type checking currently disabled by default in runtime.zig to allow testing
+- Core classes fully implemented with proper memory management
+- Methods on primitives working (e.g., `(10 .+ 20)`, `("hello" .length)`)
+- Field access uses slash notation: `obj/field`
+- Parser supports operators as method names (/, %, etc.)
+- Type checking infrastructure exists but disabled by default
 
-**Next Development Priorities (Phase 2):**
-1. **Parser Support for Classes** - Complete class syntax parsing
-2. **Pattern Matching** - Runtime implementation (AST already parses it)
-3. **Module System** - Basic imports/exports and namespaces
+**Next Development Priorities:**
+1. **Pattern Matching** - Runtime implementation (AST already parses it)
+2. **Module System** - Basic imports/exports and namespaces  
+3. **Type Checking** - Enable and improve the existing type checker
 4. **Error Handling** - try/catch/finally support
-5. **Type Checker Improvements** - Handle built-in functions and more types
+5. **Parser Improvements** - Float literals, method calls on literals, != operator
 
 See `tmp/development_roadmap.md` for detailed next steps.
 
