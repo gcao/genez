@@ -3,6 +3,7 @@ const types = @import("../core/types.zig");
 const debug = @import("../core/debug.zig");
 const bytecode = @import("bytecode.zig");
 const builtin_classes = @import("../core/builtin_classes.zig");
+const gc = @import("../core/gc.zig");
 
 pub const VMError = error{
     StackOverflow,
@@ -60,6 +61,7 @@ pub const VM = struct {
     next_object_id: u32, // Next available object ID
     allocated_classes: std.ArrayList(*types.ClassDefinition), // Track allocated class objects for cleanup
     core_classes: ?builtin_classes.CoreClasses, // Core built-in classes
+    garbage_collector: ?*gc.GC, // Garbage collector
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
 
@@ -105,6 +107,12 @@ pub const VM = struct {
         // Built-in functions
         variables.put("len", .{ .BuiltinOperator = .Len }) catch unreachable;
         variables.put("type", .{ .BuiltinOperator = .Type }) catch unreachable;
+        
+        // GC functions (use underscore instead of slash to avoid parser issues)
+        variables.put("gc_collect", .{ .BuiltinOperator = .GCCollect }) catch unreachable;
+        variables.put("gc_disable", .{ .BuiltinOperator = .GCDisable }) catch unreachable;
+        variables.put("gc_enable", .{ .BuiltinOperator = .GCEnable }) catch unreachable;
+        variables.put("gc_stats", .{ .BuiltinOperator = .GCStats }) catch unreachable;
 
         var vm = VM{
             .allocator = allocator,
@@ -123,7 +131,11 @@ pub const VM = struct {
             .next_object_id = 0,
             .allocated_classes = std.ArrayList(*types.ClassDefinition).init(allocator),
             .core_classes = null,
+            .garbage_collector = null,
         };
+        
+        // Initialize garbage collector
+        vm.garbage_collector = gc.GC.init(allocator) catch null;
 
         // Initialize core classes
         vm.initCoreClasses() catch unreachable;
@@ -132,6 +144,11 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        // Clean up garbage collector first
+        if (self.garbage_collector) |gc_ptr| {
+            gc_ptr.deinit();
+        }
+        
         self.call_frames.deinit();
 
         for (self.allocated_functions.items) |func| {
@@ -207,6 +224,21 @@ pub const VM = struct {
     pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
         try self.variables.put(name, value);
     }
+    
+    /// Allocate a GC-managed value if GC is enabled
+    fn allocGCValue(self: *VM, value: types.Value) !types.Value {
+        if (self.garbage_collector) |gc_ptr| {
+            // For now, only manage heap-allocated values
+            switch (value) {
+                .String, .Array, .Map, .Object => {
+                    const managed_ptr = try gc_ptr.allocValue(value);
+                    return managed_ptr.*;
+                },
+                else => return value,
+            }
+        }
+        return value;
+    }
 
     pub fn execute(self: *VM, func: *const bytecode.Function) VMError!void {
         debug.log("Executing function: {s}", .{func.name});
@@ -216,6 +248,14 @@ pub const VM = struct {
         // Allocate registers for the main function before execution
         const base = try self.allocateRegisters(func.register_count);
         self.current_register_base = base;
+        
+        // Register VM registers as GC roots
+        if (self.garbage_collector) |gc_ptr| {
+            // Add all registers as potential roots
+            for (self.registers.items) |*reg| {
+                try gc_ptr.addRoot(reg);
+            }
+        }
 
         // Print all instructions before execution
         debug.log("Instructions:", .{});
@@ -1132,6 +1172,137 @@ pub const VM = struct {
                         };
 
                         try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
+                    // Handle greater than operator
+                    if (builtin_op == .GreaterThan) {
+                        if (arg_count != 2) {
+                            debug.log("GreaterThan operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        // Perform comparison based on types
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val > right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) > right_val,
+                                else => {
+                                    debug.log("TypeMismatch in GreaterThan: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val > @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val > right_val,
+                                else => {
+                                    debug.log("TypeMismatch in GreaterThan: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in GreaterThan: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
+                    // Handle equality operator
+                    if (builtin_op == .Eq) {
+                        if (arg_count != 2) {
+                            debug.log("Eq operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        // Perform equality check based on types
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val == right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) == right_val,
+                                else => false,
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val == @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val == right_val,
+                                else => false,
+                            },
+                            .Bool => |left_val| switch (right) {
+                                .Bool => |right_val| left_val == right_val,
+                                else => false,
+                            },
+                            .String => |left_val| switch (right) {
+                                .String => |right_val| std.mem.eql(u8, left_val, right_val),
+                                else => false,
+                            },
+                            .Nil => switch (right) {
+                                .Nil => true,
+                                else => false,
+                            },
+                            else => false, // Other types not comparable yet
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
+                    // Handle GC operations
+                    if (builtin_op == .GCCollect) {
+                        if (self.garbage_collector) |gc_ptr| {
+                            try gc_ptr.collect();
+                            try self.setRegister(dst_reg, .Nil);
+                        } else {
+                            try self.setRegister(dst_reg, .{ .Bool = false });
+                        }
+                        return;
+                    }
+                    
+                    if (builtin_op == .GCDisable) {
+                        if (self.garbage_collector) |gc_ptr| {
+                            gc_ptr.disable();
+                            try self.setRegister(dst_reg, .{ .Bool = true });
+                        } else {
+                            try self.setRegister(dst_reg, .{ .Bool = false });
+                        }
+                        return;
+                    }
+                    
+                    if (builtin_op == .GCEnable) {
+                        if (self.garbage_collector) |gc_ptr| {
+                            gc_ptr.enable();
+                            try self.setRegister(dst_reg, .{ .Bool = true });
+                        } else {
+                            try self.setRegister(dst_reg, .{ .Bool = false });
+                        }
+                        return;
+                    }
+                    
+                    if (builtin_op == .GCStats) {
+                        if (self.garbage_collector) |gc_ptr| {
+                            const stats = gc_ptr.getStats();
+                            // For now, return a simple map with stats
+                            var stats_map = std.StringHashMap(types.Value).init(self.allocator);
+                            try stats_map.put("collections", .{ .Int = @intCast(stats.collections) });
+                            try stats_map.put("total_allocated", .{ .Int = @intCast(stats.total_allocated) });
+                            try stats_map.put("total_freed", .{ .Int = @intCast(stats.total_freed) });
+                            try self.setRegister(dst_reg, .{ .Map = stats_map });
+                        } else {
+                            try self.setRegister(dst_reg, .Nil);
+                        }
                         return;
                     }
 

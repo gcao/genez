@@ -33,6 +33,7 @@ pub const Token = struct {
 
 pub const TokenKind = union(enum) {
     Int: i64,
+    Float: f64,
     Bool: bool,
     String: []const u8,
     Ident: []const u8, // Includes operators like +, -, < etc.
@@ -168,16 +169,42 @@ fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Tok
             else => {},
         }
 
-        // Handle integers
+        // Handle integers and floats
         if (std.ascii.isDigit(c)) {
             const start = i;
+            var has_dot = false;
+            
+            // Parse integer part
             while (i + 1 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 1])) : (i += 1) {}
-            const int_str = source_to_parse[start .. i + 1];
-            const int_val = std.fmt.parseInt(i64, int_str, 10) catch |err| {
-                std.debug.print("Error parsing int '{s}': {any}\n", .{ int_str, err });
-                return err;
-            };
-            try tokens.append(.{ .kind = .{ .Int = int_val }, .loc = start });
+            
+            // Check for decimal point
+            if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '.') {
+                // Look ahead to ensure there's at least one digit after the dot
+                if (i + 2 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 2])) {
+                    has_dot = true;
+                    i += 2; // Skip dot and first decimal digit
+                    // Parse decimal part
+                    while (i + 1 < source_to_parse.len and std.ascii.isDigit(source_to_parse[i + 1])) : (i += 1) {}
+                }
+            }
+            
+            if (has_dot) {
+                // Parse as float
+                const float_str = source_to_parse[start .. i + 1];
+                const float_val = std.fmt.parseFloat(f64, float_str) catch |err| {
+                    std.debug.print("Error parsing float '{s}': {any}\n", .{ float_str, err });
+                    return err;
+                };
+                try tokens.append(.{ .kind = .{ .Float = float_val }, .loc = start });
+            } else {
+                // Parse as integer
+                const int_str = source_to_parse[start .. i + 1];
+                const int_val = std.fmt.parseInt(i64, int_str, 10) catch |err| {
+                    std.debug.print("Error parsing int '{s}': {any}\n", .{ int_str, err });
+                    return err;
+                };
+                try tokens.append(.{ .kind = .{ .Int = int_val }, .loc = start });
+            }
             i += 1;
             continue;
         }
@@ -383,6 +410,10 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
     return switch (tok.kind) {
         .Int => |val| {
             const literal_result = ParseResult{ .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Int = val } } } }, .consumed = 1 };
+            return parsePostfixExpression(alloc, toks, literal_result);
+        },
+        .Float => |val| {
+            const literal_result = ParseResult{ .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Float = val } } } }, .consumed = 1 };
             return parsePostfixExpression(alloc, toks, literal_result);
         },
         .Bool => |val| {
@@ -1756,7 +1787,7 @@ fn parsePattern(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pa
 
     const tok = toks[0];
     switch (tok.kind) {
-        .Int, .Bool, .String => {
+        .Int, .Float, .Bool, .String => {
             // Literal pattern
             const expr_result = try parseExpression(alloc, toks, depth + 1);
             const value_ptr = try alloc.create(ast.Expression);

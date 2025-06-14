@@ -1,0 +1,15 @@
+Literal patterns:
+zero
+one
+two
+other
+
+Variable patterns:
+got zero
+got a value
+
+Combined patterns:
+zero
+one
+small number
+large number

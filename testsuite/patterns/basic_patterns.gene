@@ -1,0 +1,45 @@
+#!/usr/bin/env gene run
+
+# Test: Basic pattern matching with literals, variables, and wildcards
+
+# Literal patterns
+(fn describe_number [n]
+  (match n
+    (0 "zero")
+    (1 "one") 
+    (2 "two")
+    (_ "other")))
+
+(print "Literal patterns:")
+(print (describe_number 0))
+(print (describe_number 1))
+(print (describe_number 2))
+(print (describe_number 99))
+
+# Variable binding patterns
+(fn process_value [x]
+  (match x
+    (0 "got zero")
+    (n "got a value")))
+
+(print "")
+(print "Variable patterns:")
+(print (process_value 0))
+(print (process_value 42))
+
+# Combining patterns
+(fn categorize [x]
+  (match x
+    (0 "zero")
+    (1 "one")
+    (n (if (< n 10)
+         "small number"
+       else
+         "large number"))))
+
+(print "")
+(print "Combined patterns:")
+(print (categorize 0))
+(print (categorize 1))
+(print (categorize 5))
+(print (categorize 100))

@@ -121,6 +121,12 @@ pub const BuiltinOperatorType = enum {
     Print,
     Len,     // Length function
     Type,    // Type introspection
+    
+    // GC operations
+    GCCollect,  // Force garbage collection
+    GCDisable,  // Disable GC
+    GCEnable,   // Enable GC  
+    GCStats,    // Get GC statistics
 };
 
 pub const Value = union(enum) {

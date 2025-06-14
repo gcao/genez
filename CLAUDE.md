@@ -99,7 +99,7 @@ The `testsuite/` directory contains comprehensive language-level tests that veri
 
 **IMPORTANT**: Before marking ANY development task as completed, you MUST:
 1. Run `./testsuite/run_tests.sh`
-2. Ensure ALL tests pass (currently 16 tests should pass, 2 are skipped)
+2. Ensure ALL tests pass (currently 19 tests should pass, 1 is skipped)
 3. If your changes break existing tests, fix them before proceeding
 4. Add new tests for any new features you implement
 
@@ -124,14 +124,19 @@ The `testsuite/` directory contains comprehensive language-level tests that veri
 - Field access uses slash notation: `obj/field`
 - Parser supports operators as method names (/, %, etc.)
 - Type checking infrastructure exists but disabled by default
-- Comprehensive language test suite added in `testsuite/` with 16 passing tests
+- Comprehensive language test suite added in `testsuite/` with 19 passing tests
+- Pattern matching implemented (literal, variable, wildcard patterns)
+- Comparison operators > and == added
+- Float literal parsing implemented
+- Garbage collection implemented with mark-and-sweep algorithm
+- GC API functions: gc_collect, gc_enable, gc_disable, gc_stats
 
 **Next Development Priorities:**
-1. **Pattern Matching** - Runtime implementation (AST already parses it)
-2. **Module System** - Basic imports/exports and namespaces  
-3. **Type Checking** - Enable and improve the existing type checker
-4. **Error Handling** - try/catch/finally support
-5. **Parser Improvements** - Float literals, method calls on literals, != operator
+1. **Module System** - Basic imports/exports and namespaces  
+2. **Type Checking** - Enable and improve the existing type checker
+3. **Error Handling** - try/catch/finally support
+4. **String Operations** - String interpolation or number-to-string conversion
+5. **Parser Improvements** - Method calls on literals, != operator
 
 See `tmp/development_roadmap.md` for detailed next steps.
 

@@ -74,7 +74,7 @@ run_test() {
 cd "$SCRIPT_DIR"
 
 # Run all tests in categories
-for category in basics control_flow functions data_structures oop arithmetic strings arrays maps macros patterns modules; do
+for category in basics control_flow functions data_structures oop arithmetic strings arrays maps macros patterns runtime modules; do
     if [ -d "$category" ]; then
         echo "--- $category ---"
         for test_file in "$category"/*.gene; do

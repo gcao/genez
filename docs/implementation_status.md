@@ -76,11 +76,13 @@ The type hierarchy is well-designed. Next steps should focus on:
    - Recursion ✓
    - Conditionals (if/else) ✓
    - Basic arithmetic (+, -, *, /) ✓
-   - Comparison operators (<, >, =) ✓
+   - Comparison operators (<, >, ==) ✓
    - Variables (var) ✓
    - Print function ✓
    - Macros with lazy evaluation ✓
    - Unquote syntax (%) ✓
+   - Basic pattern matching (literal, variable, wildcard) ✓
+   - Float literals ✓
 
 3. **VM Execution**
    - Register-based bytecode ✓
@@ -117,7 +119,8 @@ The type hierarchy is well-designed. Next steps should focus on:
    - Optimization passes
 
 2. **Memory Management**
-   - Garbage collection
+   - Basic mark-and-sweep garbage collection ✓
+   - GC API functions (gc_collect, gc_enable, gc_disable, gc_stats) ✓
    - Reference counting option
    - Memory pooling
 
@@ -127,14 +130,18 @@ The type hierarchy is well-designed. Next steps should focus on:
    - STM (Software Transactional Memory)
 
 4. **Language Features**
-   - Pattern matching (AST support only)
+   - Advanced pattern matching (only literal, variable, wildcard patterns work)
+     - Array patterns parsed but not implemented in runtime
+     - Map patterns parsed but not implemented in runtime
+     - Constructor patterns not implemented
+     - Guard clauses not implemented
    - Modules and imports
    - Properties (`^` shorthand syntax)
    - Automatic constructor calls with arguments
    - do blocks returning last expression value
-   - Float literal parsing
    - Method calls on literals (must use variables)
    - != operator parsing (method exists but parser doesn't support it)
+   - String interpolation or number-to-string conversion
 
 5. **Standard Library**
    - Collections

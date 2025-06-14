@@ -1,0 +1,7 @@
+Testing GC functions...
+gc_collect: ok
+gc_disable:  true
+gc_enable:  true
+Created garbage:  0
+Collection complete
+GC tests passed!

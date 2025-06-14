@@ -1,0 +1,35 @@
+#!/usr/bin/env gene run
+
+# Test: Garbage collection functionality
+
+# Test that GC functions exist and return expected values
+(print "Testing GC functions...")
+
+# gc_collect should complete without error
+(gc_collect)
+(print "gc_collect: ok")
+
+# gc_disable should return true
+(var disabled (gc_disable))
+(print "gc_disable: " disabled)
+
+# gc_enable should return true  
+(var enabled (gc_enable))
+(print "gc_enable: " enabled)
+
+# Test creating garbage
+(fn create_arrays []
+  (var a1 [1 2 3 4 5])
+  (var a2 ["a" "b" "c"])
+  (var a3 [true false true])
+  0)  # Return something other than arrays
+
+# Create some garbage
+(var result (create_arrays))
+(print "Created garbage: " result)
+
+# Force collection
+(gc_collect)
+(print "Collection complete")
+
+(print "GC tests passed!")
