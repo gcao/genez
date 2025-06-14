@@ -1,0 +1,26 @@
+# Test Gene expressions
+
+# Simple expressions
+(atom)
+(empty)
+(with-children 1 2 3)
+
+# With properties
+(person ^name "John" ^age 30)
+(div ^class "container" ^id "main")
+
+# Nested expressions
+(parent
+  (child1)
+  (child2
+    (grandchild)))
+
+# Mixed properties and children
+(user ^id 1
+  (name "Alice")
+  (email "alice@example.com"))
+
+# Complex example
+(config ^version "1.0.0"
+  (server ^host "localhost" ^port 8080)
+  (features ["auth" "api"]))

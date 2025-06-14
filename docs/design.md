@@ -5044,6 +5044,239 @@ gene_value* gene_call_method(gene_runtime* rt, gene_value* obj,
 
 ---
 
+# Chapter 24: Gene as a Data Format
+
+Gene's S-expression syntax makes it an excellent data interchange format, similar to JSON, YAML, or EDN. This chapter describes how Gene can be used purely as a data format, separate from its role as a programming language.
+
+## 24.1 Data Format Overview
+
+Gene data files use the same S-expression syntax as Gene code but are interpreted as pure data structures rather than executable code.
+
+### Basic Data Types:
+- **Integers**: `42`, `-17`, `0`
+- **Floats**: `3.14`, `-0.5`, `1.0e10`
+- **Strings**: `"hello"`, `"multi\nline"`
+- **Symbols**: `name`, `user-id`, `+`
+- **Booleans**: `true`, `false`
+- **Nil**: `nil`
+- **Arrays**: `[1 2 3]`, `["a" "b" "c"]`
+- **Maps**: `{:name "John" :age 30}`
+- **Genes**: `(person "John" 30)`, `(div ^class "container" (p "Hello"))`
+
+### Gene Document Structure:
+A Gene data file consists of one or more top-level expressions. Each expression represents a complete data structure.
+
+```gene
+# config.gene - A configuration file
+(config
+  (server
+    ^host "localhost"
+    ^port 8080
+    ^ssl true)
+  
+  (database
+    ^type "postgresql"
+    ^host "db.example.com"
+    ^port 5432
+    ^name "myapp")
+  
+  (features
+    ["auth" "api" "websocket"]))
+```
+
+## 24.2 Gene Data Parser
+
+The Gene data parser is a specialized parser that reads Gene syntax and produces data structures without evaluating code.
+
+### Key Differences from Code Parser:
+1. **No Evaluation**: Expressions are not evaluated as function calls
+2. **Symbol Preservation**: Symbols remain as symbols, not variable references
+3. **Property Support**: Full support for property syntax (^prop)
+4. **Document Mode**: Can parse multiple top-level expressions
+
+### Parser API:
+```gene
+# Parse a single expression
+(parse-data "(person ^name \"John\" ^age 30)")
+# => (gene 'person {:name "John" :age 30} [])
+
+# Parse a document (multiple expressions)
+(parse-document "(config ...)\n(users ...)")
+# => [(gene 'config ...) (gene 'users ...)]
+
+# Parse from file
+(parse-data-file "config.gene")
+# => (gene 'config ...)
+```
+
+## 24.3 Data Format Use Cases
+
+### Configuration Files:
+```gene
+# app.config.gene
+(application
+  ^name "MyApp"
+  ^version "1.0.0"
+  
+  (dependencies
+    (gene/core ^version "0.1.0")
+    (gene/web ^version "0.2.0" ^features ["ssl" "websocket"]))
+  
+  (build
+    ^output "dist/"
+    ^optimize true
+    ^target ["native" "wasm"]))
+```
+
+### Data Serialization:
+```gene
+# users.gene
+(users
+  (user ^id 1 ^name "Alice" ^email "alice@example.com"
+    (preferences
+      ^theme "dark"
+      ^notifications true))
+  
+  (user ^id 2 ^name "Bob" ^email "bob@example.com"
+    (preferences
+      ^theme "light"
+      ^notifications false)))
+```
+
+### DSL Data:
+```gene
+# ui-layout.gene
+(layout ^type "vertical"
+  (header ^height 60
+    (logo ^align "left")
+    (nav ^align "right"
+      (link ^href "/home" "Home")
+      (link ^href "/about" "About")))
+  
+  (main ^flex 1
+    (content ^padding 20))
+  
+  (footer ^height 40
+    (copyright "© 2024")))
+```
+
+## 24.4 Data Access API
+
+Once parsed, Gene data structures can be accessed using a simple API:
+
+```gene
+# Given: data = (person ^name "John" ^age 30 (address ^city "NYC"))
+
+# Access properties
+data.name          # "John"
+data.^name         # "John" (alternative syntax)
+data[^name]        # "John" (map-style access)
+
+# Access children
+data.0             # First child: (address ^city "NYC")
+data.-1            # Last child
+data.children      # All children as array
+
+# Access head/tag
+data.head          # 'person
+data.tag           # 'person (alias)
+
+# Check structure
+data.props         # {:name "John" :age 30}
+data.prop-count    # 2
+data.child-count   # 1
+
+# Pattern matching
+(match data
+  (person ^name n ^age a) (print "Person:" n "age" a)
+  _ "Not a person")
+```
+
+## 24.5 Comparison with Other Formats
+
+### Advantages over JSON:
+- **More concise**: No quotes for keys, less punctuation
+- **Comments**: Native support for comments
+- **Symbols**: Distinct from strings
+- **Richer types**: Direct support for symbols, keywords
+- **Properties**: Metadata without nesting
+
+### Advantages over XML:
+- **Much more concise**: No closing tags
+- **Simpler**: No namespaces, schemas
+- **More readable**: Less visual noise
+- **Native data types**: Not everything is a string
+
+### Similar to EDN:
+- S-expression based
+- Rich data types
+- Extensible
+- Human-readable
+
+### Example Comparison:
+```json
+// JSON
+{
+  "type": "user",
+  "name": "John",
+  "age": 30,
+  "tags": ["admin", "active"]
+}
+```
+
+```xml
+<!-- XML -->
+<user name="John" age="30">
+  <tag>admin</tag>
+  <tag>active</tag>
+</user>
+```
+
+```gene
+# Gene
+(user ^name "John" ^age 30
+  tags ["admin" "active"])
+```
+
+## 24.6 Implementation Details
+
+### Parser Modes:
+1. **Code Mode**: Default mode, parses for execution
+2. **Data Mode**: Parses as pure data structures
+3. **Document Mode**: Parses multiple top-level forms
+
+### Command Line Usage:
+```bash
+# Parse and pretty-print a data file
+gene parse data.gene
+
+# Parse and output as JSON
+gene parse --json data.gene
+
+# Parse and validate against schema
+gene parse --schema schema.gene data.gene
+
+# Parse from stdin
+echo '(config ^port 8080)' | gene parse -
+```
+
+### Integration with Gene Code:
+```gene
+# Load data from file
+(var config (parse-data-file "config.gene"))
+
+# Convert data to code
+(var code (data->code config))
+
+# Evaluate data as code (careful!)
+(var result (eval (data->code config)))
+
+# Serialize data back to Gene format
+(write-data-file "output.gene" config)
+```
+
+---
+
 # Appendix A: Standard Library Overview
 
 ## Core Modules:

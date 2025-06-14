@@ -1,0 +1,4 @@
+# Test JSON output conversion
+
+(person ^name "John" ^age 30
+  (address ^city "NYC" ^zip 10001))

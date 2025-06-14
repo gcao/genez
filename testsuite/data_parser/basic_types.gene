@@ -1,0 +1,31 @@
+# Test basic data types
+
+# Integers
+42
+0
+123456
+
+# Floats (note: negative floats are currently parsed as separate tokens)
+3.14
+1.0
+123.456
+
+# Booleans
+true
+false
+
+# Nil
+nil
+
+# Strings
+"Hello"
+"World"
+"Multi\nline"
+"With \"quotes\""
+
+# Symbols
+symbol
+my-symbol
+snake_case
+camelCase
+CONSTANT

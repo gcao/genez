@@ -86,6 +86,20 @@ for category in basics control_flow functions data_structures oop arithmetic str
     fi
 done
 
+# Run data parser tests if available
+if [ -x "data_parser/run_tests.sh" ]; then
+    echo "--- data_parser ---"
+    if data_parser/run_tests.sh > /tmp/data_parser_output 2>&1; then
+        echo -e "${GREEN}PASS${NC} data_parser suite"
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "${RED}FAIL${NC} data_parser suite"
+        cat /tmp/data_parser_output
+        FAILED=$((FAILED + 1))
+    fi
+    echo
+fi
+
 # Summary
 echo "=== Summary ==="
 echo -e "Passed: ${GREEN}$PASSED${NC}"

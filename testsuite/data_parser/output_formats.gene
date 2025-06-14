@@ -1,0 +1,3 @@
+# Test different output formats
+(config ^version 1.0
+  (server ^port 8080))

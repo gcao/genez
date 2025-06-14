@@ -1,0 +1,1 @@
+[{"_type":"gene","_head":"person","_props":{"name":"John","age":30},"_children":[{"_type":"gene","_head":"address","_props":{"city":"NYC","zip":10001}}]}]

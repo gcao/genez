@@ -1,0 +1,21 @@
+# Test collections
+
+# Arrays
+[]
+[1 2 3]
+["a" "b" "c"]
+[true false nil]
+[1 "two" three]
+
+# Nested arrays
+[[1 2] [3 4]]
+[[] [[]] [[[]]]]
+
+# Maps
+{}
+{:name "John"}
+{:a 1 :b 2 :c 3}
+
+# Nested maps
+{:outer {:inner "value"}}
+{:data {:user {:name "Alice" :age 30}}}

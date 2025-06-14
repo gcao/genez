@@ -24,7 +24,8 @@
       "Bash(python3:*)",
       "Bash(git checkout:*)",
       "Bash(./run_tests.sh:*)",
-      "Bash(./testsuite/run_tests.sh:*)"
+      "Bash(./testsuite/run_tests.sh:*)",
+      "Bash(testsuite/data_parser/run_tests.sh:*)"
     ],
     "deny": []
   },

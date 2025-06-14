@@ -50,6 +50,33 @@ Output from default.gene
 3
 ```
 
+## Gene as a Data Format
+
+Gene syntax can also be used as a data format similar to JSON or YAML. Use the `parse` command to parse Gene data files:
+
+```bash
+# Parse a Gene data file
+./zig-out/bin/gene parse examples/data_example.gene
+
+# Output as JSON
+./zig-out/bin/gene parse examples/data_example.gene --json
+
+# Show internal parsed structure
+./zig-out/bin/gene parse examples/data_example.gene --parsed
+
+# Parse from stdin
+echo '(config ^version "1.0" ^debug true)' | ./zig-out/bin/gene parse -
+```
+
+Gene data format supports:
+- Basic types: integers, floats, booleans, strings, nil
+- Symbols (identifiers)
+- Arrays: `[1 2 3]`
+- Maps: `{:key "value" :another 123}`
+- Gene expressions with properties: `(person ^name "Alice" ^age 30)`
+
+See `docs/design.md` Chapter 24 for more details on Gene as a data format.
+
 ## Project Structure
 
 ```

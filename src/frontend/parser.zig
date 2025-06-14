@@ -70,7 +70,7 @@ pub const TokenKind = union(enum) {
 ///   source: The source string to tokenize.
 ///
 /// Returns: An ArrayList of tokens.
-fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Token) {
+pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList(Token) {
     var tokens = std.ArrayList(Token).init(allocator);
     errdefer { // Ensure tokens are cleaned up on tokenizer error
         for (tokens.items) |*token| {
