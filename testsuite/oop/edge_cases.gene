@@ -7,15 +7,9 @@
 
 # Class with only fields
 (class OnlyFields
-  [x 1]
-  [y 2]
-  [z 3])
-
-# Class with only instance variables
-(class OnlyVars
-  (var /a)
-  (var /b)
-  (var /c))
+  (.prop x)
+  (.prop y)
+  (.prop z))
 
 # Class with only methods
 (class OnlyMethods
@@ -37,7 +31,7 @@
 
 # Constructor with no parameters
 (class NoParamConstructor
-  [value 42]
+  (.prop value)
   
   (.ctor []
     (= /value 100)))

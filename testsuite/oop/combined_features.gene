@@ -5,7 +5,7 @@
 # Class with inheritance, fields, constructor, and methods
 (class Animal
   (var /name)
-  [species "unknown"]
+  (.prop species)
   
   (.ctor [name]
     (= /name name))
@@ -17,7 +17,7 @@
     (print "Name:" /name "Species:" /species)))
 
 (class Dog < Animal
-  [breed "mixed"]
+  (.prop breed)
   (var /age)
   
   (.ctor [name breed age]
@@ -40,7 +40,7 @@
 
 # Complex class hierarchy
 (class Shape
-  [color "white"]
+  (.prop color)
   
   (.fn area []
     0)
@@ -49,8 +49,8 @@
     (print "A" /color "shape")))
 
 (class Rectangle < Shape
-  [width 0]
-  [height 0]
+  (.prop width)
+  (.prop height)
   
   (.ctor [w h]
     (do

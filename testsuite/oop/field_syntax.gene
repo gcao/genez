@@ -1,27 +1,27 @@
 #!/usr/bin/env gene run
 
-# Test: Bracket field syntax [field value]
+# Test: Property field syntax (.prop name)
 
 (class Point
-  [x 0]
-  [y 0])
+  (.prop x)
+  (.prop y))
 
 (class Rectangle
-  [width 100]
-  [height 50]
-  [color "black"])
+  (.prop width)
+  (.prop height)
+  (.prop color))
 
-# Fields with different value types
+# Fields with different types
 (class Configuration
-  [debug false]
-  [port 8080]
-  [host "localhost"]
-  [timeout 30.5])
+  (.prop debug)
+  (.prop port)
+  (.prop host)
+  (.prop timeout))
 
-# Fields with expressions as default values
+# Multiple properties
 (class Counter
-  [count 0]
-  [step 1]
-  [max (+ 100 100)])
+  (.prop count)
+  (.prop step)
+  (.prop max))
 
 (print "Field syntax parsed successfully")

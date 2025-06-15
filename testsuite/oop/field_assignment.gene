@@ -28,8 +28,8 @@
 
 # Complex assignments
 (class Calculator
-  [result 0]
-  [memory 0]
+  (.prop result)
+  (.prop memory)
   
   (.fn calculate [op a b]
     (do
