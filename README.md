@@ -79,7 +79,7 @@ Gene data format supports:
 - Basic types: integers, floats, booleans, strings, nil
 - Symbols (identifiers)
 - Arrays: `[1 2 3]`
-- Maps: `{:key "value" :another 123}`
+- Maps: `{^key "value" ^another 123}`
 - Gene expressions with properties: `(person ^name "Alice" ^age 30)`
 
 See `docs/design.md` Chapter 24 for more details on Gene as a data format.

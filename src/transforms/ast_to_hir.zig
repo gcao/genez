@@ -443,23 +443,23 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             // Convert AST class definition to HIR class definition
             var hir_class = try allocator.create(hir.HIR.ClassDef);
             errdefer allocator.destroy(hir_class);
-            
+
             // Convert class name
             hir_class.name = try allocator.dupe(u8, class_def.name);
             hir_class.allocator = allocator;
-            
+
             // Convert parent class if present
             hir_class.parent_class = if (class_def.parent_class) |parent|
                 try allocator.dupe(u8, parent)
             else
                 null;
-            
+
             // Convert traits
             hir_class.traits = try allocator.alloc([]const u8, class_def.traits.len);
             for (class_def.traits, 0..) |trait_name, i| {
                 hir_class.traits[i] = try allocator.dupe(u8, trait_name);
             }
-            
+
             // Convert fields
             hir_class.fields = try allocator.alloc(hir.HIR.ClassField, class_def.fields.len);
             for (class_def.fields, 0..) |field, i| {
@@ -480,7 +480,7 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                     } else null,
                 };
             }
-            
+
             // Convert methods
             hir_class.methods = try allocator.alloc(hir.HIR.ClassMethod, class_def.methods.len);
             for (class_def.methods, 0..) |method, i| {
@@ -495,14 +495,14 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                             null,
                     };
                 }
-                
+
                 // Convert method body
                 var hir_body = try lowerExpression(allocator, method.body.*);
                 errdefer hir_body.deinit(allocator);
                 const body_ptr = try allocator.create(hir.HIR.Expression);
                 errdefer allocator.destroy(body_ptr);
                 body_ptr.* = hir_body;
-                
+
                 hir_class.methods[i] = hir.HIR.ClassMethod{
                     .name = try allocator.dupe(u8, method.name),
                     .params = hir_params,
@@ -513,32 +513,30 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                     .is_static = method.method_type == .Static,
                 };
             }
-            
-            return hir.HIR.Expression{
-                .class_def = hir_class
-            };
+
+            return hir.HIR.Expression{ .class_def = hir_class };
         },
         .MatchExpr => |match_expr| {
             // Convert AST match expression to HIR match expression
             var hir_match = try allocator.create(hir.HIR.MatchExpr);
             errdefer allocator.destroy(hir_match);
-            
+
             // Convert scrutinee (the value being matched)
             var hir_scrutinee = try lowerExpression(allocator, match_expr.scrutinee.*);
             errdefer hir_scrutinee.deinit(allocator);
             const scrutinee_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(scrutinee_ptr);
             scrutinee_ptr.* = hir_scrutinee;
-            
+
             hir_match.scrutinee = scrutinee_ptr;
-            
+
             // Convert match arms
             hir_match.arms = try allocator.alloc(hir.HIR.MatchArm, match_expr.arms.len);
             for (match_expr.arms, 0..) |arm, i| {
                 // Convert pattern
                 var hir_pattern = try convertPattern(allocator, arm.pattern);
                 errdefer hir_pattern.deinit(allocator);
-                
+
                 // Convert guard if present
                 var hir_guard: ?*hir.HIR.Expression = null;
                 if (arm.guard) |guard| {
@@ -549,45 +547,37 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                     guard_ptr.* = guard_expr;
                     hir_guard = guard_ptr;
                 }
-                
+
                 // Convert body
                 var hir_body = try lowerExpression(allocator, arm.body.*);
                 errdefer hir_body.deinit(allocator);
                 const body_ptr = try allocator.create(hir.HIR.Expression);
                 errdefer allocator.destroy(body_ptr);
                 body_ptr.* = hir_body;
-                
+
                 hir_match.arms[i] = hir.HIR.MatchArm{
                     .pattern = hir_pattern,
                     .guard = hir_guard,
                     .body = body_ptr,
                 };
             }
-            
-            return hir.HIR.Expression{
-                .match_expr = hir_match
-            };
+
+            return hir.HIR.Expression{ .match_expr = hir_match };
         },
         .ModuleDef => {
             // TODO: Implement proper HIR module support
             // For now, convert module definitions to nil literals as placeholder
-            return hir.HIR.Expression{
-                .literal = .{ .nil = {} }
-            };
+            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
         },
         .ImportStmt => {
             // TODO: Implement proper HIR import support
             // For now, convert import statements to nil literals as placeholder
-            return hir.HIR.Expression{
-                .literal = .{ .nil = {} }
-            };
+            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
         },
         .ExportStmt => {
             // TODO: Implement proper HIR export support
             // For now, convert export statements to nil literals as placeholder
-            return hir.HIR.Expression{
-                .literal = .{ .nil = {} }
-            };
+            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
         },
         .InstanceCreation => |inst| {
             // Convert InstanceCreation to HIR
@@ -599,24 +589,22 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 }
                 args.deinit();
             }
-            
+
             for (inst.args.items) |arg| {
                 var hir_arg = try lowerExpression(allocator, arg.*);
                 errdefer hir_arg.deinit(allocator);
-                
+
                 const hir_arg_ptr = try allocator.create(hir.HIR.Expression);
                 errdefer allocator.destroy(hir_arg_ptr);
                 hir_arg_ptr.* = hir_arg;
-                
+
                 try args.append(hir_arg_ptr);
             }
-            
-            return hir.HIR.Expression{
-                .instance_creation = .{
-                    .class_name = try allocator.dupe(u8, inst.class_name),
-                    .args = args,
-                }
-            };
+
+            return hir.HIR.Expression{ .instance_creation = .{
+                .class_name = try allocator.dupe(u8, inst.class_name),
+                .args = args,
+            } };
         },
         .FieldAccess => |field| {
             // Convert FieldAccess to HIR
@@ -628,13 +616,11 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 obj_ptr.* = hir_obj;
                 break :blk obj_ptr;
             } else null;
-            
-            return hir.HIR.Expression{
-                .field_access = .{
-                    .object = hir_object,
-                    .field_name = try allocator.dupe(u8, field.field_name),
-                }
-            };
+
+            return hir.HIR.Expression{ .field_access = .{
+                .object = hir_object,
+                .field_name = try allocator.dupe(u8, field.field_name),
+            } };
         },
         .FieldAssignment => |assign| {
             // Convert FieldAssignment to HIR
@@ -646,20 +632,18 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 obj_ptr.* = hir_obj;
                 break :blk obj_ptr;
             } else null;
-            
+
             var hir_value = try lowerExpression(allocator, assign.value.*);
             errdefer hir_value.deinit(allocator);
             const value_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(value_ptr);
             value_ptr.* = hir_value;
-            
-            return hir.HIR.Expression{
-                .field_assignment = .{
-                    .object = hir_object,
-                    .field_name = try allocator.dupe(u8, assign.field_name),
-                    .value = value_ptr,
-                }
-            };
+
+            return hir.HIR.Expression{ .field_assignment = .{
+                .object = hir_object,
+                .field_name = try allocator.dupe(u8, assign.field_name),
+                .value = value_ptr,
+            } };
         },
         .MethodCall => |call| {
             // Convert MethodCall to HIR
@@ -668,7 +652,7 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             const obj_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(obj_ptr);
             obj_ptr.* = hir_obj;
-            
+
             var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
             errdefer {
                 for (args.items) |arg| {
@@ -677,25 +661,23 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 }
                 args.deinit();
             }
-            
+
             for (call.args.items) |arg| {
                 var hir_arg = try lowerExpression(allocator, arg.*);
                 errdefer hir_arg.deinit(allocator);
-                
+
                 const hir_arg_ptr = try allocator.create(hir.HIR.Expression);
                 errdefer allocator.destroy(hir_arg_ptr);
                 hir_arg_ptr.* = hir_arg;
-                
+
                 try args.append(hir_arg_ptr);
             }
-            
-            return hir.HIR.Expression{
-                .method_call = .{
-                    .object = obj_ptr,
-                    .method_name = try allocator.dupe(u8, call.method_name),
-                    .args = args,
-                }
-            };
+
+            return hir.HIR.Expression{ .method_call = .{
+                .object = obj_ptr,
+                .method_name = try allocator.dupe(u8, call.method_name),
+                .args = args,
+            } };
         },
         .PseudoMacroDef => |macro_def| {
             // Lower macro parameters
@@ -706,11 +688,11 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                     .is_variadic = param.is_variadic,
                 };
             }
-            
+
             // Lower macro body
             const body_ptr = try allocator.create(hir.HIR.Expression);
             body_ptr.* = try lowerExpression(allocator, macro_def.body.*);
-            
+
             // Create macro definition
             const macro_ptr = try allocator.create(hir.HIR.MacroDef);
             macro_ptr.* = .{
@@ -718,14 +700,14 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 .params = params,
                 .body = body_ptr,
             };
-            
+
             return .{ .macro_def = macro_ptr };
         },
         .PseudoMacroCall => |macro_call| {
             // Lower the macro expression
             const macro_ptr = try allocator.create(hir.HIR.Expression);
             macro_ptr.* = try lowerExpression(allocator, macro_call.macro.*);
-            
+
             // Lower arguments as thunks (expressions that will be lazily evaluated)
             var args = try allocator.alloc(*hir.HIR.Expression, macro_call.args.len);
             for (macro_call.args, 0..) |arg, i| {
@@ -733,13 +715,11 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 arg_ptr.* = try lowerExpression(allocator, arg.expr.*);
                 args[i] = arg_ptr;
             }
-            
-            return .{
-                .macro_call = .{
-                    .macro = macro_ptr,
-                    .args = args,
-                }
-            };
+
+            return .{ .macro_call = .{
+                .macro = macro_ptr,
+                .args = args,
+            } };
         },
         .CExternDecl => {
             // TODO: Implement proper HIR C external declaration support
@@ -759,12 +739,25 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             std.debug.print("CTypeDecl not yet implemented in HIR\n", .{});
             return error.NotImplemented;
         },
-        .NamespaceDecl => {
-            // TODO: Implement proper HIR namespace support
-            // For now, convert namespace declarations to nil literals as placeholder
-            return hir.HIR.Expression{
-                .literal = .{ .nil = {} }
-            };
+        .NamespaceDecl => |ns_decl| {
+            // For now, transform namespace body as a do block
+            // This ensures the content is processed and not lost
+            // TODO: Integrate with proper module/namespace system
+
+            // Convert the namespace body
+            const body_expr = try lowerExpression(allocator, ns_decl.body.*);
+
+            // If the body is already a do block, return it as is
+            if (body_expr == .do_block) {
+                return body_expr;
+            }
+
+            // Otherwise, wrap the single expression in a do block
+            var statements = try allocator.alloc(*hir.HIR.Expression, 1);
+            statements[0] = try allocator.create(hir.HIR.Expression);
+            statements[0].* = body_expr;
+
+            return hir.HIR.Expression{ .do_block = .{ .statements = statements } };
         },
     };
 }
@@ -778,25 +771,21 @@ fn convertPattern(allocator: std.mem.Allocator, pattern: ast.MatchExpr.Pattern) 
             const value_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(value_ptr);
             value_ptr.* = hir_value;
-            
-            break :blk hir.HIR.Pattern{
-                .literal = .{ .value = value_ptr }
-            };
+
+            break :blk hir.HIR.Pattern{ .literal = .{ .value = value_ptr } };
         },
-        .Variable => |var_pat| hir.HIR.Pattern{
-            .variable = .{
-                .name = try allocator.dupe(u8, var_pat.name),
-                .type_annotation = if (var_pat.type_annotation) |type_ann|
-                    try allocator.dupe(u8, type_ann)
-                else
-                    null,
-            }
-        },
+        .Variable => |var_pat| hir.HIR.Pattern{ .variable = .{
+            .name = try allocator.dupe(u8, var_pat.name),
+            .type_annotation = if (var_pat.type_annotation) |type_ann|
+                try allocator.dupe(u8, type_ann)
+            else
+                null,
+        } },
         .Wildcard => hir.HIR.Pattern{ .wildcard = {} },
         .Constructor => |ctor| blk: {
             var hir_fields = try allocator.alloc(hir.HIR.Pattern, ctor.fields.len);
             errdefer allocator.free(hir_fields);
-            
+
             for (ctor.fields, 0..) |field, i| {
                 hir_fields[i] = try convertPattern(allocator, field);
                 errdefer {
@@ -806,18 +795,16 @@ fn convertPattern(allocator: std.mem.Allocator, pattern: ast.MatchExpr.Pattern) 
                     }
                 }
             }
-            
-            break :blk hir.HIR.Pattern{
-                .constructor = .{
-                    .constructor = try allocator.dupe(u8, ctor.constructor),
-                    .fields = hir_fields,
-                }
-            };
+
+            break :blk hir.HIR.Pattern{ .constructor = .{
+                .constructor = try allocator.dupe(u8, ctor.constructor),
+                .fields = hir_fields,
+            } };
         },
         .Array => |arr| blk: {
             var hir_elements = try allocator.alloc(hir.HIR.Pattern, arr.elements.len);
             errdefer allocator.free(hir_elements);
-            
+
             for (arr.elements, 0..) |element, i| {
                 hir_elements[i] = try convertPattern(allocator, element);
                 errdefer {
@@ -827,30 +814,28 @@ fn convertPattern(allocator: std.mem.Allocator, pattern: ast.MatchExpr.Pattern) 
                     }
                 }
             }
-            
-            break :blk hir.HIR.Pattern{
-                .array = .{
-                    .elements = hir_elements,
-                    .rest = if (arr.rest) |rest|
-                        try allocator.dupe(u8, rest)
-                    else
-                        null,
-                }
-            };
+
+            break :blk hir.HIR.Pattern{ .array = .{
+                .elements = hir_elements,
+                .rest = if (arr.rest) |rest|
+                    try allocator.dupe(u8, rest)
+                else
+                    null,
+            } };
         },
         .Map => |map| blk: {
             var hir_fields = try allocator.alloc(hir.HIR.Pattern.MapPattern.MapFieldPattern, map.fields.len);
             errdefer allocator.free(hir_fields);
-            
+
             for (map.fields, 0..) |field, i| {
                 var hir_pattern = try convertPattern(allocator, field.pattern);
                 errdefer hir_pattern.deinit(allocator);
-                
+
                 hir_fields[i] = hir.HIR.Pattern.MapPattern.MapFieldPattern{
                     .key = try allocator.dupe(u8, field.key),
                     .pattern = hir_pattern,
                 };
-                
+
                 errdefer {
                     // Clean up already converted fields if later ones fail
                     for (hir_fields[0..i]) |*prev_field| {
@@ -859,21 +844,19 @@ fn convertPattern(allocator: std.mem.Allocator, pattern: ast.MatchExpr.Pattern) 
                     }
                 }
             }
-            
-            break :blk hir.HIR.Pattern{
-                .map = .{
-                    .fields = hir_fields,
-                    .rest = if (map.rest) |rest|
-                        try allocator.dupe(u8, rest)
-                    else
-                        null,
-                }
-            };
+
+            break :blk hir.HIR.Pattern{ .map = .{
+                .fields = hir_fields,
+                .rest = if (map.rest) |rest|
+                    try allocator.dupe(u8, rest)
+                else
+                    null,
+            } };
         },
         .Or => |or_pat| blk: {
             var hir_patterns = try allocator.alloc(hir.HIR.Pattern, or_pat.patterns.len);
             errdefer allocator.free(hir_patterns);
-            
+
             for (or_pat.patterns, 0..) |sub_pattern, i| {
                 hir_patterns[i] = try convertPattern(allocator, sub_pattern);
                 errdefer {
@@ -883,10 +866,8 @@ fn convertPattern(allocator: std.mem.Allocator, pattern: ast.MatchExpr.Pattern) 
                     }
                 }
             }
-            
-            break :blk hir.HIR.Pattern{
-                .or_pattern = .{ .patterns = hir_patterns }
-            };
+
+            break :blk hir.HIR.Pattern{ .or_pattern = .{ .patterns = hir_patterns } };
         },
         .Range => |range| blk: {
             var hir_start = try lowerExpression(allocator, range.start.*);
@@ -894,20 +875,18 @@ fn convertPattern(allocator: std.mem.Allocator, pattern: ast.MatchExpr.Pattern) 
             const start_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(start_ptr);
             start_ptr.* = hir_start;
-            
+
             var hir_end = try lowerExpression(allocator, range.end.*);
             errdefer hir_end.deinit(allocator);
             const end_ptr = try allocator.create(hir.HIR.Expression);
             errdefer allocator.destroy(end_ptr);
             end_ptr.* = hir_end;
-            
-            break :blk hir.HIR.Pattern{
-                .range = .{
-                    .start = start_ptr,
-                    .end = end_ptr,
-                    .inclusive = range.inclusive,
-                }
-            };
+
+            break :blk hir.HIR.Pattern{ .range = .{
+                .start = start_ptr,
+                .end = end_ptr,
+                .inclusive = range.inclusive,
+            } };
         },
     };
 }

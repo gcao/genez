@@ -28,7 +28,9 @@
       "Bash(testsuite/data_parser/run_tests.sh:*)",
       "Bash(touch:*)",
       "Bash(../../zig-out/bin/gene run:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": []
   },

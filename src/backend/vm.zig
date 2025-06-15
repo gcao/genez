@@ -107,7 +107,7 @@ pub const VM = struct {
         // Built-in functions
         variables.put("len", .{ .BuiltinOperator = .Len }) catch unreachable;
         variables.put("type", .{ .BuiltinOperator = .Type }) catch unreachable;
-        
+
         // GC functions (use underscore instead of slash to avoid parser issues)
         variables.put("gc_collect", .{ .BuiltinOperator = .GCCollect }) catch unreachable;
         variables.put("gc_disable", .{ .BuiltinOperator = .GCDisable }) catch unreachable;
@@ -133,7 +133,7 @@ pub const VM = struct {
             .core_classes = null,
             .garbage_collector = null,
         };
-        
+
         // Initialize garbage collector
         vm.garbage_collector = gc.GC.init(allocator) catch null;
 
@@ -148,7 +148,7 @@ pub const VM = struct {
         if (self.garbage_collector) |gc_ptr| {
             gc_ptr.deinit();
         }
-        
+
         self.call_frames.deinit();
 
         for (self.allocated_functions.items) |func| {
@@ -224,7 +224,7 @@ pub const VM = struct {
     pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
         try self.variables.put(name, value);
     }
-    
+
     /// Allocate a GC-managed value if GC is enabled
     fn allocGCValue(self: *VM, value: types.Value) !types.Value {
         if (self.garbage_collector) |gc_ptr| {
@@ -248,7 +248,7 @@ pub const VM = struct {
         // Allocate registers for the main function before execution
         const base = try self.allocateRegisters(func.register_count);
         self.current_register_base = base;
-        
+
         // Register VM registers as GC roots
         if (self.garbage_collector) |gc_ptr| {
             // Add all registers as potential roots
@@ -455,10 +455,10 @@ pub const VM = struct {
                 debug.log("LoadParam: R{} = param[{}]", .{ dst_reg, param_index });
 
                 // Parameters are stored in the first registers of the current frame
-                const param_reg = param_index;
-                debug.log("Fetching parameter register {} (base {} + index {})", .{ param_reg, self.current_register_base, param_index });
-                const param_value = try self.getRegister(param_reg);
-                debug.log("Loaded parameter from R{}: {any}", .{ self.current_register_base + param_reg, param_value });
+                // getRegister will add current_register_base, so we just pass the index
+                debug.log("Fetching parameter {} from current frame (base {})", .{ param_index, self.current_register_base });
+                const param_value = try self.getRegister(param_index);
+                debug.log("Loaded parameter {}: {any}", .{ param_index, param_value });
 
                 try self.setRegister(dst_reg, param_value);
             },
@@ -1270,7 +1270,7 @@ pub const VM = struct {
                         }
                         return;
                     }
-                    
+
                     if (builtin_op == .GCDisable) {
                         if (self.garbage_collector) |gc_ptr| {
                             gc_ptr.disable();
@@ -1280,7 +1280,7 @@ pub const VM = struct {
                         }
                         return;
                     }
-                    
+
                     if (builtin_op == .GCEnable) {
                         if (self.garbage_collector) |gc_ptr| {
                             gc_ptr.enable();
@@ -1290,7 +1290,7 @@ pub const VM = struct {
                         }
                         return;
                     }
-                    
+
                     if (builtin_op == .GCStats) {
                         if (self.garbage_collector) |gc_ptr| {
                             const stats = gc_ptr.getStats();
@@ -2059,10 +2059,10 @@ pub const VM = struct {
                 // Check if value is an array: IsArray Rd, Rs
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const src_reg = instruction.src1 orelse return error.InvalidInstruction;
-                
+
                 var src_val = try self.getRegister(src_reg);
                 defer src_val.deinit(self.allocator);
-                
+
                 const is_array = src_val == .Array;
                 try self.setRegister(dst_reg, .{ .Bool = is_array });
             },
@@ -2070,10 +2070,10 @@ pub const VM = struct {
                 // Check if value is a map: IsMap Rd, Rs
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const src_reg = instruction.src1 orelse return error.InvalidInstruction;
-                
+
                 var src_val = try self.getRegister(src_reg);
                 defer src_val.deinit(self.allocator);
-                
+
                 const is_map = src_val == .Map;
                 try self.setRegister(dst_reg, .{ .Bool = is_map });
             },
