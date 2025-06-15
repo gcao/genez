@@ -14,7 +14,7 @@ This directory contains tests for Gene's data parsing functionality, which allow
 
 ### Collections
 - Arrays: `[]`, `[1 2 3]`, `[[nested]]`
-- Maps: `{}`, `{:key "value"}`, `{:nested {:map "value"}}`
+- Maps: `{}`, `{^key "value"}`, `{^nested {^map "value"}}`
 
 ### Gene Expressions
 - Simple: `(atom)`, `(expr 1 2 3)`

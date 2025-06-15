@@ -1,0 +1,46 @@
+#!/usr/bin/env gene run
+
+# Test: .fn method syntax
+
+(class Calculator
+  [value 0]
+  
+  (.fn add [x]
+    (+ /value x))
+  
+  (.fn subtract [x]
+    (- /value x))
+  
+  (.fn multiply [x]
+    (* /value x))
+  
+  (.fn divide [x]
+    (if (== x 0)
+      0
+    else
+      (/ /value x))))
+
+(class StringHelper
+  (.fn is_empty [str]
+    (== (str .length) 0))
+  
+  (.fn capitalize [str]
+    str)  # Placeholder
+  
+  (.fn repeat [str times]
+    str)) # Placeholder
+
+# Methods with no parameters
+(class Counter
+  [count 0]
+  
+  (.fn increment []
+    (+ /count 1))
+  
+  (.fn decrement []
+    (- /count 1))
+  
+  (.fn reset []
+    0))
+
+(print "Method syntax parsed successfully")

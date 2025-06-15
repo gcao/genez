@@ -1,0 +1,53 @@
+#!/usr/bin/env gene run
+
+# Test: OOP edge cases
+
+# Empty class
+(class Empty)
+
+# Class with only fields
+(class OnlyFields
+  [x 1]
+  [y 2]
+  [z 3])
+
+# Class with only instance variables
+(class OnlyVars
+  (var /a)
+  (var /b)
+  (var /c))
+
+# Class with only methods
+(class OnlyMethods
+  (.fn method1 [] 1)
+  (.fn method2 [] 2)
+  (.fn method3 [] 3))
+
+# Deep inheritance chain
+(class A)
+(class B < A)
+(class C < B)
+(class D < C)
+(class E < D)
+
+# Class with mixed method types
+(class MixedMethods
+  (fn regular_method [self x] x)
+  (.fn dot_method [x] x))
+
+# Constructor with no parameters
+(class NoParamConstructor
+  [value 42]
+  
+  (.ctor []
+    (= /value 100)))
+
+# Method calling another method (currently just parses)
+(class MethodChain
+  (.fn method1 []
+    1)
+  
+  (.fn method2 []
+    (self .method1)))
+
+(print "OOP edge cases parsed successfully")

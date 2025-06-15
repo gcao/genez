@@ -816,7 +816,7 @@ Gene embraces gradual typing, allowing developers to start with dynamic code and
   (save x))
 
 # Gradual contracts - runtime checks for untyped code
-(fn process [x] ^:contract {:validate! true}
+(fn process [x] ^:contract {^validate! true}
   (x .validate!)  # Contract ensures method exists
   (save x))
 ```
@@ -1928,7 +1928,7 @@ Math/PI
 
   (.fn update [key value]
     (/data .set key value)
-    (.notify {:changed key})))  # From mixin
+    (.notify {^changed key})))  # From mixin
 
 # Cannot use mixin as type
 (fn process [obj :Observable])  # ERROR: Observable is not a type
@@ -2775,7 +2775,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 ```gene
 # Throw exceptions
 (throw :key)
-(throw {:type :error :message "Failed"})
+(throw {^type :error :message "Failed"})
 (throw (Exception "message"))
 
 # Try-catch
@@ -2830,7 +2830,7 @@ Gene also supports traditional compile-time macros for cases where compile-time 
 
 # Error context and stack traces
 (fn process-user [id :Int => :(Result User Error)]
-  (with-context {:user-id id :operation "process"}
+  (with-context {^user-id id :operation "process"}
     (var user = (db/find-user? id))
     (validate-user? user)))
 
@@ -5060,7 +5060,7 @@ Gene data files use the same S-expression syntax as Gene code but are interprete
 - **Booleans**: `true`, `false`
 - **Nil**: `nil`
 - **Arrays**: `[1 2 3]`, `["a" "b" "c"]`
-- **Maps**: `{:name "John" :age 30}`
+- **Maps**: `{^name "John" :age 30}`
 - **Genes**: `(person "John" 30)`, `(div ^class "container" (p "Hello"))`
 
 ### Gene Document Structure:
@@ -5098,7 +5098,7 @@ The Gene data parser is a specialized parser that reads Gene syntax and produces
 ```gene
 # Parse a single expression
 (parse-data "(person ^name \"John\" ^age 30)")
-# => (gene 'person {:name "John" :age 30} [])
+# => (gene 'person {^name "John" :age 30} [])
 
 # Parse a document (multiple expressions)
 (parse-document "(config ...)\n(users ...)")
@@ -5182,7 +5182,7 @@ data.head          # 'person
 data.tag           # 'person (alias)
 
 # Check structure
-data.props         # {:name "John" :age 30}
+data.props         # {^name "John" :age 30}
 data.prop-count    # 2
 data.child-count   # 1
 

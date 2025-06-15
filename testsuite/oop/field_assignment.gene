@@ -1,0 +1,44 @@
+#!/usr/bin/env gene run
+
+# Test: Direct assignment to instance variables (= /name value)
+
+(class Counter
+  (var /count)
+  
+  (.ctor []
+    (= /count 0))
+  
+  (.fn increment []
+    (= /count (+ /count 1)))
+  
+  (.fn set_count [n]
+    (= /count n)))
+
+(class Person
+  (var /first_name)
+  (var /last_name)
+  
+  (.fn set_name [first last]
+    (do
+      (= /first_name first)
+      (= /last_name last)))
+  
+  (.fn update_first_name [name]
+    (= /first_name name)))
+
+# Complex assignments
+(class Calculator
+  [result 0]
+  [memory 0]
+  
+  (.fn calculate [op a b]
+    (do
+      (= /result 
+        (if (== op "+") (+ a b)
+        else (if (== op "-") (- a b)
+        else (if (== op "*") (* a b)
+        else (if (== op "/") (/ a b)
+        else 0)))))
+      (= /memory /result))))
+
+(print "Field assignment syntax parsed successfully")

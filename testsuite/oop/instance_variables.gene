@@ -1,0 +1,23 @@
+#!/usr/bin/env gene run
+
+# Test: Instance variable declarations with (var /name)
+
+(class Person
+  (var /first_name)
+  (var /last_name)
+  (var /age))
+
+(class Book
+  (var /title)
+  (var /author)
+  (var /isbn)
+  [pages 0])
+
+# Mixed field declarations
+(class Product
+  (var /id)
+  [name "Unknown"]
+  (var /price)
+  [in_stock true])
+
+(print "Instance variable declarations parsed successfully")

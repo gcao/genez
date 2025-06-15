@@ -1,0 +1,45 @@
+#!/usr/bin/env gene run
+
+# Test: Implicit self reference with /field
+
+(class Person
+  (var /name)
+  (var /age)
+  
+  (.fn greet []
+    (print "Hello, I am" /name))
+  
+  (.fn birthday []
+    (= /age (+ /age 1)))
+  
+  (.fn info []
+    (do
+      (print "Name:" /name)
+      (print "Age:" /age))))
+
+(class BankAccount
+  [balance 0]
+  [account_number ""]
+  
+  (.fn deposit [amount]
+    (= /balance (+ /balance amount)))
+  
+  (.fn withdraw [amount]
+    (if (>= /balance amount)
+      (= /balance (- /balance amount))
+    else
+      (print "Insufficient funds")))
+  
+  (.fn check_balance []
+    /balance))
+
+# Nested field access
+(class Address
+  [street ""]
+  [city ""]
+  [zip ""]
+  
+  (.fn full_address []
+    (+ /street ", " /city " " /zip)))
+
+(print "Implicit self syntax parsed successfully")

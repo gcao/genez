@@ -1,0 +1,75 @@
+#!/usr/bin/env gene run
+
+# Test: Combined OOP features
+
+# Class with inheritance, fields, constructor, and methods
+(class Animal
+  (var /name)
+  [species "unknown"]
+  
+  (.ctor [name]
+    (= /name name))
+  
+  (.fn speak []
+    (print /name "makes a sound"))
+  
+  (.fn info []
+    (print "Name:" /name "Species:" /species)))
+
+(class Dog < Animal
+  [breed "mixed"]
+  (var /age)
+  
+  (.ctor [name breed age]
+    (do
+      (= /name name)
+      (= /breed breed)
+      (= /age age)))
+  
+  (.fn speak []
+    (print /name "barks: Woof!"))
+  
+  (.fn fetch []
+    (print /name "is fetching"))
+  
+  (.fn dog_info []
+    (do
+      (print "Dog:" /name)
+      (print "Breed:" /breed)
+      (print "Age:" /age))))
+
+# Complex class hierarchy
+(class Shape
+  [color "white"]
+  
+  (.fn area []
+    0)
+  
+  (.fn describe []
+    (print "A" /color "shape")))
+
+(class Rectangle < Shape
+  [width 0]
+  [height 0]
+  
+  (.ctor [w h]
+    (do
+      (= /width w)
+      (= /height h)))
+  
+  (.fn area []
+    (* /width /height))
+  
+  (.fn perimeter []
+    (* 2 (+ /width /height))))
+
+(class Square < Rectangle
+  (.ctor [side]
+    (do
+      (= /width side)
+      (= /height side)))
+  
+  (.fn describe []
+    (print "A" /color "square with side" /width)))
+
+(print "Combined OOP features parsed successfully")

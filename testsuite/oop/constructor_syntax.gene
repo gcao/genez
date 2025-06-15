@@ -1,0 +1,32 @@
+#!/usr/bin/env gene run
+
+# Test: .ctor constructor syntax
+
+(class Person
+  (var /name)
+  (var /age)
+  
+  (.ctor [name age]
+    (do
+      (= /name name)
+      (= /age age))))
+
+(class Point3D
+  [x 0]
+  [y 0]
+  [z 0]
+  
+  (.ctor [x y z]
+    (do
+      (= /x x)
+      (= /y y)
+      (= /z z))))
+
+# Constructor with single expression
+(class SimpleValue
+  (var /value)
+  
+  (.ctor [v]
+    (= /value v)))
+
+(print "Constructor syntax parsed successfully")

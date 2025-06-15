@@ -1,0 +1,27 @@
+#!/usr/bin/env gene run
+
+# Test: Bracket field syntax [field value]
+
+(class Point
+  [x 0]
+  [y 0])
+
+(class Rectangle
+  [width 100]
+  [height 50]
+  [color "black"])
+
+# Fields with different value types
+(class Configuration
+  [debug false]
+  [port 8080]
+  [host "localhost"]
+  [timeout 30.5])
+
+# Fields with expressions as default values
+(class Counter
+  [count 0]
+  [step 1]
+  [max (+ 100 100)])
+
+(print "Field syntax parsed successfully")

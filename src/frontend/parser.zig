@@ -26,6 +26,10 @@ pub const ParserError = error{
     ExpectedProperty,
     ExpectedMethodName,
     ExpectedMethodBody,
+    ExpectedParentClassName,
+    ExpectedSlashForInstanceVar,
+    ExpectedInstanceVarName,
+    ExpectedFieldName,
 };
 
 // --- Tokenizer (Mostly unchanged, minor fixes) ---
@@ -1469,6 +1473,18 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedClassName;
     const class_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
     current_pos += 1;
+    
+    // Check for inheritance with < syntax
+    var parent_class: ?[]const u8 = null;
+    if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+        const ident = toks[current_pos].kind.Ident;
+        if (std.mem.eql(u8, ident, "<")) {
+            current_pos += 1; // Skip <
+            if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedParentClassName;
+            parent_class = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+            current_pos += 1;
+        }
+    }
 
     var fields = std.ArrayList(ast.ClassDef.ClassField).init(alloc);
     errdefer fields.deinit();
@@ -1554,6 +1570,13 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
                         }
                         current_pos = skip_pos;
                     }
+                } else if (toks[current_pos + 1].kind == .Var) {
+                    // Instance variable declaration (var /name)
+                    debug.log("Found var declaration in class body", .{});
+                    const var_result = try parseClassVar(alloc, toks[current_pos..], depth + 1);
+                    try fields.append(var_result.field);
+                    current_pos += var_result.consumed;
+                    debug.log("Added instance variable: {s}", .{var_result.field.name});
                 } else {
                     // Skip unknown construct
                     var paren_count: i32 = 1;
@@ -1569,6 +1592,13 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
                     current_pos = skip_pos;
                 }
             }
+        } else if (toks[current_pos].kind == .LBracket) {
+            // Field definition with bracket syntax [name value]
+            debug.log("Found bracket field definition in class body", .{});
+            const field_result = try parseClassBracketField(alloc, toks[current_pos..], depth + 1);
+            try fields.append(field_result.field);
+            current_pos += field_result.consumed;
+            debug.log("Added field: {s}", .{field_result.field.name});
         } else {
             // Skip non-paren tokens
             current_pos += 1;
@@ -1588,7 +1618,7 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
                     .name = class_name,
                     .fields = fields_slice,
                     .methods = methods_slice,
-                    .parent_class = null,
+                    .parent_class = parent_class,
                     .traits = &[_][]const u8{},
                 }
             }
@@ -1602,6 +1632,85 @@ const PropertyParseResult = struct {
     field: ast.ClassDef.ClassField,
     consumed: usize,
 };
+
+fn parseClassBracketField(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !PropertyParseResult {
+    // Parse [name value] format
+    if (toks.len < 3 or toks[0].kind != .LBracket) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    
+    var current_pos: usize = 1; // Skip LBracket
+    
+    // Get field name
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedFieldName;
+    const field_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    current_pos += 1;
+    
+    // Get default value (required in bracket syntax)
+    var default_value: ?*ast.Expression = null;
+    if (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
+        const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        if (value_result.node == .Expression) {
+            const value_ptr = try alloc.create(ast.Expression);
+            value_ptr.* = value_result.node.Expression;
+            default_value = value_ptr;
+        }
+        current_pos += value_result.consumed;
+    }
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
+    current_pos += 1;
+    
+    return PropertyParseResult{
+        .field = .{
+            .name = field_name,
+            .type_annotation = null,
+            .default_value = default_value,
+            .is_public = true, // Default to public
+        },
+        .consumed = current_pos,
+    };
+}
+
+fn parseClassVar(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !PropertyParseResult {
+    // Parse (var /name) or (var /name initial-value) format
+    if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .Var) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    
+    var current_pos: usize = 2; // Skip LParen and var
+    
+    // Get variable name - must start with /
+    if (current_pos >= toks.len or toks[current_pos].kind != .Slash) return error.ExpectedSlashForInstanceVar;
+    current_pos += 1;
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedInstanceVarName;
+    const var_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    current_pos += 1;
+    
+    // Check for optional initial value
+    var default_value: ?*ast.Expression = null;
+    if (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        if (value_result.node == .Expression) {
+            const value_ptr = try alloc.create(ast.Expression);
+            value_ptr.* = value_result.node.Expression;
+            default_value = value_ptr;
+        }
+        current_pos += value_result.consumed;
+    }
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+    
+    return PropertyParseResult{
+        .field = .{
+            .name = var_name,
+            .type_annotation = null,
+            .default_value = default_value,
+            .is_public = true, // Default to public for now
+        },
+        .consumed = current_pos,
+    };
+}
 
 fn parseClassProperty(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !PropertyParseResult {
     // Parse (.prop name Type) format

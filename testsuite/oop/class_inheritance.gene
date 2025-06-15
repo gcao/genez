@@ -1,0 +1,26 @@
+#!/usr/bin/env gene run
+
+# Test: Class inheritance with < syntax
+
+# Basic inheritance
+(class Animal
+  (var /species)
+  [sound "generic sound"])
+
+(class Dog < Animal
+  [breed "mixed"])
+
+(class Cat < Animal
+  [color "gray"])
+
+# Multi-level inheritance
+(class Vehicle
+  [wheels 0])
+
+(class Car < Vehicle
+  [doors 4])
+
+(class SportsCar < Car
+  [turbo true])
+
+(print "Class inheritance parsed successfully")
