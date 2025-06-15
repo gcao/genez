@@ -63,8 +63,8 @@ self/field         # Explicit self reference
 **Reference Implementation:**
 ```gene
 (class Person < Base
-  (var /name)              # Instance variable declaration
-  (var /age)
+  (.prop name)              # Instance variable declaration
+  (.prop age)
 
   (.ctor [name age]        # Constructor
     (= /name name)

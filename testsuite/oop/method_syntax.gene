@@ -3,7 +3,7 @@
 # Test: .fn method syntax
 
 (class Calculator
-  [value 0]
+  (.prop value)
   
   (.fn add [x]
     (+ /value x))
@@ -32,7 +32,7 @@
 
 # Methods with no parameters
 (class Counter
-  [count 0]
+  (.prop count)
   
   (.fn increment []
     (+ /count 1))

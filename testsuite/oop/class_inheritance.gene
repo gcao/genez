@@ -4,23 +4,22 @@
 
 # Basic inheritance
 (class Animal
-  (var /species)
-  [sound "generic sound"])
+  (.prop sound))
 
 (class Dog < Animal
-  [breed "mixed"])
+  (.prop breed))
 
 (class Cat < Animal
-  [color "gray"])
+  (.prop color))
 
 # Multi-level inheritance
 (class Vehicle
-  [wheels 0])
+  (.prop wheels))
 
 (class Car < Vehicle
-  [doors 4])
+  (.prop doors))
 
 (class SportsCar < Car
-  [turbo true])
+  (.prop turbo))
 
 (print "Class inheritance parsed successfully")

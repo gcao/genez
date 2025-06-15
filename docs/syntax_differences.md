@@ -37,8 +37,8 @@ Based on analysis of the other Gene implementation (https://github.com/gcao/gene
 - **Other implementation**:
   ```gene
   (class Todo < Record  # inheritance with <
-    (var /table "todos")  # class variable
-    (var /columns ["id" "description" "status"])
+    (/table = "todos")  # class variable
+    (/columns = ["id" "description" "status"])
 
     (.ctor props  # constructor
       (/id = props/id)

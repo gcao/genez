@@ -3,8 +3,8 @@
 # Test: .ctor constructor syntax
 
 (class Person
-  (var /name)
-  (var /age)
+  (.prop name)
+  (.prop age)
   
   (.ctor [name age]
     (do
@@ -12,10 +12,10 @@
       (= /age age))))
 
 (class Point3D
-  [x 0]
-  [y 0]
-  [z 0]
-  
+  (.prop x)
+  (.prop y)
+  (.prop z)
+
   (.ctor [x y z]
     (do
       (= /x x)
@@ -24,7 +24,7 @@
 
 # Constructor with single expression
 (class SimpleValue
-  (var /value)
+  (.prop value)
   
   (.ctor [v]
     (= /value v)))

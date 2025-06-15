@@ -1,23 +1,23 @@
 #!/usr/bin/env gene run
 
-# Test: Instance variable declarations with (var /name)
+# Test: Property declarations with (.prop name)
 
 (class Person
-  (var /first_name)
-  (var /last_name)
-  (var /age))
+  (.prop first_name)
+  (.prop last_name)
+  (.prop age))
 
 (class Book
-  (var /title)
-  (var /author)
-  (var /isbn)
-  [pages 0])
+  (.prop title)
+  (.prop author)
+  (.prop isbn)
+  (.prop pages))
 
 # Mixed field declarations
 (class Product
-  (var /id)
-  [name "Unknown"]
-  (var /price)
-  [in_stock true])
+  (.prop id)
+  (.prop name)
+  (.prop price)
+  (.prop in_stock))
 
 (print "Instance variable declarations parsed successfully")

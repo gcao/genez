@@ -4,7 +4,7 @@
 
 # Class with inheritance, fields, constructor, and methods
 (class Animal
-  (var /name)
+  (.prop name)
   (.prop species)
   
   (.ctor [name]
@@ -18,7 +18,7 @@
 
 (class Dog < Animal
   (.prop breed)
-  (var /age)
+  (.prop age)
   
   (.ctor [name breed age]
     (do

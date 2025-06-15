@@ -1570,13 +1570,13 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
                         }
                         current_pos = skip_pos;
                     }
-                } else if (toks[current_pos + 1].kind == .Var) {
-                    // Instance variable declaration (var /name)
-                    debug.log("Found var declaration in class body", .{});
-                    const var_result = try parseClassVar(alloc, toks[current_pos..], depth + 1);
-                    try fields.append(var_result.field);
-                    current_pos += var_result.consumed;
-                    debug.log("Added instance variable: {s}", .{var_result.field.name});
+                // } else if (toks[current_pos + 1].kind == .Var) {
+                //     // Instance variable declaration (var /name) - REMOVED: Invalid syntax
+                //     debug.log("Found var declaration in class body", .{});
+                //     const var_result = try parseClassVar(alloc, toks[current_pos..], depth + 1);
+                //     try fields.append(var_result.field);
+                //     current_pos += var_result.consumed;
+                //     debug.log("Added instance variable: {s}", .{var_result.field.name});
                 } else {
                     // Skip unknown construct
                     var paren_count: i32 = 1;
@@ -1592,13 +1592,13 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
                     current_pos = skip_pos;
                 }
             }
-        } else if (toks[current_pos].kind == .LBracket) {
-            // Field definition with bracket syntax [name value]
-            debug.log("Found bracket field definition in class body", .{});
-            const field_result = try parseClassBracketField(alloc, toks[current_pos..], depth + 1);
-            try fields.append(field_result.field);
-            current_pos += field_result.consumed;
-            debug.log("Added field: {s}", .{field_result.field.name});
+        // } else if (toks[current_pos].kind == .LBracket) {
+        //     // Field definition with bracket syntax [name value] - REMOVED: Invalid syntax
+        //     debug.log("Found bracket field definition in class body", .{});
+        //     const field_result = try parseClassBracketField(alloc, toks[current_pos..], depth + 1);
+        //     try fields.append(field_result.field);
+        //     current_pos += field_result.consumed;
+        //     debug.log("Added field: {s}", .{field_result.field.name});
         } else {
             // Skip non-paren tokens
             current_pos += 1;

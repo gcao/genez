@@ -3,7 +3,7 @@
 # Test: Direct assignment to instance variables (= /name value)
 
 (class Counter
-  (var /count)
+  (.prop count)
   
   (.ctor []
     (= /count 0))
@@ -15,8 +15,8 @@
     (= /count n)))
 
 (class Person
-  (var /first_name)
-  (var /last_name)
+  (.prop first_name)
+  (.prop last_name)
   
   (.fn set_name [first last]
     (do
