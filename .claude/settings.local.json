@@ -30,7 +30,9 @@
       "Bash(../../zig-out/bin/gene run:*)",
       "Bash(echo:*)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(./eval_stdin.sh)",
+      "Bash(curl:*)"
     ],
     "deny": []
   },

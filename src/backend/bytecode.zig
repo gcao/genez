@@ -237,6 +237,17 @@ pub const Module = struct {
     }
 
     fn writeFunctionToFile(func: *const Function, writer: anytype) !void {
+        // Write function name length and name
+        var len_buf: [4]u8 = undefined;
+        std.mem.writeInt(u32, &len_buf, @intCast(func.name.len), .little);
+        try writer.writeAll(&len_buf);
+        try writer.writeAll(func.name);
+        
+        // Write param count
+        var param_buf: [2]u8 = undefined;
+        std.mem.writeInt(u16, &param_buf, @intCast(func.param_count), .little);
+        try writer.writeAll(&param_buf);
+        
         // Write number of instructions
         var buf: [4]u8 = undefined;
         std.mem.writeInt(u32, &buf, @intCast(func.instructions.items.len), .little);
@@ -247,12 +258,53 @@ pub const Module = struct {
             // Write opcode
             try writer.writeByte(@intFromEnum(instr.op));
 
+            // Write register fields
+            // dst register
+            if (instr.dst) |dst| {
+                try writer.writeByte(1);
+                var reg_buf: [2]u8 = undefined;
+                std.mem.writeInt(u16, &reg_buf, dst, .little);
+                try writer.writeAll(&reg_buf);
+            } else {
+                try writer.writeByte(0);
+            }
+            
+            // src1 register
+            if (instr.src1) |src1| {
+                try writer.writeByte(1);
+                var reg_buf: [2]u8 = undefined;
+                std.mem.writeInt(u16, &reg_buf, src1, .little);
+                try writer.writeAll(&reg_buf);
+            } else {
+                try writer.writeByte(0);
+            }
+            
+            // src2 register
+            if (instr.src2) |src2| {
+                try writer.writeByte(1);
+                var reg_buf: [2]u8 = undefined;
+                std.mem.writeInt(u16, &reg_buf, src2, .little);
+                try writer.writeAll(&reg_buf);
+            } else {
+                try writer.writeByte(0);
+            }
+
             // Write immediate if present
             if (instr.immediate) |immediate| {
                 try writer.writeByte(1); // Has immediate
                 try writeValueToFile(immediate, writer);
             } else {
                 try writer.writeByte(0); // No immediate
+            }
+            
+            // Write var_name if present
+            if (instr.var_name) |var_name| {
+                try writer.writeByte(1);
+                std.mem.writeInt(u32, &len_buf, @intCast(var_name.len), .little);
+                try writer.writeAll(&len_buf);
+                try writer.writeAll(var_name);
+            } else {
+                try writer.writeByte(0);
             }
         }
     }
@@ -342,6 +394,20 @@ pub const Module = struct {
 
 fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype, deserialized_functions: *std.ArrayList(*Function)) !Function {
     var func = Function.init(allocator);
+    
+    // Read function name
+    var len_buf: [4]u8 = undefined;
+    try reader.readNoEof(&len_buf);
+    const name_len = std.mem.readInt(u32, &len_buf, .little);
+    const name = try allocator.alloc(u8, name_len);
+    try reader.readNoEof(name);
+    allocator.free(func.name); // Free the default name
+    func.name = name;
+    
+    // Read param count
+    var param_buf: [2]u8 = undefined;
+    try reader.readNoEof(&param_buf);
+    func.param_count = std.mem.readInt(u16, &param_buf, .little);
 
     // Read number of instructions
     var buf: [4]u8 = undefined;
@@ -353,15 +419,45 @@ fn readFunctionFromFile(allocator: std.mem.Allocator, reader: anytype, deseriali
     while (i < num_instrs) : (i += 1) {
         // Read opcode
         const op = @as(OpCode, @enumFromInt(try reader.readByte()));
+        
+        var instr = Instruction{ .op = op };
+        
+        // Read dst register
+        if (try reader.readByte() == 1) {
+            var reg_buf: [2]u8 = undefined;
+            try reader.readNoEof(&reg_buf);
+            instr.dst = std.mem.readInt(u16, &reg_buf, .little);
+        }
+        
+        // Read src1 register
+        if (try reader.readByte() == 1) {
+            var reg_buf: [2]u8 = undefined;
+            try reader.readNoEof(&reg_buf);
+            instr.src1 = std.mem.readInt(u16, &reg_buf, .little);
+        }
+        
+        // Read src2 register
+        if (try reader.readByte() == 1) {
+            var reg_buf: [2]u8 = undefined;
+            try reader.readNoEof(&reg_buf);
+            instr.src2 = std.mem.readInt(u16, &reg_buf, .little);
+        }
 
-        // Read operand if present
-        const has_operand = try reader.readByte() == 1;
-        const operand = if (has_operand) try readValueFromFile(allocator, reader, deserialized_functions) else null;
+        // Read immediate if present
+        if (try reader.readByte() == 1) {
+            instr.immediate = try readValueFromFile(allocator, reader, deserialized_functions);
+        }
+        
+        // Read var_name if present
+        if (try reader.readByte() == 1) {
+            try reader.readNoEof(&len_buf);
+            const var_name_len = std.mem.readInt(u32, &len_buf, .little);
+            const var_name = try allocator.alloc(u8, var_name_len);
+            try reader.readNoEof(var_name);
+            instr.var_name = var_name;
+        }
 
-        try func.instructions.append(.{
-            .op = op,
-            .immediate = operand,
-        });
+        try func.instructions.append(instr);
     }
 
     return func;

@@ -14,13 +14,13 @@
 # Test 3: Namespace with mixed content
 (ns mixed
   (var counter 0)
-  
+
   (fn increment []
     (+ counter 1))
-    
+
   (macro unless [condition body]
     (if %condition nil %body))
-    
+
   (class State
     [value nil]))
 

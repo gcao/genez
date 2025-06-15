@@ -2,6 +2,72 @@ const std = @import("std");
 const ast = @import("../frontend/ast.zig");
 const hir = @import("../ir/hir.zig");
 
+// Helper function to extract functions from expressions (for namespace support)
+fn extractFunctionsFromExpression(allocator: std.mem.Allocator, hir_prog: *hir.HIR, expr: ast.Expression) !void {
+    switch (expr) {
+        .DoBlock => |do_block| {
+            // Extract functions from each statement in the do block
+            for (do_block.statements) |stmt| {
+                switch (stmt.*) {
+                    .FuncDef => |func_def| {
+                        // Create separate HIR function
+                        var hir_func = hir.HIR.Function.init(allocator);
+                        errdefer hir_func.deinit();
+
+                        hir_func.name = try allocator.dupe(u8, func_def.name);
+
+                        // Convert parameters
+                        hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
+                        for (func_def.params, 0..) |param, i| {
+                            hir_func.params[i] = .{
+                                .name = try allocator.dupe(u8, param.name),
+                                .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
+                            };
+                        }
+
+                        // Convert function body
+                        const body_expr = try lowerExpression(allocator, func_def.body.*);
+                        try hir_func.body.append(.{ .Expression = body_expr });
+
+                        // Add function to HIR program
+                        try hir_prog.functions.append(hir_func);
+                    },
+                    else => {
+                        // Recursively check other expressions
+                        try extractFunctionsFromExpression(allocator, hir_prog, stmt.*);
+                    },
+                }
+            }
+        },
+        .FuncDef => |func_def| {
+            // Handle direct function definition
+            var hir_func = hir.HIR.Function.init(allocator);
+            errdefer hir_func.deinit();
+
+            hir_func.name = try allocator.dupe(u8, func_def.name);
+
+            // Convert parameters
+            hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
+            for (func_def.params, 0..) |param, i| {
+                hir_func.params[i] = .{
+                    .name = try allocator.dupe(u8, param.name),
+                    .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
+                };
+            }
+
+            // Convert function body
+            const body_expr = try lowerExpression(allocator, func_def.body.*);
+            try hir_func.body.append(.{ .Expression = body_expr });
+
+            // Add function to HIR program
+            try hir_prog.functions.append(hir_func);
+        },
+        else => {
+            // Other expressions don't contain functions
+        },
+    }
+}
+
 pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HIR {
     var hir_prog = hir.HIR.init(allocator);
     errdefer hir_prog.deinit();
@@ -64,6 +130,12 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
 
                         // Add function to HIR program
                         try hir_prog.functions.append(hir_func);
+                    },
+                    .NamespaceDecl => |ns_decl| {
+                        // Extract functions from namespace body
+                        try extractFunctionsFromExpression(allocator, &hir_prog, ns_decl.body.*);
+                        // Still add the namespace to main nodes for other processing
+                        try main_nodes.append(node);
                     },
                     else => {
                         // Keep other expressions for main function

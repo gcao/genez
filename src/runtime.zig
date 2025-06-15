@@ -34,9 +34,22 @@ pub const Runtime = struct {
             .type_check = false, // Type checking disabled - needs more work to handle all language features
         };
 
-        // Use pipeline to compile source
+        // Use pipeline to compile source with special eval flag
         var result = try pipeline.compileSource(self.allocator, source, options);
         defer result.deinit();
+
+        // For eval mode, wrap the last expression with a print if it's not already a print
+        // This is a temporary solution - ideally we'd modify the VM to return the last value
+        const needs_print = !std.mem.containsAtLeast(u8, source, 1, "print");
+        
+        if (needs_print) {
+            // HACK: Re-compile with print wrapper
+            const wrapped_source = try std.fmt.allocPrint(self.allocator, "(print {s})", .{source});
+            defer self.allocator.free(wrapped_source);
+            
+            result.deinit();
+            result = try pipeline.compileSource(self.allocator, wrapped_source, options);
+        }
 
         // Execute bytecode
         debug.log("Starting execution...", .{});

@@ -78,16 +78,13 @@ pub fn main() !void {
             try rt.compileFile(file);
         }
     } else if (std.mem.eql(u8, command, "eval")) {
-        if (args.len < 3) {
-            std.debug.print("Usage: gene eval <source> [--debug]\n", .{});
-            return;
-        }
-
-        const source_arg = args[2];
         var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
         defer rt.deinit();
 
-        if (std.mem.eql(u8, source_arg, "-")) {
+        // If no source argument, read from stdin
+        const source_arg = if (args.len < 3) "-" else args[2];
+
+        if (std.mem.eql(u8, source_arg, "-") or args.len < 3) {
             const source = try std.io.getStdIn().readToEndAlloc(allocator, std.math.maxInt(usize));
             defer allocator.free(source);
             try rt.eval(source);
