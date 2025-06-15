@@ -27,7 +27,8 @@
       "Bash(./testsuite/run_tests.sh:*)",
       "Bash(testsuite/data_parser/run_tests.sh:*)",
       "Bash(touch:*)",
-      "Bash(../../zig-out/bin/gene run:*)"
+      "Bash(../../zig-out/bin/gene run:*)",
+      "Bash(echo:*)"
     ],
     "deny": []
   },

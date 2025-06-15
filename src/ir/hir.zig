@@ -9,6 +9,7 @@ pub const Type = enum {
     float,
     string,
     function,
+    any, // Type that matches any value
 };
 
 pub const HIR = struct {

@@ -352,12 +352,22 @@ pub const Server = struct {
     }
 
     fn sendResult(self: *Server, id: lsp.Id, result: anytype) !void {
+        // Convert the result to a JSON value
+        const json_result = if (@TypeOf(result) == @TypeOf(null)) 
+            null 
+        else blk: {
+            // Serialize to string first, then parse back
+            var buffer = std.ArrayList(u8).init(self.allocator);
+            defer buffer.deinit();
+            try std.json.stringify(result, .{}, buffer.writer());
+            const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, buffer.items, .{});
+            defer parsed.deinit();
+            break :blk parsed.value;
+        };
+
         const msg = lsp.Message{
             .id = id,
-            .result = if (@TypeOf(result) == @TypeOf(null)) 
-                null 
-            else 
-                try std.json.parseFromValue(std.json.Value, self.allocator, result, .{}),
+            .result = json_result,
         };
 
         try self.sendMessage(msg);

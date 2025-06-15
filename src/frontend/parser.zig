@@ -1,5 +1,5 @@
 const std = @import("std");
-const ast = @import("ast.zig");
+pub const ast = @import("ast.zig");
 const debug = @import("../core/debug.zig");
 
 pub const ParserError = error{

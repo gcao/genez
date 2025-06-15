@@ -141,9 +141,9 @@ pub const HIRTypeChecker = struct {
             });
         }
 
-        // print function
+        // print function (accepts any type)
         var print_params = try self.allocator.alloc(TypeInfo, 1);
-        print_params[0] = int_type;
+        print_params[0] = TypeInfo{ .type_enum = .any };
         try self.allocated_params.append(print_params);
 
         try self.global_env.functions.put("print", .{
@@ -294,7 +294,8 @@ pub const HIRTypeChecker = struct {
                         // Check argument types
                         for (call.args.items, func_type.params) |arg, expected_type| {
                             const arg_type = try self.checkExpression(arg, env);
-                            if (arg_type.type_enum != expected_type.type_enum) {
+                            // Skip type check if expected type is 'any'
+                            if (expected_type.type_enum != .any and arg_type.type_enum != expected_type.type_enum) {
                                 try self.addError("Type mismatch in function argument", .{});
                                 return TypeError.TypeMismatch;
                             }
