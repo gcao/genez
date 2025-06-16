@@ -225,6 +225,52 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             };
         },
         .FuncCall => |func_call| {
+            // Check if this is a "new" call for object instantiation
+            if (func_call.func.* == .Variable) {
+                const var_name = func_call.func.Variable.name;
+                if (std.mem.eql(u8, var_name, "new")) {
+                    // This is object instantiation: (new ClassName args...)
+                    if (func_call.args.items.len < 1) {
+                        return error.InvalidInstantiation;
+                    }
+
+                    // First argument should be the class name
+                    const first_arg = func_call.args.items[0];
+                    if (first_arg.* != .Variable) {
+                        return error.InvalidInstantiation;
+                    }
+
+                    const class_name = first_arg.Variable.name;
+
+                    // Process constructor arguments (skip the first which is class name)
+                    var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
+                    errdefer {
+                        for (args.items) |arg| {
+                            arg.deinit(allocator);
+                            allocator.destroy(arg);
+                        }
+                        args.deinit();
+                    }
+
+                    for (func_call.args.items[1..]) |arg| {
+                        var arg_expr = try lowerExpression(allocator, arg.*);
+                        errdefer arg_expr.deinit(allocator);
+
+                        const arg_ptr = try allocator.create(hir.HIR.Expression);
+                        errdefer allocator.destroy(arg_ptr);
+                        arg_ptr.* = arg_expr;
+
+                        try args.append(arg_ptr);
+                    }
+
+                    return hir.HIR.Expression{
+                        .instance_creation = .{
+                            .class_name = try allocator.dupe(u8, class_name),
+                            .args = args,
+                        },
+                    };
+                }
+            }
 
             // Process as a regular function call.
             const func = try lowerExpression(allocator, func_call.func.*);

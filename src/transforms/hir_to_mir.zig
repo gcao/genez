@@ -470,36 +470,36 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 .fields = try block.allocator.alloc([]const u8, class_def.fields.len),
                 .methods = std.StringHashMap(*mir.MIR.Function).init(block.allocator),
             };
-            
+
             // Copy field names
             for (class_def.fields, 0..) |field, i| {
                 mir_class_def.fields[i] = try block.allocator.dupe(u8, field.name);
             }
-            
+
             // Convert methods to MIR functions
             for (class_def.methods) |method| {
                 // Create a MIR function for the method
                 var method_func = mir.MIR.Function.init(block.allocator);
                 method_func.name = try block.allocator.dupe(u8, method.name);
                 method_func.param_count = method.params.len + 1; // +1 for 'self' parameter
-                
+
                 // Add 'self' as first parameter
                 try method_func.param_names.append(try block.allocator.dupe(u8, "self"));
-                
+
                 // Add method parameters
                 for (method.params) |param| {
                     try method_func.param_names.append(try block.allocator.dupe(u8, param.name));
                 }
-                
+
                 // Create a block for the method body
                 var method_block = mir.MIR.Block.init(block.allocator);
-                
+
                 // Create context with method parameters
                 const method_context = ConversionContext{ .param_names = method_func.param_names.items };
-                
+
                 // Convert method body
                 try convertExpressionWithContext(&method_block, method.body.*, method_context);
-                
+
                 // Add return if needed
                 var needs_return = true;
                 if (method_block.instructions.items.len > 0) {
@@ -511,61 +511,66 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 if (needs_return) {
                     try method_block.instructions.append(.Return);
                 }
-                
+
                 // Add block to method function
                 try method_func.blocks.append(method_block);
-                
+
                 // Store method function
                 const method_func_ptr = try block.allocator.create(mir.MIR.Function);
                 method_func_ptr.* = method_func;
                 try mir_class_def.methods.put(method.name, method_func_ptr);
             }
-            
+
             // Emit the DefineClass instruction
             try block.instructions.append(.{ .DefineClass = mir_class_def });
-            
+
             // Store the class in a variable with its name
             try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, class_def.name) });
         },
         .instance_creation => |inst_creation| {
             // Load the class (it should be stored as a variable)
             try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, inst_creation.class_name) });
-            
+
             // Evaluate constructor arguments
             for (inst_creation.args.items) |arg| {
                 try convertExpressionWithContext(block, arg.*, context);
             }
-            
+
             // Create the instance (constructor will be called automatically)
             try block.instructions.append(.{ .CreateInstance = .{
                 .class_name = try block.allocator.dupe(u8, inst_creation.class_name),
                 .arg_count = inst_creation.args.items.len,
-            }});
+            } });
         },
         .method_call => |method_call| {
             // Evaluate the instance
             try convertExpressionWithContext(block, method_call.object.*, context);
-            
+
             // Evaluate method arguments
             for (method_call.args.items) |arg| {
                 try convertExpressionWithContext(block, arg.*, context);
             }
-            
+
             // Call the method
             try block.instructions.append(.{ .CallMethod = .{
                 .method_name = try block.allocator.dupe(u8, method_call.method_name),
                 .arg_count = method_call.args.items.len,
-            }});
+            } });
         },
         .field_access => |field_access| {
             if (field_access.object) |obj| {
                 // Evaluate the object
                 try convertExpressionWithContext(block, obj.*, context);
             } else {
-                // No object means implicit self - load from variable 'self'
-                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+                // No object means implicit self - check if it's a parameter
+                if (context.isParameter("self")) |param_index| {
+                    try block.instructions.append(.{ .LoadParameter = param_index });
+                } else {
+                    // Fall back to loading as variable
+                    try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+                }
             }
-            
+
             // Get the field value
             try block.instructions.append(.{ .GetField = try block.allocator.dupe(u8, field_access.field_name) });
         },
@@ -575,13 +580,18 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 // Evaluate the object
                 try convertExpressionWithContext(block, obj.*, context);
             } else {
-                // No object means implicit self - load from variable 'self'
-                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+                // No object means implicit self - check if it's a parameter
+                if (context.isParameter("self")) |param_index| {
+                    try block.instructions.append(.{ .LoadParameter = param_index });
+                } else {
+                    // Fall back to loading as variable
+                    try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+                }
             }
-            
+
             // Then evaluate the value to assign
             try convertExpressionWithContext(block, field_assign.value.*, context);
-            
+
             // Set the field value
             try block.instructions.append(.{ .SetField = try block.allocator.dupe(u8, field_assign.field_name) });
         },
@@ -589,41 +599,41 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Pattern matching compilation to MIR
             // This is a simplified implementation - full pattern matching would require
             // more sophisticated compilation with decision trees and backtracking
-            
+
             // Evaluate the scrutinee (value being matched)
             try convertExpressionWithContext(block, match_expr.scrutinee.*, context);
-            
+
             // Store scrutinee in a temporary variable for pattern matching
             try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
-            
+
             // For now, implement a simple linear matching approach
             // In a full implementation, this would be optimized with decision trees
-            
+
             var branch_ends = std.ArrayList(usize).init(block.allocator);
             defer branch_ends.deinit();
-            
+
             var arm_jump_patches = std.ArrayList(usize).init(block.allocator);
             defer arm_jump_patches.deinit();
-            
+
             for (match_expr.arms, 0..) |arm, arm_index| {
                 // Patch previous arm's failure jump to here
                 if (arm_index > 0 and arm_jump_patches.items.len > 0) {
                     const last_jump_index = arm_jump_patches.items[arm_jump_patches.items.len - 1];
                     block.instructions.items[last_jump_index].JumpIfFalse = block.instructions.items.len;
                 }
-                
+
                 // Load the scrutinee for this arm's pattern matching
                 try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
-                
+
                 // Generate pattern matching logic for this arm
                 const pattern_jump_index = try compilePattern(block, arm.pattern, context);
-                
+
                 // If we have a conditional jump from pattern matching, we need to handle it
                 if (pattern_jump_index != 0) {
                     // Pattern might fail - add to patches for next arm
                     try arm_jump_patches.append(pattern_jump_index);
                 }
-                
+
                 // If pattern matched (or always matches like variable/wildcard), evaluate guard if present
                 if (arm.guard) |guard| {
                     try convertExpressionWithContext(block, guard.*, context);
@@ -632,27 +642,27 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                     try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will be patched
                     try arm_jump_patches.append(guard_fail_jump);
                 }
-                
+
                 // Pattern (and guard if present) succeeded, evaluate body
                 try convertExpressionWithContext(block, arm.body.*, context);
-                
+
                 // Jump to end of match expression
                 const branch_end_jump = block.instructions.items.len;
                 try block.instructions.append(.{ .Jump = 0 }); // Will be patched
                 try branch_ends.append(branch_end_jump);
             }
-            
+
             // Patch any remaining failure jumps to the default case
             for (arm_jump_patches.items) |jump_index| {
                 if (block.instructions.items[jump_index].JumpIfFalse == 0) {
                     block.instructions.items[jump_index].JumpIfFalse = block.instructions.items.len;
                 }
             }
-            
+
             // If no pattern matched, this would be a runtime error
             // For now, just push nil
             try block.instructions.append(.LoadNil);
-            
+
             // Patch all branch end jumps to point here
             const match_end = block.instructions.items.len;
             for (branch_ends.items) |jump_index| {
@@ -672,15 +682,15 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // For now, we'll evaluate them as regular function calls
             // TODO: Implement proper lazy evaluation for macro arguments
             std.debug.print("Warning: Macro calls not yet fully implemented in MIR (treating as regular function call)\n", .{});
-            
+
             // Evaluate the macro expression
             try convertExpressionWithContext(block, macro_call.macro.*, context);
-            
+
             // Evaluate arguments (should be lazy, but for now evaluate eagerly)
             for (macro_call.args) |arg| {
                 try convertExpressionWithContext(block, arg.*, context);
             }
-            
+
             // Call with argument count
             try block.instructions.append(.{ .Call = @intCast(macro_call.args.len) });
         },
@@ -695,11 +705,11 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: Conv
             // Generate code to compare scrutinee with literal value
             try convertExpressionWithContext(block, lit.value.*, context);
             try block.instructions.append(.Equal);
-            
+
             // Jump to next pattern if not equal
             const jump_to_next = block.instructions.items.len;
             try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will be patched by caller
-            
+
             return jump_to_next;
         },
         .variable => |var_pat| {
@@ -707,7 +717,7 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: Conv
             // Store the scrutinee in the variable
             const var_name_copy = try block.allocator.dupe(u8, var_pat.name);
             try block.instructions.append(.{ .StoreVariable = var_name_copy });
-            
+
             // Variables always match, so no conditional jump needed
             return 0;
         },
@@ -731,7 +741,7 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: Conv
         .array => |arr| {
             // Array pattern matching implementation
             // The scrutinee (array being matched) is already on the stack
-            
+
             // For empty array pattern [], check length == 0
             if (arr.elements.len == 0) {
                 // Get length of scrutinee (it's on stack)
@@ -747,28 +757,28 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: Conv
                 try block.instructions.append(.Pop);
                 return jump_index;
             }
-            
+
             // For non-empty patterns, check array length first
             try block.instructions.append(.Duplicate); // Keep scrutinee on stack
             try block.instructions.append(.Length);
             try block.instructions.append(.{ .LoadInt = @intCast(arr.elements.len) });
             try block.instructions.append(.Equal);
-            
+
             const length_check_jump = block.instructions.items.len;
             try block.instructions.append(.{ .JumpIfFalse = 0 });
-            
+
             // Length matches, now extract and bind each element
             // We need to load the scrutinee again for each element extraction
             for (arr.elements, 0..) |elem_pattern, i| {
                 // Load the scrutinee array again
                 try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
-                
+
                 // Load the index
                 try block.instructions.append(.{ .LoadInt = @intCast(i) });
-                
+
                 // Get array element at index i
                 try block.instructions.append(.ArrayGet);
-                
+
                 // Now handle the element pattern
                 switch (elem_pattern) {
                     .variable => |var_pat| {
@@ -793,18 +803,18 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: Conv
                     },
                 }
             }
-            
+
             // Pop the original scrutinee that we duplicated at the beginning
             try block.instructions.append(.Pop);
-            
+
             return length_check_jump;
         },
         .map => |map| {
             // Map pattern matching - simplified version
             // For now, just succeed and bind variables
-            
+
             _ = map;
-            
+
             // Map patterns always succeed for now
             return 0;
         },
