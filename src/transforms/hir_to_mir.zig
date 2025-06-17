@@ -347,10 +347,14 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 
             // Load the function as a constant
             try block.instructions.append(.{ .LoadFunction = func_obj });
-
-            // Store it in a variable with its name
-            const name_copy = try block.allocator.dupe(u8, func_def.name);
-            try block.instructions.append(.{ .StoreVariable = name_copy });
+            
+            // Don't store anonymous functions - they'll be stored by var declarations
+            // Only store if it's not an anonymous function (doesn't start with "anon_")
+            if (!std.mem.startsWith(u8, func_def.name, "anon_")) {
+                // Store it in a variable with its name
+                const name_copy = try block.allocator.dupe(u8, func_def.name);
+                try block.instructions.append(.{ .StoreVariable = name_copy });
+            }
         },
         .function => |hir_func_ptr| {
             // When a function is encountered as an expression, it needs to be converted to MIR
@@ -368,10 +372,14 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 
             // Load the MIR function object as a constant
             try block.instructions.append(.{ .LoadFunction = mir_func_obj });
-
-            // Store the function with its name so it can be called later
-            const name_copy = try block.allocator.dupe(u8, hir_func_ptr.*.name);
-            try block.instructions.append(.{ .StoreVariable = name_copy });
+            
+            // Don't store anonymous functions - they'll be stored by var declarations
+            // Only store if it's not an anonymous function (doesn't start with "anon_")
+            if (!std.mem.startsWith(u8, hir_func_ptr.*.name, "anon_")) {
+                // Store the function with its name so it can be called later
+                const name_copy = try block.allocator.dupe(u8, hir_func_ptr.*.name);
+                try block.instructions.append(.{ .StoreVariable = name_copy });
+            }
         },
         .var_decl => |var_decl| {
             // Evaluate the variable's value

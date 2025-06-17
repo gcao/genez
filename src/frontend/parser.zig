@@ -517,8 +517,20 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                     return parseFieldAssignment(alloc, toks, depth + 1);
                 },
                 .Slash => {
+                    // Check if this is a simple field access pattern: (/field)
+                    if (toks.len == 4 and toks[2].kind == .Ident and toks[3].kind == .RParen) {
+                        // This is (/field) - parse as implicit self field access
+                        const field_name = try alloc.dupe(u8, toks[2].kind.Ident);
+                        return .{
+                            .node = .{ .Expression = .{ .FieldAccess = .{
+                                .object = null, // implicit self
+                                .field_name = field_name,
+                            }}},
+                            .consumed = 4, // (LParen, Slash, Ident, RParen)
+                        };
+                    }
                     // Check if this is an assignment pattern: (/field = value)
-                    if (toks.len > 3 and toks[2].kind == .Ident and toks[3].kind == .Equals) {
+                    else if (toks.len > 3 and toks[2].kind == .Ident and toks[3].kind == .Equals) {
                         // This is (/field = value) which should be parsed as (= /field value)
                         // Create modified tokens to parse as assignment
                         var modified_toks = try alloc.alloc(Token, toks.len);
@@ -2133,11 +2145,13 @@ fn parseClassMethod(alloc: std.mem.Allocator, toks: []const Token, depth: usize)
         try body_exprs.append(expr_ptr);
     }
     
-    if (body_exprs.items.len == 0) return error.ExpectedMethodBody;
-    
     // Create body expression - wrap multiple expressions in DoBlock
     const body_ptr = try alloc.create(ast.Expression);
-    if (body_exprs.items.len == 1) {
+    if (body_exprs.items.len == 0) {
+        // Empty body - default to nil
+        body_ptr.* = .{ .Literal = .{ .value = .{ .Nil = {} } } };
+        body_exprs.deinit();
+    } else if (body_exprs.items.len == 1) {
         body_ptr.* = body_exprs.items[0].*;
         alloc.destroy(body_exprs.items[0]);
         body_exprs.deinit();
@@ -2260,8 +2274,6 @@ fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_na
         try body_exprs.append(expr_ptr);
     }
     
-    if (body_exprs.items.len == 0) return error.ExpectedMethodBody;
-    
     // Create body expression - wrap multiple expressions in DoBlock
     var body_ptr: *ast.Expression = undefined;
     
@@ -2306,7 +2318,11 @@ fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_na
         }};
     } else {
         body_ptr = try alloc.create(ast.Expression);
-        if (body_exprs.items.len == 1) {
+        if (body_exprs.items.len == 0) {
+            // Empty body - default to nil
+            body_ptr.* = .{ .Literal = .{ .value = .{ .Nil = {} } } };
+            body_exprs.deinit();
+        } else if (body_exprs.items.len == 1) {
             body_ptr.* = body_exprs.items[0].*;
             alloc.destroy(body_exprs.items[0]);
             body_exprs.deinit();

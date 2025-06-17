@@ -712,8 +712,16 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             }
 
             if (func_index == null) {
-                std.debug.print("ERROR: Function '{s}' not found in created functions\n", .{mir_func_ptr.name});
-                @panic("Function not found"); // Use panic instead of error for now
+                // Function not found - this might be an anonymous function
+                // Convert it to bytecode and add it to created_functions
+                const bytecode_func = try convertMirFunction(func.allocator, mir_func_ptr);
+                const func_ptr = try func.allocator.create(bytecode.Function);
+                func_ptr.* = bytecode_func;
+                try created_functions.append(func_ptr);
+                func_index = created_functions.items.len - 1;
+                
+                // Debug output
+                // std.debug.print("INFO: Converted anonymous function '{s}' on demand\n", .{mir_func_ptr.name});
             }
 
             // Load the function by index
@@ -857,6 +865,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
+
 
             try func.instructions.append(.{
                 .op = bytecode.OpCode.GetField,
