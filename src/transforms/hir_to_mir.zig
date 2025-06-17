@@ -694,6 +694,36 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Call with argument count
             try block.instructions.append(.{ .Call = @intCast(macro_call.args.len) });
         },
+        .for_loop => |for_ptr| {
+            // For-in loops need to be desugared into a while loop with an iterator
+            // For now, we'll implement a basic version
+            std.debug.print("Warning: For-in loops not yet fully implemented in MIR\n", .{});
+            
+            // Evaluate the iterable
+            try convertExpressionWithContext(block, for_ptr.iterable.*, context);
+            
+            // TODO: Implement proper for-loop desugaring
+            // This would involve:
+            // 1. Getting an iterator from the iterable
+            // 2. Creating a loop that calls next() on the iterator
+            // 3. Binding the iterator value to the loop variable
+            // 4. Executing the loop body
+            
+            // For now, just evaluate the body once as a placeholder
+            try convertExpressionWithContext(block, for_ptr.body.*, context);
+        },
+        .return_expr => |ret_ptr| {
+            // Handle return statement
+            if (ret_ptr.value) |val| {
+                // Evaluate the return value
+                try convertExpressionWithContext(block, val.*, context);
+            } else {
+                // Push nil for bare return
+                try block.instructions.append(.LoadNil);
+            }
+            // Add return instruction
+            try block.instructions.append(.Return);
+        },
     }
 }
 

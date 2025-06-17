@@ -1301,6 +1301,54 @@ pub const NamespaceDecl = struct {
     }
 };
 
+pub const Return = struct {
+    value: ?*Expression, // Optional return value (null for bare return)
+    
+    pub fn deinit(self: *Return, allocator: std.mem.Allocator) void {
+        if (self.value) |val| {
+            val.deinit(allocator);
+            allocator.destroy(val);
+        }
+    }
+    
+    pub fn clone(self: Return, allocator: std.mem.Allocator) !Return {
+        if (self.value) |val| {
+            const new_value = try allocator.create(Expression);
+            new_value.* = try val.clone(allocator);
+            return Return{ .value = new_value };
+        }
+        return Return{ .value = null };
+    }
+};
+
+pub const ForLoop = struct {
+    iterator: []const u8, // Variable name for the iterator
+    iterable: *Expression, // The collection to iterate over
+    body: *Expression, // Loop body
+    
+    pub fn deinit(self: *ForLoop, allocator: std.mem.Allocator) void {
+        allocator.free(self.iterator);
+        self.iterable.deinit(allocator);
+        allocator.destroy(self.iterable);
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+    }
+    
+    pub fn clone(self: ForLoop, allocator: std.mem.Allocator) !ForLoop {
+        const new_iterable = try allocator.create(Expression);
+        new_iterable.* = try self.iterable.clone(allocator);
+        
+        const new_body = try allocator.create(Expression);
+        new_body.* = try self.body.clone(allocator);
+        
+        return ForLoop{
+            .iterator = try allocator.dupe(u8, self.iterator),
+            .iterable = new_iterable,
+            .body = new_body,
+        };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
@@ -1328,6 +1376,8 @@ pub const Expression = union(enum) {
     CStructDecl: CStructDecl, // New - FFI struct declaration
     CTypeDecl: CTypeDecl, // New - FFI type declaration
     NamespaceDecl: NamespaceDecl, // New - Namespace declaration
+    ForLoop: ForLoop, // New - For-in loops
+    Return: Return, // New - Return statement
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -1357,6 +1407,8 @@ pub const Expression = union(enum) {
             .CStructDecl => |*struct_decl| struct_decl.deinit(allocator), // New
             .CTypeDecl => |*type_decl| type_decl.deinit(allocator), // New
             .NamespaceDecl => |*ns_decl| ns_decl.deinit(allocator), // New
+            .ForLoop => |*for_loop| for_loop.deinit(allocator), // New
+            .Return => |*ret| ret.deinit(allocator), // New
         }
     }
 
@@ -1388,6 +1440,8 @@ pub const Expression = union(enum) {
             .CStructDecl => |struct_decl| Expression{ .CStructDecl = try struct_decl.clone(allocator) }, // New
             .CTypeDecl => |type_decl| Expression{ .CTypeDecl = try type_decl.clone(allocator) }, // New
             .NamespaceDecl => |ns_decl| Expression{ .NamespaceDecl = try ns_decl.clone(allocator) }, // New
+            .ForLoop => |for_loop| Expression{ .ForLoop = try for_loop.clone(allocator) }, // New
+            .Return => |ret| Expression{ .Return = try ret.clone(allocator) }, // New
         };
     }
 };

@@ -304,6 +304,21 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             }
             try writer.writeAll(")");
         },
+        .for_loop => |for_ptr| {
+            try writer.print("(for {s} in ", .{for_ptr.iterator});
+            try serializeExpression(writer, for_ptr.iterable.*, indent);
+            try writer.writeAll(" ");
+            try serializeExpression(writer, for_ptr.body.*, indent + 1);
+            try writer.writeAll(")");
+        },
+        .return_expr => |ret_ptr| {
+            try writer.writeAll("(return");
+            if (ret_ptr.value) |val| {
+                try writer.writeAll(" ");
+                try serializeExpression(writer, val.*, indent);
+            }
+            try writer.writeAll(")");
+        },
     }
 }
 

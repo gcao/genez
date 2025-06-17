@@ -877,6 +877,39 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
 
             return hir.HIR.Expression{ .do_block = .{ .statements = statements } };
         },
+        .ForLoop => |for_loop| {
+            const for_ptr = try allocator.create(hir.HIR.ForLoop);
+            errdefer allocator.destroy(for_ptr);
+            
+            for_ptr.* = .{
+                .iterator = try allocator.dupe(u8, for_loop.iterator),
+                .iterable = try allocator.create(hir.HIR.Expression),
+                .body = try allocator.create(hir.HIR.Expression),
+            };
+            
+            // Convert iterable expression
+            for_ptr.iterable.* = try lowerExpression(allocator, for_loop.iterable.*);
+            
+            // Convert body expression
+            for_ptr.body.* = try lowerExpression(allocator, for_loop.body.*);
+            
+            return .{ .for_loop = for_ptr };
+        },
+        .Return => |ret| {
+            const ret_ptr = try allocator.create(hir.HIR.ReturnExpr);
+            errdefer allocator.destroy(ret_ptr);
+            
+            // Handle optional return value
+            if (ret.value) |val| {
+                const val_ptr = try allocator.create(hir.HIR.Expression);
+                val_ptr.* = try lowerExpression(allocator, val.*);
+                ret_ptr.* = .{ .value = val_ptr };
+            } else {
+                ret_ptr.* = .{ .value = null };
+            }
+            
+            return .{ .return_expr = ret_ptr };
+        },
     };
 }
 

@@ -88,6 +88,8 @@ pub const HIR = struct {
         match_expr: *MatchExpr, // Pattern matching expression
         macro_def: *MacroDef, // Macro definition
         macro_call: MacroCall, // Macro call
+        for_loop: *ForLoop, // For-in loop
+        return_expr: *ReturnExpr, // Return statement
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -123,6 +125,14 @@ pub const HIR = struct {
                     allocator.destroy(macro_ptr);
                 },
                 .macro_call => |*macro_call| macro_call.deinit(allocator),
+                .for_loop => |for_ptr| {
+                    for_ptr.deinit(allocator);
+                    allocator.destroy(for_ptr);
+                },
+                .return_expr => |ret_ptr| {
+                    ret_ptr.deinit(allocator);
+                    allocator.destroy(ret_ptr);
+                },
             }
         }
     };
@@ -702,6 +712,31 @@ pub const HIR = struct {
                 allocator.destroy(arg);
             }
             allocator.free(self.args);
+        }
+    };
+    
+    pub const ForLoop = struct {
+        iterator: []const u8, // Variable name for the iterator
+        iterable: *Expression, // The collection to iterate over
+        body: *Expression, // Loop body
+        
+        pub fn deinit(self: *ForLoop, allocator: std.mem.Allocator) void {
+            allocator.free(self.iterator);
+            self.iterable.deinit(allocator);
+            allocator.destroy(self.iterable);
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+    };
+    
+    pub const ReturnExpr = struct {
+        value: ?*Expression, // Optional return value (null for bare return)
+        
+        pub fn deinit(self: *ReturnExpr, allocator: std.mem.Allocator) void {
+            if (self.value) |val| {
+                val.deinit(allocator);
+                allocator.destroy(val);
+            }
         }
     };
 };
