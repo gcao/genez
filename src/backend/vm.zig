@@ -1260,6 +1260,50 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Handle inequality operator
+                    if (builtin_op == .Ne) {
+                        if (arg_count != 2) {
+                            debug.log("Ne operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the two arguments
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        // Perform comparison based on types (same as Eq but negated)
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val != right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) != right_val,
+                                else => true, // Different types are not equal
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val != @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val != right_val,
+                                else => true, // Different types are not equal
+                            },
+                            .String => |left_val| switch (right) {
+                                .String => |right_val| !std.mem.eql(u8, left_val, right_val),
+                                else => true, // Different types are not equal
+                            },
+                            .Bool => |left_val| switch (right) {
+                                .Bool => |right_val| left_val != right_val,
+                                else => true, // Different types are not equal
+                            },
+                            .Nil => switch (right) {
+                                .Nil => false, // nil != nil is false
+                                else => true, // nil != anything else is true
+                            },
+                            else => true, // For other types, assume not equal
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
                     // Handle GC operations
                     if (builtin_op == .GCCollect) {
                         if (self.garbage_collector) |gc_ptr| {

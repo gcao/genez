@@ -1297,15 +1297,43 @@ fn parseImport(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Par
 
     var current_pos: usize = 2; // Skip LParen and Import
 
-    // Parse module path (string or identifier)
+    // Parse module path (string or identifier, possibly with slashes and wildcards)
     if (current_pos >= toks.len) return error.UnexpectedEOF;
     
-    const module_path = switch (toks[current_pos].kind) {
-        .String => |str| try alloc.dupe(u8, str),
-        .Ident => |ident| try alloc.dupe(u8, ident),
+    // Handle module paths like genex/http/* which might be tokenized as multiple parts
+    var path_parts = std.ArrayList(u8).init(alloc);
+    defer path_parts.deinit();
+    
+    // Start with the first part
+    switch (toks[current_pos].kind) {
+        .String => |str| try path_parts.appendSlice(str),
+        .Ident => |ident| try path_parts.appendSlice(ident),
         else => return error.UnexpectedToken,
-    };
+    }
     current_pos += 1;
+    
+    // Handle paths with slashes and wildcards
+    while (current_pos < toks.len) {
+        if (toks[current_pos].kind == .Slash) {
+            try path_parts.append('/');
+            current_pos += 1;
+            
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            
+            // After slash, expect identifier or *
+            switch (toks[current_pos].kind) {
+                .Ident => |ident| {
+                    try path_parts.appendSlice(ident);
+                    current_pos += 1;
+                },
+                else => return error.UnexpectedToken,
+            }
+        } else {
+            break;
+        }
+    }
+    
+    const module_path = try path_parts.toOwnedSlice();
 
     var alias: ?[]const u8 = null;
     var items: ?[]ast.ImportStmt.ImportItem = null;
@@ -1852,9 +1880,9 @@ fn parseClassMethod(alloc: std.mem.Allocator, toks: []const Token, depth: usize)
 }
 
 fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_name: []const u8, depth: usize) !MethodParseResult {
-    // Parse (.ctor [params] body) format
+    // Parse (.ctor [params] body) or (.ctor /param body) format
     // Constructor is a special method named "init" or class_name_init
-    if (toks.len < 5 or toks[0].kind != .LParen) return error.UnexpectedToken;
+    if (toks.len < 4 or toks[0].kind != .LParen) return error.UnexpectedToken;
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
     
     var current_pos: usize = 1; // Skip LParen
@@ -1875,7 +1903,24 @@ fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_na
     var params = std.ArrayList(ast.ClassDef.Parameter).init(alloc);
     errdefer params.deinit();
     
-    if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
+    // Check for auto-property constructor syntax: (.ctor /param_name ...)
+    if (current_pos < toks.len and toks[current_pos].kind == .Slash) {
+        // Auto-property parameter
+        current_pos += 1; // Skip '/'
+        if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
+        
+        const param_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+        current_pos += 1;
+        
+        try params.append(.{
+            .name = param_name,
+            .type_annotation = null,
+            .default_value = null,
+        });
+        
+        // TODO: In a full implementation, this would automatically generate
+        // code to assign the parameter to the instance variable
+    } else if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1; // Skip '['
         while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
             if (toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
