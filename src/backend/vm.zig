@@ -1304,6 +1304,33 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Handle logical NOT operator
+                    if (builtin_op == .Not) {
+                        if (arg_count != 1) {
+                            debug.log("Not operator requires exactly 1 argument, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the argument
+                        var arg = try self.getRegister(func_reg + 1);
+                        defer arg.deinit(self.allocator);
+
+                        // Convert to boolean and negate
+                        const result = switch (arg) {
+                            .Bool => |b| !b,
+                            .Nil => true,  // !nil is true
+                            .Int => |i| i == 0,  // !0 is true, !non-zero is false
+                            .Float => |f| f == 0.0,  // !0.0 is true, !non-zero is false
+                            .String => |s| s.len == 0,  // !"" is true, !non-empty is false
+                            .Array => |arr| arr.len == 0,  // ![] is true, !non-empty is false
+                            .Map => |map| map.count() == 0,  // !{} is true, !non-empty is false
+                            else => false,  // For other types, !value is false
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
                     // Handle GC operations
                     if (builtin_op == .GCCollect) {
                         if (self.garbage_collector) |gc_ptr| {

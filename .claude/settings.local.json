@@ -32,7 +32,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(./eval_stdin.sh)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(zig test:*)",
+      "Bash(timeout:*)"
     ],
     "deny": []
   },

@@ -33,11 +33,15 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
     var entry_block = mir.MIR.Block.init(allocator);
 
     // Create context for the function body with parameter names
-    const func_context = ConversionContext{ .param_names = mir_func.param_names.items };
+    var func_context = ConversionContext{ 
+        .param_names = mir_func.param_names.items,
+        .allocator = allocator,
+        .next_temp_id = 0
+    };
 
     // Convert HIR statements to MIR instructions
     for (func.body.items) |stmt| {
-        try convertStatementWithContext(&entry_block, stmt, func_context);
+        try convertStatementWithContext(&entry_block, stmt, &func_context);
     }
 
     // Add a return instruction if not present to ensure valid jump targets
@@ -65,7 +69,7 @@ fn convertStatement(block: *mir.MIR.Block, stmt: hir.HIR.Statement) !void {
     }
 }
 
-fn convertStatementWithContext(block: *mir.MIR.Block, stmt: hir.HIR.Statement, context: ConversionContext) !void {
+fn convertStatementWithContext(block: *mir.MIR.Block, stmt: hir.HIR.Statement, context: *ConversionContext) !void {
     switch (stmt) {
         .Expression => |expr| {
             try convertExpressionWithContext(block, expr, context);
@@ -83,6 +87,8 @@ fn isReturnInstruction(instruction: mir.MIR.Instruction) bool {
 // Context for converting expressions within functions
 const ConversionContext = struct {
     param_names: ?[][]const u8,
+    allocator: std.mem.Allocator,
+    next_temp_id: u32,
 
     fn isParameter(self: ConversionContext, name: []const u8) ?usize {
         if (self.param_names) |params| {
@@ -97,8 +103,12 @@ const ConversionContext = struct {
 };
 
 fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
-    const empty_context = ConversionContext{ .param_names = null };
-    try convertExpressionWithContext(block, expr, empty_context);
+    var empty_context = ConversionContext{ 
+        .param_names = null,
+        .allocator = block.allocator,
+        .next_temp_id = 0
+    };
+    try convertExpressionWithContext(block, expr, &empty_context);
 }
 
 fn hirLiteralToValue(allocator: std.mem.Allocator, hir_expr: hir.HIR.Expression) !types.Value {
@@ -133,7 +143,7 @@ fn hirLiteralToValue(allocator: std.mem.Allocator, hir_expr: hir.HIR.Expression)
     };
 }
 
-fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression, context: ConversionContext) anyerror!void {
+fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression, context: *ConversionContext) anyerror!void {
     switch (expr) {
         .literal => |lit| switch (lit) {
             .int => |val| {
@@ -306,10 +316,14 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             errdefer body_block.deinit();
 
             // Create context for the function body with parameter names
-            const func_context = ConversionContext{ .param_names = func.param_names.items };
+            var func_context = ConversionContext{ 
+                .param_names = func.param_names.items,
+                .allocator = block.allocator,
+                .next_temp_id = 0
+            };
 
             // Convert the function body with parameter context
-            try convertExpressionWithContext(&body_block, func_def.body.*, func_context);
+            try convertExpressionWithContext(&body_block, func_def.body.*, &func_context);
 
             // Add a return instruction if not present
             var needs_return = true;
@@ -495,10 +509,14 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 var method_block = mir.MIR.Block.init(block.allocator);
 
                 // Create context with method parameters
-                const method_context = ConversionContext{ .param_names = method_func.param_names.items };
+                var method_context = ConversionContext{ 
+                    .param_names = method_func.param_names.items,
+                    .allocator = block.allocator,
+                    .next_temp_id = 0
+                };
 
                 // Convert method body
-                try convertExpressionWithContext(&method_block, method.body.*, method_context);
+                try convertExpressionWithContext(&method_block, method.body.*, &method_context);
 
                 // Add return if needed
                 var needs_return = true;
@@ -695,22 +713,69 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try block.instructions.append(.{ .Call = @intCast(macro_call.args.len) });
         },
         .for_loop => |for_ptr| {
-            // For-in loops need to be desugared into a while loop with an iterator
-            // For now, we'll implement a basic version
-            std.debug.print("Warning: For-in loops not yet fully implemented in MIR\n", .{});
+            // Implement a simple for-in loop for arrays
+            // Desugar to: 
+            // var _arr = iterable
+            // var _i = 0
+            // while (_i < _arr.length) {
+            //   var iterator = _arr.at(_i)
+            //   body
+            //   _i = _i + 1
+            // }
             
-            // Evaluate the iterable
+            // Generate unique temp variable names
+            const array_var = try std.fmt.allocPrint(context.allocator, "_for_arr_{}", .{context.next_temp_id});
+            const index_var = try std.fmt.allocPrint(context.allocator, "_for_idx_{}", .{context.next_temp_id});
+            context.next_temp_id += 1;
+            
+            // Store the iterable in a temp variable
             try convertExpressionWithContext(block, for_ptr.iterable.*, context);
+            try block.instructions.append(.{ .StoreVariable = array_var });
             
-            // TODO: Implement proper for-loop desugaring
-            // This would involve:
-            // 1. Getting an iterator from the iterable
-            // 2. Creating a loop that calls next() on the iterator
-            // 3. Binding the iterator value to the loop variable
-            // 4. Executing the loop body
+            // Initialize index to 0
+            try block.instructions.append(.{ .LoadInt = 0 });
+            try block.instructions.append(.{ .StoreVariable = index_var });
             
-            // For now, just evaluate the body once as a placeholder
+            // Start of loop - record position for jump back
+            // IMPORTANT: This is where we'll jump back to
+            const loop_start = block.instructions.items.len;
+            
+            // Check condition: index < array.length
+            try block.instructions.append(.{ .LoadVariable = index_var });
+            try block.instructions.append(.{ .LoadVariable = array_var });
+            try block.instructions.append(.Length); // Get array length
+            try block.instructions.append(.LessThan);
+            
+            // Jump to end if false
+            const jump_if_false_index = block.instructions.items.len;
+            try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will patch later
+            
+            // Get current element: array[index]
+            try block.instructions.append(.{ .LoadVariable = array_var });
+            try block.instructions.append(.{ .LoadVariable = index_var });
+            try block.instructions.append(.ArrayGet); // array[index]
+            
+            // Store in iterator variable
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, for_ptr.iterator) });
+            
+            // Execute loop body
             try convertExpressionWithContext(block, for_ptr.body.*, context);
+            
+            // Increment index: index = index + 1
+            try block.instructions.append(.{ .LoadVariable = index_var });
+            try block.instructions.append(.{ .LoadInt = 1 });
+            try block.instructions.append(.Add);
+            try block.instructions.append(.{ .StoreVariable = index_var });
+            
+            // Jump back to start
+            try block.instructions.append(.{ .Jump = loop_start });
+            
+            // Patch the conditional jump to here
+            const end_pos = block.instructions.items.len;
+            block.instructions.items[jump_if_false_index] = .{ .JumpIfFalse = end_pos };
+            
+            // Clean up temp variables by loading nil
+            try block.instructions.append(.LoadNil);
         },
         .return_expr => |ret_ptr| {
             // Handle return statement
@@ -729,7 +794,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 
 // Helper function to compile HIR patterns to MIR instructions
 // Returns the instruction index where pattern matching succeeds
-fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: ConversionContext) !usize {
+fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *ConversionContext) !usize {
     switch (pattern) {
         .literal => |lit| {
             // Generate code to compare scrutinee with literal value

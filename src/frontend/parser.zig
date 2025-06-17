@@ -1791,6 +1791,13 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
                             }
                             current_pos += ctor_result.consumed;
                             debug.log("Added constructor", .{});
+                        } else if (std.mem.eql(u8, method_type, "method")) {
+                            // Method definition using .method syntax (same as .fn)
+                            debug.log("Parsing .method definition", .{});
+                            const method_result = try parseClassMethod(alloc, toks[current_pos..], depth + 1);
+                            try methods.append(method_result.method);
+                            current_pos += method_result.consumed;
+                            debug.log("Added method: {s}", .{method_result.method.name});
                         } else {
                             // Unknown .method construct, skip it
                             var paren_count: i32 = 1;
@@ -2038,16 +2045,20 @@ fn parseClassMethod(alloc: std.mem.Allocator, toks: []const Token, depth: usize)
         current_pos += 1;
     }
     
-    // Skip fn keyword (can be either .Fn keyword or .Ident "fn")
+    // Skip fn/method keyword (can be either .Fn keyword or .Ident "fn"/"method")
     if (current_pos >= toks.len) return error.UnexpectedToken;
     
     if (toks[current_pos].kind == .Fn) {
         // It's the Fn keyword
         current_pos += 1;
-    } else if (toks[current_pos].kind == .Ident and 
-               std.mem.eql(u8, toks[current_pos].kind.Ident, "fn")) {
-        // It's an identifier "fn"
-        current_pos += 1;
+    } else if (toks[current_pos].kind == .Ident) {
+        const ident = toks[current_pos].kind.Ident;
+        if (std.mem.eql(u8, ident, "fn") or std.mem.eql(u8, ident, "method")) {
+            // It's an identifier "fn" or "method"
+            current_pos += 1;
+        } else {
+            return error.UnexpectedToken;
+        }
     } else {
         return error.UnexpectedToken;
     }
@@ -2109,13 +2120,30 @@ fn parseClassMethod(alloc: std.mem.Allocator, toks: []const Token, depth: usize)
         current_pos += 1; // Skip ']'
     }
     
-    // Parse body
-    if (current_pos >= toks.len) return error.ExpectedMethodBody;
-    const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    current_pos += body_result.consumed;
+    // Parse body - collect all expressions until RParen
+    var body_exprs = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer body_exprs.deinit();
     
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const expr_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += expr_result.consumed;
+        
+        const expr_ptr = try alloc.create(ast.Expression);
+        expr_ptr.* = try expr_result.node.Expression.clone(alloc);
+        try body_exprs.append(expr_ptr);
+    }
+    
+    if (body_exprs.items.len == 0) return error.ExpectedMethodBody;
+    
+    // Create body expression - wrap multiple expressions in DoBlock
     const body_ptr = try alloc.create(ast.Expression);
-    body_ptr.* = try body_result.node.Expression.clone(alloc);
+    if (body_exprs.items.len == 1) {
+        body_ptr.* = body_exprs.items[0].*;
+        alloc.destroy(body_exprs.items[0]);
+        body_exprs.deinit();
+    } else {
+        body_ptr.* = .{ .DoBlock = .{ .statements = try body_exprs.toOwnedSlice() } };
+    }
     
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
     current_pos += 1;
@@ -2219,18 +2247,29 @@ fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_na
         current_pos += 1; // Skip ']'
     }
     
-    // Parse body
-    if (current_pos >= toks.len) return error.ExpectedMethodBody;
-    const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    current_pos += body_result.consumed;
+    // Parse body - collect all expressions until RParen
+    var body_exprs = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer body_exprs.deinit();
     
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const expr_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += expr_result.consumed;
+        
+        const expr_ptr = try alloc.create(ast.Expression);
+        expr_ptr.* = try expr_result.node.Expression.clone(alloc);
+        try body_exprs.append(expr_ptr);
+    }
+    
+    if (body_exprs.items.len == 0) return error.ExpectedMethodBody;
+    
+    // Create body expression - wrap multiple expressions in DoBlock
     var body_ptr: *ast.Expression = undefined;
     
     // If this is an auto-property constructor, wrap the body with an assignment
     if (auto_property_param) |param| {
-        // Create a do block with two statements:
+        // Create a do block with all statements:
         // 1. (= /param param) - assign parameter to field
-        // 2. The original body
+        // 2. All the body expressions
         
         var statements = std.ArrayList(*ast.Expression).init(alloc);
         errdefer statements.deinit();
@@ -2254,10 +2293,11 @@ fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_na
         
         try statements.append(assignment);
         
-        // Add the original body
-        const original_body = try alloc.create(ast.Expression);
-        original_body.* = try body_result.node.Expression.clone(alloc);
-        try statements.append(original_body);
+        // Add all the body expressions
+        for (body_exprs.items) |expr| {
+            try statements.append(expr);
+        }
+        body_exprs.deinit();
         
         // Create the do block
         body_ptr = try alloc.create(ast.Expression);
@@ -2266,7 +2306,13 @@ fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_na
         }};
     } else {
         body_ptr = try alloc.create(ast.Expression);
-        body_ptr.* = try body_result.node.Expression.clone(alloc);
+        if (body_exprs.items.len == 1) {
+            body_ptr.* = body_exprs.items[0].*;
+            alloc.destroy(body_exprs.items[0]);
+            body_exprs.deinit();
+        } else {
+            body_ptr.* = .{ .DoBlock = .{ .statements = try body_exprs.toOwnedSlice() } };
+        }
     }
     
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;

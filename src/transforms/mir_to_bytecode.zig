@@ -59,10 +59,47 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
     var stack = StackTracker.init(allocator);
     defer stack.deinit();
 
+    // Build address mapping for the main function
+    var mir_to_bytecode_addr = std.AutoHashMap(usize, usize).init(allocator);
+    defer mir_to_bytecode_addr.deinit();
+
     const main_mir_func = &mir_prog.functions.items[num_functions - 1];
+    
+    // First pass: Convert instructions and build address mapping
     for (main_mir_func.blocks.items) |*block| {
-        for (block.instructions.items) |*instr| {
+        for (block.instructions.items, 0..) |*instr, mir_addr| {
+            // Record the mapping from MIR address to current bytecode address
+            const bytecode_addr = main_func.instructions.items.len;
+            try mir_to_bytecode_addr.put(mir_addr, bytecode_addr);
+            
             try convertInstructionWithStack(&main_func, instr, &created_functions, &next_reg, &stack);
+        }
+    }
+    
+    // Second pass: Fix jump targets using the address mapping
+    for (main_func.instructions.items) |*bytecode_instr| {
+        switch (bytecode_instr.op) {
+            .Jump => {
+                if (bytecode_instr.immediate) |*imm| {
+                    if (imm.* == .Int) {
+                        const mir_target = @as(usize, @intCast(imm.Int));
+                        if (mir_to_bytecode_addr.get(mir_target)) |bytecode_target| {
+                            imm.Int = @as(i64, @intCast(bytecode_target));
+                        }
+                    }
+                }
+            },
+            .JumpIfFalse => {
+                if (bytecode_instr.immediate) |*imm| {
+                    if (imm.* == .Int) {
+                        const mir_target = @as(usize, @intCast(imm.Int));
+                        if (mir_to_bytecode_addr.get(mir_target)) |bytecode_target| {
+                            imm.Int = @as(i64, @intCast(bytecode_target));
+                        }
+                    }
+                }
+            },
+            else => {},
         }
     }
 
@@ -125,7 +162,10 @@ fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function)
     for (mir_func.blocks.items) |*block| {
         for (block.instructions.items, 0..) |*instr, mir_addr| {
             // Record the mapping from MIR address to current bytecode address
-            try mir_to_bytecode_addr.put(mir_addr, bytecode_func.instructions.items.len);
+            const bytecode_addr = bytecode_func.instructions.items.len;
+            try mir_to_bytecode_addr.put(mir_addr, bytecode_addr);
+            
+            
             try convertInstructionWithStack(&bytecode_func, instr, &empty_functions, &next_reg, &stack);
         }
     }
