@@ -30,6 +30,7 @@ pub const ParserError = error{
     ExpectedSlashForInstanceVar,
     ExpectedInstanceVarName,
     ExpectedFieldName,
+    UnexpectedTokenInPackageGene,
 };
 
 // --- Tokenizer (Mostly unchanged, minor fixes) ---
@@ -333,6 +334,11 @@ pub const ParseSourceResult = struct {
 /// Parse Gene source code using an arena allocator and return the arena
 /// along with the parsed nodes.
 pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) !ParseSourceResult {
+    return parseGeneSourceWithFilename(parent_allocator, source, null);
+}
+
+pub fn parseGeneSourceWithFilename(parent_allocator: std.mem.Allocator, source: []const u8, filename: ?[]const u8) !ParseSourceResult {
+    _ = filename; // No longer needed since we handle properties in all .gene files
     // Create an arena allocator for all AST allocations
     const arena = try parent_allocator.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(parent_allocator);
@@ -354,56 +360,189 @@ pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) 
         // std.debug.print("  [{d}] {s} at loc {d}\n", .{tok_i, @tagName(tokens.items[tok_i].kind), tokens.items[tok_i].loc});
     }
 
-    // Use arena allocator for everything to avoid mixing allocators
-    var result_nodes = std.ArrayList(ast.AstNode).init(arena_allocator);
+    // Parse into a GeneDocument structure with properties and expressions
+    var properties = std.ArrayList(ast.MapEntry).init(arena_allocator);
+    var expressions = std.ArrayList(ast.AstNode).init(arena_allocator);
     errdefer {
         // No need to deinit individual nodes since the arena will be freed
-        result_nodes.deinit();
+        properties.deinit();
+        expressions.deinit();
     }
 
     var pos: usize = 0;
     while (pos < tokens.items.len) {
         // std.debug.print("DEBUG: parseGeneSource loop iteration, pos={d}, next token: {s}\n", .{pos, @tagName(tokens.items[pos].kind)});
+        
         // Skip any unexpected RParen tokens
         if (tokens.items[pos].kind == .RParen) {
             pos += 1;
             continue;
         }
 
+        // Check for bare property syntax (^name value)
+        if (tokens.items[pos].kind == .Ident) {
+            const ident = tokens.items[pos].kind.Ident;
+            if (std.mem.startsWith(u8, ident, "^")) {
+                const prop_result = try parseTopLevelProperty(arena_allocator, tokens.items[pos..], 0);
+                try properties.append(prop_result.entry);
+                pos += prop_result.consumed;
+                continue;
+            }
+        }
+
+        // Parse regular expression
         // std.debug.print("DEBUG: Calling parseExpression at pos={d}\n", .{pos});
         const result = parseExpression(arena_allocator, tokens.items[pos..], 0) catch |err| {
             // std.debug.print("DEBUG: parseExpression failed with error: {}\n", .{err});
             return err;
         };
-        // Don't add errdefer here, ownership is transferred to result_nodes
-        try result_nodes.append(result.node); // Transfer ownership
+        // Don't add errdefer here, ownership is transferred to expressions
+        try expressions.append(result.node); // Transfer ownership
         // std.debug.print("DEBUG: parseExpression consumed {d} tokens\n", .{result.consumed});
         pos += result.consumed;
     }
 
-    debug.log("parseGeneSource: about to return with {} nodes", .{result_nodes.items.len});
-    debug.log("parseGeneSource: returning successfully", .{});
+    debug.log("parseGeneSource: parsed {} properties and {} expressions", .{properties.items.len, expressions.items.len});
 
-    // Store the result in the arena and return arena pointer
-    debug.log("parseGeneSource: parsed {} nodes successfully", .{result_nodes.items.len});
+    // If we have properties, wrap everything in a GeneDocument map
+    if (properties.items.len > 0) {
+        // Create a map containing all properties
+        const map_expr = ast.Expression{ .MapLiteral = .{ .entries = try properties.toOwnedSlice() } };
+        
+        // If there are also expressions, we need to combine them
+        // For now, if there are expressions along with properties, we'll return the map as the first node
+        // and the expressions as subsequent nodes
+        var all_nodes = try arena_allocator.alloc(ast.AstNode, 1 + expressions.items.len);
+        all_nodes[0] = .{ .Expression = map_expr };
+        
+        for (expressions.items, 0..) |expr_node, i| {
+            all_nodes[i + 1] = expr_node;
+        }
+        
+        return ParseSourceResult{
+            .arena = arena,
+            .nodes = all_nodes,
+        };
+    } else {
+        // No properties, just return expressions as before
+        const nodes_slice = try arena_allocator.alloc(ast.AstNode, expressions.items.len);
+        for (expressions.items, 0..) |node, i| {
+            nodes_slice[i] = node;
+        }
+        
+        return ParseSourceResult{
+            .arena = arena,
+            .nodes = nodes_slice,
+        };
+    }
+}
+
+/// Result from parsing a top-level property in package.gene
+const PackagePropertyResult = struct {
+    entry: ast.MapEntry,
+    consumed: usize,
+};
+
+/// Parse a package.gene file with bare properties at the top level
+fn parsePackageGene(parent_allocator: std.mem.Allocator, source: []const u8) !ParseSourceResult {
+    // Create arena allocator
+    const arena = try parent_allocator.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(parent_allocator);
+    errdefer {
+        arena.deinit();
+        parent_allocator.destroy(arena);
+    }
+    const arena_allocator = arena.allocator();
     
-    // Debug first few tokens
-    // std.debug.print("DEBUG: First 10 tokens:\n", .{});
-    var debug_i: usize = 0;
-    while (debug_i < @min(10, tokens.items.len)) : (debug_i += 1) {
-        // std.debug.print("  [{d}] {s} at loc {d}\n", .{debug_i, @tagName(tokens.items[debug_i].kind), tokens.items[debug_i].loc});
+    // Tokenize
+    var tokens = try tokenize(arena_allocator, source);
+    
+    // Create a list to hold map entries
+    var entries = std.ArrayList(ast.MapEntry).init(arena_allocator);
+    
+    var pos: usize = 0;
+    while (pos < tokens.items.len) {
+        const token = tokens.items[pos];
+        
+        // Skip empty lines (RParen tokens from tokenizer quirks)
+        if (token.kind == .RParen) {
+            pos += 1;
+            continue;
+        }
+        
+        // Expect property or end of file
+        switch (token.kind) {
+            .Ident => |ident| {
+                // Check if it's a property (starts with ^)
+                if (std.mem.startsWith(u8, ident, "^")) {
+                    // Parse property
+                    const prop_result = try parseTopLevelProperty(
+                        arena_allocator, 
+                        tokens.items[pos..], 
+                        0
+                    );
+                    try entries.append(prop_result.entry);
+                    pos += prop_result.consumed;
+                } else {
+                    return error.ExpectedProperty;
+                }
+            },
+            else => {
+                return error.UnexpectedTokenInPackageGene;
+            }
+        }
     }
-
-    // Convert ArrayList to slice and store in arena
-    const nodes_slice = try arena_allocator.alloc(ast.AstNode, result_nodes.items.len);
-    for (result_nodes.items, 0..) |node, i| {
-        nodes_slice[i] = node;
+    
+    // Create map expression
+    const entries_slice = try arena_allocator.alloc(ast.MapEntry, entries.items.len);
+    for (entries.items, 0..) |entry, i| {
+        entries_slice[i] = entry;
     }
-
-    debug.log("parseGeneSource: returning arena and nodes", .{});
+    
+    const map_ptr = try arena_allocator.create(ast.Expression);
+    map_ptr.* = ast.Expression{ .MapLiteral = .{ .entries = entries_slice } };
+    
+    // Create single node containing the map
+    const nodes_slice = try arena_allocator.alloc(ast.AstNode, 1);
+    nodes_slice[0] = ast.AstNode{ .Expression = map_ptr.* };
+    
     return ParseSourceResult{
         .arena = arena,
         .nodes = nodes_slice,
+    };
+}
+
+/// Parse a top-level property in package.gene format
+fn parseTopLevelProperty(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !PackagePropertyResult {
+    if (toks.len < 2) return error.UnexpectedEOF;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    
+    // First token should be property (^name)
+    const prop_token = toks[0];
+    if (prop_token.kind != .Ident) return error.ExpectedProperty;
+    
+    const ident = prop_token.kind.Ident;
+    if (!std.mem.startsWith(u8, ident, "^")) {
+        return error.ExpectedProperty;
+    }
+    
+    // Extract property name (remove ^)
+    const prop_name = ident[1..];
+    
+    // Create string key
+    const key_ptr = try alloc.create(ast.Expression);
+    key_ptr.* = ast.Expression{
+        .Literal = .{ .value = .{ .String = try alloc.dupe(u8, prop_name) } }
+    };
+    
+    // Parse value
+    const value_result = try parseExpression(alloc, toks[1..], depth + 1);
+    const value_ptr = try alloc.create(ast.Expression);
+    value_ptr.* = value_result.node.Expression;
+    
+    return PackagePropertyResult{
+        .entry = .{ .key = key_ptr, .value = value_ptr },
+        .consumed = 1 + value_result.consumed,
     };
 }
 

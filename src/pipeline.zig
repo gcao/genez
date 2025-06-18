@@ -36,8 +36,13 @@ pub const CompiledResult = struct {
 
 /// Compile Gene source code into bytecode
 pub fn compileSource(allocator: std.mem.Allocator, source: []const u8, options: compiler.CompilerOptions) !CompiledResult {
-    // Parse source into AST
-    const parse_result = try parser.parseGeneSource(allocator, source);
+    return compileSourceWithFilename(allocator, source, null, options);
+}
+
+/// Compile Gene source code with filename information
+pub fn compileSourceWithFilename(allocator: std.mem.Allocator, source: []const u8, filename: ?[]const u8, options: compiler.CompilerOptions) !CompiledResult {
+    // Parse source into AST with filename
+    const parse_result = try parser.parseGeneSourceWithFilename(allocator, source, filename);
     const nodes = parse_result.nodes;
 
     // Compile nodes to bytecode
@@ -88,5 +93,5 @@ pub fn compileFile(allocator: std.mem.Allocator, path: []const u8, options: comp
     const source = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(source);
 
-    return try compileSource(allocator, source, options);
+    return try compileSourceWithFilename(allocator, source, path, options);
 }

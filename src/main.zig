@@ -102,14 +102,34 @@ pub fn main() !void {
         std.debug.print("Gene Programming Language v{s}\n", .{VERSION});
     } else if (std.mem.eql(u8, command, "parse")) {
         if (args.len < 3) {
-            std.debug.print("Usage: gene parse <file> [--json|--raw|--parsed]\n", .{});
+            std.debug.print("Usage: gene parse <file> [--json|--raw|--parsed|--pretty]\n", .{});
             std.debug.print("  --json    Output as JSON\n", .{});
             std.debug.print("  --raw     Output raw Gene syntax (default)\n", .{});
             std.debug.print("  --parsed  Show internal parsed data structure\n", .{});
+            std.debug.print("  --pretty  Pretty print package.gene files\n", .{});
             return;
         }
 
         const file = args[2];
+        
+        // Check if this is a .gene file
+        if (std.mem.endsWith(u8, file, ".gene")) {
+            // Use the enhanced parser for .gene files
+            var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
+            defer rt.deinit();
+            
+            // Check for --pretty flag
+            var pretty = false;
+            for (args) |arg| {
+                if (std.mem.eql(u8, arg, "--pretty")) {
+                    pretty = true;
+                    break;
+                }
+            }
+            
+            try rt.parsePackageFileWithFormat(file, pretty);
+            return;
+        }
 
         // Parse output format flags
         const OutputFormat = enum { raw, json, parsed };

@@ -1,0 +1,16 @@
+# Gene Package
+
+^name "gene"
+^version "0.1.0"
+^description "Gene programming language implementation"
+^author "Guoliang Cao"
+^license "MIT"
+^repository "https://github.com/gcao/genez"
+^homepage "https://github.com/gcao/genez"
+^bugs "https://github.com/gcao/genez/issues"
+^keywords ["gene" "programming" "language" "lisp-like" "functional"]
+^src-dirs ["src"]
+^main "src/main.zig"
+^scripts {
+  ^build "zig build"
+}

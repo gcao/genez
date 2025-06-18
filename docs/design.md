@@ -1538,7 +1538,7 @@ In Gene's unified type system, user-defined classes integrate seamlessly with bu
   (.prop y Float)
 
   # Constructor
-  (.new [x :Float y :Float]
+  (.ctor [x :Float y :Float]
     (/x = x)
     (/y = y))
 
@@ -1666,7 +1666,7 @@ Since all types are classes in Gene's unified system, user-defined classes can e
 (class Circle extends Shape
   (.prop radius Float)
 
-  (.new [x :Float y :Float radius :Float]
+  (.ctor [x :Float y :Float radius :Float]
     (super x y)  # Call parent constructor
     (/radius = radius))
 
@@ -1954,282 +1954,335 @@ Math/PI
 
 ---
 
-# Chapter 8: Module System and Namespaces
+# Chapter 8: Package and Module System
 
-## 8.1 Core Concepts
+## 8.1 Overview
 
-Gene's module system is based on these principles:
-- Each file or source string corresponds to a module
-- Each module corresponds to a namespace
-- There is a global namespace available everywhere
-- Namespaces can be created explicitly within a module
-- Slash notation (`/`) is used for namespace member access
+Gene's package and module system provides flexible code organization through two core concepts:
+- **Modules**: Individual units of code (files or strings)
+- **Packages**: Collections of related modules
 
-## 8.2 Module and File Correspondence
+The system supports both structured packages for libraries/applications and ad-hoc packages for scripts.
 
+## 8.2 Core Concepts
+
+### 8.2.1 Module
+A module is the basic unit of code organization:
+- **File Module**: A `.gene` file containing Gene code
+- **String Module**: A string containing Gene code (for dynamic loading)
+- Every module must be associated with a package
+- Each module has its own namespace
+
+### 8.2.2 Package Types
+
+#### Canonical Package
+A structured package with explicit metadata:
 ```gene
-# File: math/utils.gene
-# This file automatically creates the namespace 'math/utils'
-
-(fn square [x]
-  (* x x))
-
-(fn cube [x]
-  (* x x x))
-
-# Another file can access these as:
-# math/utils/square
-# math/utils/cube
+# package.gene in root directory
+^name "my-library"
+^version "1.0.0"
+^src-dirs ["src" "lib"]
+^main "src/main"
 ```
 
-## 8.3 Explicit Namespace Creation
+Forms:
+- **Directory**: Contains `package.gene` in root
+- **Archive**: `.tar.gz` or `.zip` file
+- **Database**: Stored in package registry
 
-```gene
-# Create a namespace explicitly within a module
-(ns geometry
-  (class Point
-    (x Int)
-    (y Int))
-  
-  (class Circle
-    (center Point)
-    (radius Float))
-  
-  (fn area [c]
-    (* 3.14159 c/radius c/radius)))
+#### Ad-hoc Package
+Created automatically for standalone scripts:
+- No `package.gene` required
+- Current directory becomes package root
+- Perfect for quick scripts and prototypes
 
-# Access from outside:
-(var p (new geometry/Point))
-(p/x = 10)
-(p/y = 20)
+## 8.3 Package Resolution
 
-(var c (new geometry/Circle))
-(c/center = p)
-(c/radius = 5.0)
-(print (geometry/area c))
+When running a Gene script:
+
+```
+/home/user/projects/myapp/
+├── package.gene          # Found! Package root
+├── src/
+│   ├── main.gene
+│   └── utils/
+│       └── helpers.gene
+└── tests/
+    └── test.gene
+
+# From any subdirectory, package root is /home/user/projects/myapp/
 ```
 
-## 8.4 Import System
+Resolution algorithm:
+1. Search current directory for `package.gene`
+2. Search parent directories up to filesystem root
+3. If found: use that as canonical package root
+4. If not found: create ad-hoc package at current directory
+
+## 8.4 Module Path Resolution
+
+### 8.4.1 Absolute Paths
+Start with `/` - resolved from package root:
+```gene
+(import /src/utils/helpers)   # From package root
+(import /lib/external/json)   # From package root
+```
+
+### 8.4.2 Relative Paths
+Start with `./` or `../` - resolved from current module:
+```gene
+(import ./sibling)           # Same directory
+(import ../shared/common)    # Parent directory
+(import ../../lib/utils)     # Two levels up
+```
+
+### 8.4.3 Package Paths
+No prefix - searched in source directories:
+```gene
+(import utils/helpers)       # Search in all src-dirs
+(import external/json)       # Search in all src-dirs
+```
+
+Search order:
+1. Each directory in `^src-dirs` (from package.gene)
+2. First match wins
+3. Error if not found
+
+## 8.5 Import Syntax
 
 ```gene
-# Import specific members from a module
-(import math/utils [square cube])
-# Now can use square and cube directly
-(print (square 5))
-(print (cube 3))
+# Basic import - loads module into its namespace
+(import utils/math)
+(math/square 5)              # Qualified access
 
 # Import with alias
-(import math/utils [square as sq])
-(print (sq 4))
+(import utils/math :as m)
+(m/square 5)                 # Using alias
 
-# Import entire module under a namespace
-(import math/utils as mu)
-(print (mu/square 5))
-(print (mu/cube 3))
+# Import specific items
+(import utils/math [square cube pow])
+(square 5)                   # Direct access
 
-# Import from explicit namespace
-(import geometry [Point Circle area])
-(var p (new Point))  # Can use Point directly
+# Import with renaming
+(import utils/math {square :as sq cube :as cb})
+(sq 5)                       # Using renamed import
+
+# Import all public items
+(import utils/math *)
+(square 5)                   # All exports available
+
+# Conditional import
+(var json (import? external/json))  # Returns nil if not found
+(if json
+  (json/parse data)
+  (error "JSON module required"))
 ```
 
-## 8.5 Global Namespace
+## 8.6 Module Structure
 
 ```gene
-# Items defined at the top level without ns are in the global namespace
-(fn global-helper [x]
-  (+ x 1))
+# File: src/utils/math.gene
 
-# Available everywhere without import
-(print (global-helper 5))
+# Module metadata (optional)
+^module "utils/math"
+^exports [square cube pow factorial]
 
-# Built-in functions are in the global namespace
-(print "Hello")  # print is global
-(+ 1 2)          # + is global
+# Private function (not exported)
+(fn- validate-input [n]
+  (if (number? n)
+    n
+    (error "Expected number")))
+
+# Public functions
+(fn square [x]
+  (* (validate-input x) x))
+
+(fn cube [x]
+  (var n (validate-input x))
+  (* n n n))
+
+(fn pow [base exp]
+  (if (== exp 0)
+    1
+    (* base (pow base (- exp 1)))))
+
+# Module initialization
+(var PI 3.14159265359)
+(println "Math module loaded")
 ```
 
-## 8.6 Namespace Access Patterns
+## 8.7 Package.gene Structure
 
 ```gene
-# Slash notation for accessing namespace members
-math/utils/square      # Fully qualified access
-geometry/Point         # Access class from namespace
-obj/field             # Object field access (same syntax)
+# Required fields
+^name "my-package"
+^version "1.0.0"
 
-# After import
-(import math/utils [square])
-square                 # Direct access after import
+# Optional metadata
+^description "A Gene package"
+^author "Your Name <email@example.com>"
+^license "MIT"
+^keywords ["gene" "example"]
+^homepage "https://example.com"
+^repository "https://github.com/user/repo"
+^bugs "https://github.com/user/repo/issues"
 
-# Namespace nesting
-(ns company
-  (ns department
-    (class Employee
-      (name String)
-      (id Int))))
+# Package configuration
+^src-dirs ["src" "lib"]      # Module search paths
+^main "src/main"             # Entry point module
+^test-dir "tests"            # Test directory
 
-# Access: company/department/Employee
-(var emp (new company/department/Employee))
+# Dependencies
+^dependencies {
+  ^gene-core "^1.0.0"        # Semantic versioning
+  ^http "~2.3.0"
+  ^json "1.2.3"
+}
+
+^dev-dependencies {
+  ^gene-test "^1.0.0"
+}
+
+# Scripts
+^scripts {
+  ^build "gene compile ${main}"
+  ^test "gene test ${test-dir}"
+  ^run "gene run ${main}"
+  ^clean "rm -rf build/"
+}
 ```
 
-## 8.7 Module Loading
+## 8.8 Namespace and Access
+
+Each module creates a namespace matching its import path:
 
 ```gene
-# Modules are loaded lazily on first access or import
-# File: config.gene
-(var database-url "localhost:5432")
-(var api-key "secret")
+# File: src/data/structures.gene
+(class Stack
+  (.prop items)
+  (.ctor [] (= /items []))
+  (.fn push [item] (/items .push item))
+  (.fn pop [] (/items .pop)))
 
-# File: main.gene
-(import config [database-url])  # Loads config.gene
-(print database-url)
+# File: src/main.gene
+(import data/structures)
 
-# Or direct access (also loads the module)
-(print config/api-key)
+# Full qualification
+(var s (new data/structures/Stack))
+(s .push 42)
+
+# After specific import
+(import data/structures [Stack])
+(var s2 (new Stack))
 ```
 
-## 8.8 Visibility and Exports
+## 8.9 Module Resolution Examples
 
 ```gene
-# By default, all top-level definitions in a module are accessible
-# Future enhancement: private definitions with - prefix
+# Package structure:
+# myapp/
+#   package.gene (src-dirs: ["src" "vendor"])
+#   src/
+#     main.gene
+#     core/
+#       config.gene
+#     utils/
+#       helpers.gene
+#   vendor/
+#     external/
+#       lib.gene
 
-# File: lib.gene
-(fn public-fn []      # Accessible from other modules
-  (helper))
+# In src/main.gene:
+(import /src/core/config)      # Absolute from package root
+(import core/config)           # Found in src/ (package path)
+(import ./core/config)         # ERROR: no core/ in src/
 
-(fn -private-fn []    # Future: Not accessible from other modules
-  ...)
-
-# Future: explicit export lists
-# ^export [public-fn]
+# In src/core/config.gene:
+(import ../utils/helpers)      # Relative: src/utils/helpers
+(import utils/helpers)         # Package path: found in src/
+(import external/lib)          # Package path: found in vendor/
 ```
 
-## 8.9 Name Collision Resolution
-
-Gene handles name collisions with these rules:
-
-### 8.9.1 Import Precedence
+## 8.10 Visibility Rules
 
 ```gene
-# Local definitions always win over imports
-(import math [max])    # Imports math/max
+# Public by default
+(fn helper [x] ...)            # Exported
 
-(fn max [a b]         # Local max shadows imported max
-  (if (> a b) a b))
+# Private with - suffix
+(fn validate- [x] ...)         # Not exported
 
-(print (max 5 3))     # Uses local max, not math/max
-(print (math/max 5 3)) # Can still use fully qualified name
+# Explicit exports
+^exports [helper process run]  # Only these are public
+
+# Import respects visibility
+(import utils [helper])        # OK
+(import utils [validate-])     # ERROR: private
 ```
 
-### 8.9.2 Multiple Import Conflicts
+## 8.11 Circular Dependencies
+
+Gene detects and prevents circular dependencies:
 
 ```gene
-# File: lib1.gene
-(fn process [x] (+ x 1))
+# a.gene
+(import b)
+(fn fa [] (b/fb))
 
-# File: lib2.gene  
-(fn process [x] (* x 2))
+# b.gene  
+(import a)                     # ERROR: Circular dependency
+(fn fb [] (a/fa))
 
-# File: main.gene
-(import lib1 [process])
-(import lib2 [process])  # Error: 'process' already imported from lib1
+# Solution: refactor shared code
+# common.gene
+(fn shared [] ...)
 
-# Solutions:
-
-# Option 1: Use aliases
-(import lib1 [process as process1])
-(import lib2 [process as process2])
-(print (process1 5))  # 6
-(print (process2 5))  # 10
-
-# Option 2: Use qualified names
-(import lib1)
-(import lib2)
-(print (lib1/process 5))  # 6
-(print (lib2/process 5))  # 10
-
-# Option 3: Selective import
-(import lib1 [process])
-(import lib2 [other-fn])  # Import different members
+# a.gene
+(import common)
+# b.gene
+(import common)
 ```
 
-### 8.9.3 Namespace Collisions
+## 8.12 Module Caching
+
+Modules are cached after first load:
+- Cache key: resolved absolute path
+- Module code executes once
+- Subsequent imports return cached namespace
+- Cache cleared on explicit reload
 
 ```gene
-# Explicit namespaces can shadow module namespaces
-# File: geometry.gene exists
+# First import - executes module code
+(import utils/expensive)       # Runs initialization
 
-(ns geometry          # Local namespace shadows module
-  (class Square
-    (side Float)))
+# Second import - returns cached namespace  
+(import utils/expensive)       # No re-execution
 
-# Access patterns:
-geometry/Square       # Refers to local namespace
-./geometry/Square     # Future: Refers to module (file)
-
-# Or use import to be explicit
-(import geometry as geom-module)
-geom-module/Point     # From module
-geometry/Square       # From local namespace
+# Force reload (future feature)
+(import! utils/expensive)      # Re-executes module
 ```
 
-### 8.9.4 Global vs Local Precedence
+## 8.13 Best Practices
 
-```gene
-# Local definitions shadow global ones
-(fn print [x]         # Shadows global print
-  (global/print "Custom: " x))  # Can access global via global/
+1. **Package Organization**
+   - Use canonical packages for libraries/apps
+   - Keep related modules in same directory
+   - Clear separation of concerns
 
-(print "Hello")       # Uses local print
+2. **Import Strategy**
+   - Import specific items when possible
+   - Use qualified names for clarity
+   - Avoid `import *` except for DSLs
 
-# Imported names shadow globals but not locals
-(import custom [+])   # Custom + operator
-(+ 1 2)              # Uses imported +, not global
-(global/+ 1 2)       # Access global + explicitly
-```
+3. **Module Design**
+   - One concept per module
+   - Clear public API via exports
+   - Minimal module initialization code
 
-### 8.9.5 Resolution Order
-
-The name resolution order in Gene is:
-1. Local variables and parameters
-2. Local function/class definitions  
-3. Imported names
-4. Module-level definitions in current module
-5. Namespace members (via / notation)
-6. Global namespace
-
-```gene
-(var x 10)           # Local variable
-
-(import math [x])    # Error: local 'x' already defined
-
-(fn test []
-  (var x 20)         # Function-local x
-  (print x)          # Prints 20, not 10
-  (print module/x))  # Future: Access module-level x
-```
-
-### 8.9.6 Best Practices
-
-```gene
-# 1. Use qualified names when clarity is needed
-(import utils)
-(import helpers)
-(utils/process data)
-(helpers/process data)
-
-# 2. Use aliases for common conflicts
-(import threading [lock as thread-lock])
-(import database [lock as db-lock])
-
-# 3. Group related imports
-(import geometry [Point Circle Rectangle])
-(import math [sin cos tan])
-
-# 4. Avoid shadowing built-ins unless intentional
-# Bad: (fn print [...])
-# Good: (fn custom-print [...])
-```
-
+4. **Path Usage**
+   - Absolute paths for top-level imports
+   - Relative paths for tightly coupled modules
+   - Package paths for loose coupling
 ---
 
 # Chapter 9: Concurrency and Parallelism

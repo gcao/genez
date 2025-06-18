@@ -6,6 +6,7 @@ const pipeline = @import("pipeline.zig");
 const compiler = @import("compiler.zig");
 const debug_output = @import("core/debug_output.zig");
 const debug = @import("core/debug.zig");
+const ast = @import("frontend/ast.zig");
 
 pub const Runtime = struct {
     allocator: std.mem.Allocator,
@@ -226,6 +227,250 @@ pub const Runtime = struct {
         debug.log("Bytecode written to: {s}", .{output_path});
         if (!self.debug_mode) {
             try self.stdout.print("Compiled stdin -> {s}\n", .{output_path});
+        }
+    }
+
+    /// Parse a package.gene file and output the parsed structure
+    pub fn parsePackageFile(self: *Runtime, path: []const u8) !void {
+        try self.parsePackageFileWithFormat(path, false);
+    }
+    
+    /// Parse a .gene file with optional pretty formatting
+    pub fn parsePackageFileWithFormat(self: *Runtime, path: []const u8, pretty: bool) !void {
+        const parser = @import("frontend/parser.zig");
+        const ast_serialize = @import("frontend/ast_serialize.zig");
+        
+        // Read file
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+        
+        const source = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
+        defer self.allocator.free(source);
+        
+        // Parse with filename
+        const parse_result = try parser.parseGeneSourceWithFilename(self.allocator, source, path);
+        defer {
+            parse_result.arena.deinit();
+            self.allocator.destroy(parse_result.arena);
+        }
+        
+        // Serialize and print the AST
+        if (self.debug_mode) {
+            try self.stdout.print("\n=== Parsed Document Structure ===\n", .{});
+        }
+        
+        if (pretty) {
+            // Pretty print the document structure
+            try self.prettyPrintDocument(parse_result.nodes);
+        } else {
+            // Raw AST output - if first node is a map (properties), show it separately
+            var buffer = std.ArrayList(u8).init(self.allocator);
+            defer buffer.deinit();
+            
+            if (parse_result.nodes.len > 0) {
+                const first_node = parse_result.nodes[0];
+                if (first_node == .Expression and first_node.Expression == .MapLiteral) {
+                    // This is a document with properties
+                    try self.stdout.print("(GeneDocument\n", .{});
+                    try self.stdout.print("  properties: ", .{});
+                    try ast_serialize.serializeNode(buffer.writer(), first_node, 0);
+                    try self.stdout.print("{s}\n", .{buffer.items});
+                    
+                    // Print expressions if any
+                    if (parse_result.nodes.len > 1) {
+                        try self.stdout.print("  expressions:\n", .{});
+                        for (parse_result.nodes[1..]) |node| {
+                            buffer.clearRetainingCapacity();
+                            try ast_serialize.serializeNode(buffer.writer(), node, 0);
+                            try self.stdout.print("    {s}\n", .{buffer.items});
+                        }
+                    }
+                    try self.stdout.print(")\n", .{});
+                } else {
+                    // No properties, just expressions
+                    for (parse_result.nodes) |node| {
+                        buffer.clearRetainingCapacity();
+                        try ast_serialize.serializeNode(buffer.writer(), node, 0);
+                        try self.stdout.print("{s}\n", .{buffer.items});
+                    }
+                }
+            }
+        }
+    }
+
+    /// Pretty print a parsed document with properties and expressions
+    fn prettyPrintDocument(self: *Runtime, nodes: []ast.AstNode) !void {
+        if (nodes.len == 0) return;
+        
+        // Check if first node is a map (properties)
+        const first_node = nodes[0];
+        if (first_node == .Expression and first_node.Expression == .MapLiteral) {
+            const map = first_node.Expression.MapLiteral;
+            
+            // Print properties
+            try self.stdout.print("=== Properties ===\n", .{});
+            for (map.entries) |entry| {
+                // Get the key as a string
+                const key_expr = entry.key.*;
+                const key_str = switch (key_expr) {
+                    .Literal => |lit| switch (lit.value) {
+                        .String => |s| s,
+                        else => continue,
+                    },
+                    else => continue,
+                };
+                
+                // Print the key
+                try self.stdout.print("{s}: ", .{key_str});
+                
+                // Print the value based on its type
+                try self.prettyPrintValue(entry.value.*, 0);
+                try self.stdout.print("\n", .{});
+            }
+            
+            // Print expressions if any
+            if (nodes.len > 1) {
+                try self.stdout.print("\n=== Expressions ===\n", .{});
+                for (nodes[1..]) |node| {
+                    try self.prettyPrintNode(node, 0);
+                    try self.stdout.print("\n", .{});
+                }
+            }
+        } else {
+            // No properties, just print expressions
+            for (nodes) |node| {
+                try self.prettyPrintNode(node, 0);
+                try self.stdout.print("\n", .{});
+            }
+        }
+    }
+    
+    /// Pretty print a single AST node
+    fn prettyPrintNode(self: *Runtime, node: ast.AstNode, indent: usize) !void {
+        switch (node) {
+            .Expression => |expr| try self.prettyPrintExpression(expr, indent),
+        }
+    }
+    
+    /// Pretty print an expression in a readable format
+    fn prettyPrintExpression(self: *Runtime, expr: ast.Expression, indent: usize) !void {
+        // Add indentation
+        var i: usize = 0;
+        while (i < indent) : (i += 1) {
+            try self.stdout.print("  ", .{});
+        }
+        
+        switch (expr) {
+            .FuncCall => |call| {
+                try self.stdout.print("(", .{});
+                try self.prettyPrintExpression(call.func.*, 0);
+                for (call.args.items) |arg| {
+                    try self.stdout.print(" ", .{});
+                    try self.prettyPrintExpression(arg.*, 0);
+                }
+                try self.stdout.print(")", .{});
+            },
+            .VarDecl => |decl| {
+                try self.stdout.print("(var {s} ", .{decl.name});
+                try self.prettyPrintExpression(decl.value.*, 0);
+                try self.stdout.print(")", .{});
+            },
+            .FuncDef => |def| {
+                try self.stdout.print("(fn {s} [", .{def.name});
+                for (def.params, 0..) |param, j| {
+                    if (j > 0) try self.stdout.print(" ", .{});
+                    try self.stdout.print("{s}", .{param.name});
+                }
+                try self.stdout.print("] ...)", .{});
+            },
+            .Literal => |lit| try self.prettyPrintLiteral(lit),
+            .Variable => |v| try self.stdout.print("{s}", .{v.name}),
+            .BinaryOp => |op| {
+                try self.stdout.print("(", .{});
+                switch (op.op) {
+                    .Ident => |ident| try self.stdout.print("{s} ", .{ident}),
+                    else => try self.stdout.print("op ", .{}),
+                }
+                try self.prettyPrintExpression(op.left.*, 0);
+                try self.stdout.print(" ", .{});
+                try self.prettyPrintExpression(op.right.*, 0);
+                try self.stdout.print(")", .{});
+            },
+            else => try self.stdout.print("<{s}>", .{@tagName(expr)}),
+        }
+    }
+    
+    /// Pretty print a literal value
+    fn prettyPrintLiteral(self: *Runtime, lit: ast.Literal) !void {
+        switch (lit.value) {
+            .String => |s| try self.stdout.print("\"{s}\"", .{s}),
+            .Int => |i| try self.stdout.print("{d}", .{i}),
+            .Float => |f| try self.stdout.print("{d}", .{f}),
+            .Bool => |b| try self.stdout.print("{s}", .{if (b) "true" else "false"}),
+            .Nil => try self.stdout.print("nil", .{}),
+            .Symbol => |s| try self.stdout.print(":{s}", .{s}),
+            else => try self.stdout.print("<literal>", .{}),
+        }
+    }
+    
+    /// Helper to pretty print values recursively
+    fn prettyPrintValue(self: *Runtime, expr: ast.Expression, indent: usize) !void {
+        switch (expr) {
+            .Literal => |lit| {
+                switch (lit.value) {
+                    .String => |s| try self.stdout.print("\"{s}\"", .{s}),
+                    .Int => |i| try self.stdout.print("{d}", .{i}),
+                    .Float => |f| try self.stdout.print("{d}", .{f}),
+                    .Bool => |b| try self.stdout.print("{s}", .{if (b) "true" else "false"}),
+                    .Nil => try self.stdout.print("nil", .{}),
+                    .Symbol => |s| try self.stdout.print(":{s}", .{s}),
+                    else => try self.stdout.print("<unknown>", .{}),
+                }
+            },
+            .ArrayLiteral => |arr| {
+                try self.stdout.print("[", .{});
+                for (arr.elements, 0..) |elem, i| {
+                    if (i > 0) try self.stdout.print(", ", .{});
+                    try self.prettyPrintValue(elem.*, indent);
+                }
+                try self.stdout.print("]", .{});
+            },
+            .MapLiteral => |map| {
+                try self.stdout.print("{{", .{});
+                if (map.entries.len > 0) {
+                    try self.stdout.print("\n", .{});
+                    for (map.entries) |entry| {
+                        // Indent
+                        var j: usize = 0;
+                        while (j < indent + 2) : (j += 1) {
+                            try self.stdout.print(" ", .{});
+                        }
+                        
+                        // Print key
+                        const key_expr = entry.key.*;
+                        const key_str = switch (key_expr) {
+                            .Literal => |lit| switch (lit.value) {
+                                .String => |s| s,
+                                else => "<key>",
+                            },
+                            else => "<key>",
+                        };
+                        try self.stdout.print("{s}: ", .{key_str});
+                        
+                        // Print value
+                        try self.prettyPrintValue(entry.value.*, indent + 2);
+                        try self.stdout.print("\n", .{});
+                    }
+                    
+                    // Closing indent
+                    var j: usize = 0;
+                    while (j < indent) : (j += 1) {
+                        try self.stdout.print(" ", .{});
+                    }
+                }
+                try self.stdout.print("}}", .{});
+            },
+            else => try self.stdout.print("<expr>", .{}),
         }
     }
 
