@@ -346,6 +346,13 @@ pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) 
     // Use the arena allocator for tokens as well
     var tokens = try tokenize(arena_allocator, source);
     // No need to defer cleanup for tokens since they'll be freed with the arena
+    
+    // Debug first few tokens
+    // std.debug.print("DEBUG: First 10 tokens after tokenization:\n", .{});
+    var tok_i: usize = 0;
+    while (tok_i < @min(10, tokens.items.len)) : (tok_i += 1) {
+        // std.debug.print("  [{d}] {s} at loc {d}\n", .{tok_i, @tagName(tokens.items[tok_i].kind), tokens.items[tok_i].loc});
+    }
 
     // Use arena allocator for everything to avoid mixing allocators
     var result_nodes = std.ArrayList(ast.AstNode).init(arena_allocator);
@@ -356,23 +363,21 @@ pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) 
 
     var pos: usize = 0;
     while (pos < tokens.items.len) {
+        // std.debug.print("DEBUG: parseGeneSource loop iteration, pos={d}, next token: {s}\n", .{pos, @tagName(tokens.items[pos].kind)});
         // Skip any unexpected RParen tokens
         if (tokens.items[pos].kind == .RParen) {
             pos += 1;
             continue;
         }
 
+        // std.debug.print("DEBUG: Calling parseExpression at pos={d}\n", .{pos});
         const result = parseExpression(arena_allocator, tokens.items[pos..], 0) catch |err| {
-            if (err == error.UnexpectedRParen) {
-                // Skip the RParen and continue
-                pos += 1;
-                continue;
-            } else {
-                return err;
-            }
+            // std.debug.print("DEBUG: parseExpression failed with error: {}\n", .{err});
+            return err;
         };
         // Don't add errdefer here, ownership is transferred to result_nodes
         try result_nodes.append(result.node); // Transfer ownership
+        // std.debug.print("DEBUG: parseExpression consumed {d} tokens\n", .{result.consumed});
         pos += result.consumed;
     }
 
@@ -381,6 +386,13 @@ pub fn parseGeneSource(parent_allocator: std.mem.Allocator, source: []const u8) 
 
     // Store the result in the arena and return arena pointer
     debug.log("parseGeneSource: parsed {} nodes successfully", .{result_nodes.items.len});
+    
+    // Debug first few tokens
+    // std.debug.print("DEBUG: First 10 tokens:\n", .{});
+    var debug_i: usize = 0;
+    while (debug_i < @min(10, tokens.items.len)) : (debug_i += 1) {
+        // std.debug.print("  [{d}] {s} at loc {d}\n", .{debug_i, @tagName(tokens.items[debug_i].kind), tokens.items[debug_i].loc});
+    }
 
     // Convert ArrayList to slice and store in arena
     const nodes_slice = try arena_allocator.alloc(ast.AstNode, result_nodes.items.len);
@@ -445,6 +457,18 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
     }
 
     const tok = toks[0];
+    debug.log("parseExpression: About to process token at location {}: kind={s}", .{
+        tok.loc,
+        @tagName(tok.kind),
+    });
+    if (tok.kind == .Class) {
+        std.debug.print("ERROR: Class token found in parseExpression context!\n", .{});
+        std.debug.print("Token stream context:\n", .{});
+        var i: usize = 0;
+        while (i < @min(5, toks.len)) : (i += 1) {
+            // std.debug.print("  [{d}] {s} at loc {d}\n", .{i, @tagName(toks[i].kind), toks[i].loc});
+        }
+    }
     return switch (tok.kind) {
         .Int => |val| {
             const literal_result = ParseResult{ .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Int = val } } } }, .consumed = 1 };
@@ -495,7 +519,15 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .If => return parseIf(alloc, toks, depth + 1),
                 .Var => return parseVar(alloc, toks, depth + 1),
                 .Do => return parseDoBlock(alloc, toks, depth + 1),
-                .Class => return parseClass(alloc, toks, depth + 1),
+                .Class => {
+                    // std.debug.print("DEBUG: Dispatching to parseClass\n", .{});
+                    const class_result = parseClass(alloc, toks, depth + 1) catch |err| {
+                        // std.debug.print("DEBUG: parseClass failed with error: {}\n", .{err});
+                        return err;
+                    };
+                    // std.debug.print("DEBUG: parseClass succeeded, consumed={d}\n", .{class_result.consumed});
+                    return class_result;
+                },
                 .New => return parseNew(alloc, toks, depth + 1),
                 .Match => return parseMatch(alloc, toks, depth + 1),
                 .Macro => return parseMacro(alloc, toks, depth + 1),
@@ -508,9 +540,14 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                     if (toks.len > 2 and toks[2].kind == .Dot) {
                         return parseMethodCall(alloc, toks, depth + 1);
                     }
-                    // Per instructions, assume (Ident ...) is a call for now.
-                    // parseList would handle (Ident op Expr) if it were to receive it.
-                    return parseCall(alloc, toks, depth + 1);
+                    // For more complex cases, we need to check if the identifier starts an expression
+                    // that is followed by a dot (e.g., (t/data .method))
+                    // First, try to parse as a general list to see if it's a method call
+                    const list_result = parseList(alloc, toks, depth + 1) catch {
+                        // If parseList fails, try parseCall
+                        return parseCall(alloc, toks, depth + 1);
+                    };
+                    return list_result;
                 },
                 .Equals => {
                     // Handle field assignment: (= obj/field value)
@@ -597,7 +634,10 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
             };
         },
         .RParen => error.UnexpectedRParen,
-        else => error.InvalidExpression,
+        else => {
+            debug.log("ERROR: Unhandled token kind in parseExpression: {s} at location {}", .{@tagName(tok.kind), tok.loc});
+            return error.InvalidExpression;
+        },
     };
 }
 
@@ -882,6 +922,37 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
         .Int => |val| left_literal_node = .{ .Expression = .{ .Literal = .{ .value = .{ .Int = val } } } },
         .Bool => |val| left_literal_node = .{ .Expression = .{ .Literal = .{ .value = .{ .Bool = val } } } },
         .String => |str| left_literal_node = .{ .Expression = .{ .Literal = .{ .value = .{ .String = str } } } },
+        .Ident => {
+            // Handle identifier - could be start of a function call, field access, or method call
+            // First check if it's a simple method call pattern: (ident .method ...)
+            if (current_pos_after_first < toks.len and toks[current_pos_after_first].kind == .Dot) {
+                return parseMethodCall(alloc, toks, depth + 1);
+            }
+            
+            // Check if this might be a field access followed by method call
+            // We need to look ahead to see if there's a pattern like: ident/field .method
+            var lookahead_pos = current_pos_after_first;
+            var has_field_access = false;
+            
+            // Look for field access pattern
+            while (lookahead_pos < toks.len and toks[lookahead_pos].kind == .Slash) {
+                lookahead_pos += 1; // Skip slash
+                if (lookahead_pos >= toks.len or toks[lookahead_pos].kind != .Ident) {
+                    break;
+                }
+                lookahead_pos += 1; // Skip field name
+                has_field_access = true;
+            }
+            
+            // Check if after field access we have a dot (method call)
+            if (has_field_access and lookahead_pos < toks.len and toks[lookahead_pos].kind == .Dot) {
+                // This is a method call on field access - parseMethodCall should handle it
+                return parseMethodCall(alloc, toks, depth + 1);
+            }
+            
+            // Otherwise, it's a regular function call
+            return parseCall(alloc, toks, depth + 1);
+        },
         else => {
             // This case implies something like `([ ...)` or `({ ...)` if not caught by parseExpression,
             // or other unhandled token kinds as the first element of a list.
@@ -890,6 +961,12 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
         },
     }
 
+    // Check for method call pattern: (literal .method ...)
+    if (current_pos_after_first < toks.len and toks[current_pos_after_first].kind == .Dot) {
+        // This is a method call on a literal
+        return parseMethodCall(alloc, toks, depth + 1);
+    }
+    
     // Check for operator at toks[current_pos_after_first] (i.e., toks[2])
     if (current_pos_after_first < toks.len and toks[current_pos_after_first].kind == .Ident) {
         const op_token = toks[current_pos_after_first];
@@ -1113,7 +1190,20 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
     var params_list = std.ArrayList(ast.FuncParam).init(alloc);
     errdefer params_list.deinit(); // Cleanup if error before transfer
 
-    if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
+    // Check for special _ parameter (without brackets)
+    if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+        const ident = toks[current_pos].kind.Ident;
+        if (std.mem.eql(u8, ident, "_")) {
+            // _ means ignore all parameters
+            // We'll create a special parameter to indicate this
+            const underscore_param = try alloc.dupe(u8, "_");
+            try params_list.append(.{ .name = underscore_param, .param_type = null });
+            current_pos += 1; // Skip _
+        } else {
+            // This is not a valid parameter syntax - parameters must be in brackets
+            // Continue to body parsing
+        }
+    } else if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1; // Skip '['
         while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
             if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
@@ -1210,7 +1300,20 @@ fn parseFnx(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
     var params_list = std.ArrayList(ast.FuncParam).init(alloc);
     errdefer params_list.deinit(); // Cleanup if error before transfer
 
-    if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
+    // Check for special _ parameter (without brackets)
+    if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+        const ident = toks[current_pos].kind.Ident;
+        if (std.mem.eql(u8, ident, "_")) {
+            // _ means ignore all parameters
+            // We'll create a special parameter to indicate this
+            const underscore_param = try alloc.dupe(u8, "_");
+            try params_list.append(.{ .name = underscore_param, .param_type = null });
+            current_pos += 1; // Skip _
+        } else {
+            // This is not a valid parameter syntax - parameters must be in brackets
+            // Continue to body parsing
+        }
+    } else if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1; // Skip '['
         while (current_pos < toks.len and toks[current_pos].kind != .RBracket) {
             if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.ExpectedParameterName;
@@ -1732,6 +1835,7 @@ fn parseCall(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
 fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
     // Expects (class ClassName (field1 field2 ...) (method1 ...) (method2 ...))
     // Minimum: (class Name) -> LParen, Class, Ident, RParen (4 tokens)
+    // std.debug.print("DEBUG: parseClass called with {} tokens\n", .{toks.len});
     if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .Class) return error.UnexpectedToken;
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
 
@@ -1880,15 +1984,21 @@ fn parseClass(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
         //     debug.log("Added field: {s}", .{field_result.field.name});
         } else {
             // Skip non-paren tokens
+            // std.debug.print("DEBUG: parseClass skipping token at pos={d}: {s}\n", .{current_pos, @tagName(toks[current_pos].kind)});
             current_pos += 1;
         }
     }
 
-    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) {
+        // std.debug.print("DEBUG: parseClass ExpectedRParen at pos={d}, token={s}\n", .{current_pos, if (current_pos < toks.len) @tagName(toks[current_pos].kind) else "EOF"});
+        return error.ExpectedRParen;
+    }
     current_pos += 1;
 
     const fields_slice = try fields.toOwnedSlice();
     const methods_slice = try methods.toOwnedSlice();
+
+    // std.debug.print("DEBUG: parseClass returning, consumed={d} tokens\n", .{current_pos});
 
     return ParseResult{
         .node = .{ 
@@ -2646,6 +2756,9 @@ fn parsePattern(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pa
                 .consumed = expr_result.consumed,
             };
         },
-        else => return error.InvalidExpression,
+        else => {
+            std.debug.print("ERROR: Unhandled token in parseExpression: {any} at location {}\n", .{tok.kind, tok.loc});
+            return error.InvalidExpression;
+        },
     }
 }

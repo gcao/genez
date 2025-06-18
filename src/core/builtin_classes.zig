@@ -104,11 +104,12 @@ pub const CoreClasses = struct {
         try self.addMethod(self.array_class, "push", createPushMethod);
         try self.addMethod(self.array_class, "pop", createPopMethod);
         try self.addMethod(self.array_class, "at", createAtMethod);
+        try self.addMethod(self.array_class, "contains", createArrayContainsMethod);
 
         // Add methods to Map class
         try self.addMethod(self.map_class, "get", createGetMethod);
         try self.addMethod(self.map_class, "put", createPutMethod);
-        try self.addMethod(self.map_class, "has", createHasMethod);
+        try self.addMethod(self.map_class, "contains", createMapContainsMethod);
         try self.addMethod(self.map_class, "keys", createKeysMethod);
 
         // Add methods to Class metaclass
@@ -320,6 +321,14 @@ fn createAtMethod(allocator: std.mem.Allocator) !*bytecode.Function {
     return func;
 }
 
+fn createArrayContainsMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "contains", 2, 3);
+    // Check if array contains value (self in r0, value in r1)
+    try func.instructions.append(.{ .op = .ArrayContains, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
+    return func;
+}
+
 // Map methods
 fn createGetMethod(allocator: std.mem.Allocator) !*bytecode.Function {
     const func = try createFunction(allocator, "get", 2, 3);
@@ -337,10 +346,11 @@ fn createPutMethod(allocator: std.mem.Allocator) !*bytecode.Function {
     return func;
 }
 
-fn createHasMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "has", 2, 1);
-    // TODO: Need MapHas instruction
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+fn createMapContainsMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "contains", 2, 3);
+    // Check if map contains key (self in r0, key in r1)
+    try func.instructions.append(.{ .op = .MapHas, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
     return func;
 }
 

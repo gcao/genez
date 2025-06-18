@@ -34,7 +34,10 @@
       "Bash(./eval_stdin.sh)",
       "Bash(curl:*)",
       "Bash(zig test:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(./testsuite/data_parser/run_tests.sh:*)",
+      "Bash(./hello_world.gene)",
+      "Bash(gene run:*)"
     ],
     "deny": []
   },

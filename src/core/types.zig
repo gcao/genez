@@ -119,6 +119,7 @@ pub const BuiltinOperatorType = enum {
     
     // Built-in functions
     Print,
+    Println, // Print with newline
     Len,     // Length function
     Type,    // Type introspection
     

@@ -70,6 +70,7 @@ pub const VM = struct {
 
         // Store the print function as a built-in operator
         variables.put("print", .{ .BuiltinOperator = .Print }) catch unreachable;
+        variables.put("println", .{ .BuiltinOperator = .Println }) catch unreachable;
 
         // Store built-in operators
         // Arithmetic operators
@@ -904,6 +905,67 @@ pub const VM = struct {
                         try self.stdout.print("\n", .{});
 
                         // Print function returns nil
+                        try self.setRegister(dst_reg, .{ .Nil = {} });
+                        return;
+                    }
+
+                    // Handle println function (same as print, already adds newline)
+                    if (builtin_op == .Println) {
+                        // Println can take any number of arguments
+                        for (0..arg_count) |i| {
+                            // For single argument calls, the argument might be in the previous register
+                            // (result of a previous operation)
+                            const arg_reg = if (arg_count == 1)
+                                dst_reg - 1 // Previous register (result of previous call)
+                            else
+                                func_reg + 1 + @as(u16, @intCast(i)); // Arguments follow function register
+                            var arg = try self.getRegister(arg_reg);
+                            defer arg.deinit(self.allocator);
+
+                            // Print without newline except for the last argument
+                            switch (arg) {
+                                .Int => |val| try self.stdout.print("{d}", .{val}),
+                                .String => |str| try self.stdout.print("{s}", .{str}),
+                                .Symbol => |sym| try self.stdout.print("{s}", .{sym}),
+                                .Bool => |b| try self.stdout.print("{}", .{b}),
+                                .Float => |f| try self.stdout.print("{d}", .{f}),
+                                .Nil => try self.stdout.print("nil", .{}),
+                                .Array => |arr| try self.stdout.print("{any}", .{arr}),
+                                .Map => |map| try self.stdout.print("{any}", .{map}),
+                                .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {any}", .{addr}),
+                                .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
+                                .Variable => |var_name| try self.stdout.print("{s}", .{var_name.name}),
+                                .BuiltinOperator => |op| try self.stdout.print("BuiltinOperator: {any}", .{op}),
+                                .Class => |class| try self.stdout.print("Class: {s}", .{class.name}),
+                                .Object => |obj_id| {
+                                    if (self.getObjectById(obj_id)) |obj| {
+                                        try self.stdout.print("Object of {s}", .{obj.class.name});
+                                    } else {
+                                        try self.stdout.print("Object(invalid ID: {})", .{obj_id});
+                                    }
+                                },
+                                .CPtr => |ptr| {
+                                    if (ptr) |p| {
+                                        try self.stdout.print("CPtr: {*}", .{p});
+                                    } else {
+                                        try self.stdout.print("CPtr: null", .{});
+                                    }
+                                },
+                                .CFunction => |func| try self.stdout.print("CFunction: {*}", .{func}),
+                                .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
+                                .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
+                            }
+
+                            // Add space between arguments except for the last one
+                            if (i < arg_count - 1) {
+                                try self.stdout.print(" ", .{});
+                            }
+                        }
+
+                        // Add newline after all arguments
+                        try self.stdout.print("\n", .{});
+
+                        // Println function returns nil
                         try self.setRegister(dst_reg, .{ .Nil = {} });
                         return;
                     }
@@ -2148,6 +2210,61 @@ pub const VM = struct {
                 const is_map = src_val == .Map;
                 try self.setRegister(dst_reg, .{ .Bool = is_map });
             },
+            .ArrayContains => {
+                // Check if array contains value: ArrayContains Rd, array_reg, value_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const array_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const value_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var array_val = try self.getRegister(array_reg);
+                defer array_val.deinit(self.allocator);
+                var search_val = try self.getRegister(value_reg);
+                defer search_val.deinit(self.allocator);
+
+                if (array_val != .Array) {
+                    debug.log("ArrayContains requires an Array, got {}", .{array_val});
+                    return error.TypeMismatch;
+                }
+
+                const array = array_val.Array;
+                var contains = false;
+
+                // Search for the value in the array
+                for (array) |element| {
+                    if (try self.valuesEqual(element, search_val)) {
+                        contains = true;
+                        break;
+                    }
+                }
+
+                try self.setRegister(dst_reg, .{ .Bool = contains });
+            },
+            .MapHas => {
+                // Check if map has key: MapHas Rd, map_reg, key_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const map_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const key_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var map_val = try self.getRegister(map_reg);
+                defer map_val.deinit(self.allocator);
+                var key_val = try self.getRegister(key_reg);
+                defer key_val.deinit(self.allocator);
+
+                if (map_val != .Map) {
+                    debug.log("MapHas requires a Map, got {}", .{map_val});
+                    return error.TypeMismatch;
+                }
+                if (key_val != .String) {
+                    debug.log("MapHas key must be String, got {}", .{key_val});
+                    return error.TypeMismatch;
+                }
+
+                const map = map_val.Map;
+                const key = key_val.String;
+                const has_key = map.contains(key);
+
+                try self.setRegister(dst_reg, .{ .Bool = has_key });
+            },
             .Dup => {
                 // Duplicate register value: Dup Rs -> same register used as source
                 // Note: In our MIR->bytecode, we use Move to implement Dup
@@ -2159,6 +2276,35 @@ pub const VM = struct {
                 return error.UnsupportedInstruction;
             },
         }
+    }
+
+    fn valuesEqual(self: *VM, val1: types.Value, val2: types.Value) !bool {
+        
+        // Check if types are different
+        if (@intFromEnum(val1) != @intFromEnum(val2)) {
+            return false;
+        }
+        
+        // Compare values based on type
+        return switch (val1) {
+            .Int => |n1| n1 == val2.Int,
+            .Float => |f1| f1 == val2.Float,
+            .String => |s1| std.mem.eql(u8, s1, val2.String),
+            .Bool => |b1| b1 == val2.Bool,
+            .Nil => true, // All nils are equal
+            .Symbol => |s1| std.mem.eql(u8, s1, val2.Symbol),
+            .Array => |arr1| blk: {
+                const arr2 = val2.Array;
+                if (arr1.len != arr2.len) break :blk false;
+                for (arr1, arr2) |elem1, elem2| {
+                    if (!try self.valuesEqual(elem1, elem2)) break :blk false;
+                }
+                break :blk true;
+            },
+            .Map => false, // Maps are compared by reference for now
+            .Object => |id1| id1 == val2.Object, // Objects compared by ID
+            else => false, // Other types not comparable
+        };
     }
 
     fn executeBuiltinOperator(self: *VM, op: types.BuiltinOperatorType, arg1: types.Value, arg2: types.Value) !types.Value {

@@ -57,6 +57,10 @@ pub const OpCode = enum {
     IsArray, // Check if value is array: IsArray Rd, Rs
     IsMap, // Check if value is map: IsMap Rd, Rs
     
+    // Collection contains operations
+    ArrayContains, // Check if array contains value: ArrayContains Rd, array_reg, value_reg
+    MapHas, // Check if map has key: MapHas Rd, map_reg, key_reg
+    
     // Stack operations (needed for pattern matching)
     Dup, // Duplicate top of stack: Dup Rs -> push Rs value again
     Pop, // Pop and discard: Pop Rs
