@@ -130,6 +130,12 @@ The `testsuite/` directory contains comprehensive language-level tests that veri
 - Float literal parsing implemented
 - Garbage collection implemented with mark-and-sweep algorithm
 - GC API functions: gc_collect, gc_enable, gc_disable, gc_stats
+- Module system partially implemented:
+  - Import statement parsing with all variations
+  - Module resolver infrastructure
+  - Bare property syntax (`^name "value"`) in any .gene file
+  - GeneDocument structure for properties and expressions
+  - Comprehensive module tests in testsuite/modules/
 
 **Next Development Priorities:**
 1. **Module System** - Basic imports/exports and namespaces  

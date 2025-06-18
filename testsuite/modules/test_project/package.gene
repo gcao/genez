@@ -1,0 +1,6 @@
+# Test project package
+^name "test-project"
+^version "1.0.0"
+^description "Test project for module loading"
+^src-dirs ["src" "lib"]
+^main "src/main"

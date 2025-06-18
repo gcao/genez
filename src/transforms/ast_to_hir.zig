@@ -687,10 +687,33 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             // For now, convert module definitions to nil literals as placeholder
             return hir.HIR.Expression{ .literal = .{ .nil = {} } };
         },
-        .ImportStmt => {
-            // TODO: Implement proper HIR import support
-            // For now, convert import statements to nil literals as placeholder
-            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
+        .ImportStmt => |import| {
+            // Convert AST import to HIR import
+            const import_stmt = try allocator.create(hir.HIR.ImportStmt);
+            errdefer allocator.destroy(import_stmt);
+            
+            import_stmt.* = hir.HIR.ImportStmt{
+                .module_path = try allocator.dupe(u8, import.module_path),
+                .alias = if (import.alias) |a| try allocator.dupe(u8, a) else null,
+                .items = null, // Initialize as null
+            };
+            
+            // Convert import items if any
+            if (import.items) |items| {
+                const hir_items = try allocator.alloc(hir.HIR.ImportStmt.ImportItem, items.len);
+                errdefer allocator.free(hir_items);
+                
+                for (items, 0..) |item, i| {
+                    hir_items[i] = .{
+                        .name = try allocator.dupe(u8, item.name),
+                        .alias = if (item.alias) |a| try allocator.dupe(u8, a) else null,
+                    };
+                }
+                
+                import_stmt.items = hir_items;
+            }
+            
+            return hir.HIR.Expression{ .import_stmt = import_stmt };
         },
         .ExportStmt => {
             // TODO: Implement proper HIR export support

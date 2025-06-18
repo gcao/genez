@@ -1,0 +1,13 @@
+# Utils module
+^module "utils"
+^description "Utility functions"
+
+(fn identity [x] x)
+
+(fn compose [f g]
+  (fn [x] (f (g x))))
+
+(fn twice [f]
+  (fn [x] (f (f x))))
+
+(print "Utils module loaded")

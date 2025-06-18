@@ -319,6 +319,28 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             }
             try writer.writeAll(")");
         },
+        .import_stmt => |import_ptr| {
+            try writer.print("(import \"{s}\"", .{import_ptr.module_path});
+            if (import_ptr.alias) |alias| {
+                try writer.print(" :as {s}", .{alias});
+            }
+            if (import_ptr.items) |items| {
+                try writer.writeAll(" [");
+                for (items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    if (item.alias) |alias| {
+                        try writer.print("[{s} {s}]", .{item.name, alias});
+                    } else {
+                        try writer.writeAll(item.name);
+                    }
+                }
+                try writer.writeAll("]");
+            }
+            try writer.writeAll(")");
+        },
+        .module_access => |mod_access| {
+            try writer.print("{s}/{s}", .{mod_access.module, mod_access.member});
+        },
     }
 }
 

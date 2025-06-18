@@ -60,7 +60,15 @@ Based on analysis of the other Gene implementation (https://github.com/gcao/gene
   - `gene/sleep_async` - namespace access
   - `genex/http/get` - nested namespace access
   - `$ns/DB_HOST` - namespace variable
-- **Our implementation**: No module system yet
+- **Our implementation**: Module system partially implemented
+  - `(import "module")` - basic import
+  - `(import "module" :as alias)` - import with alias
+  - `(import "module" [item1 item2])` - import specific items
+  - `(import "module" [[old new]])` - import with renaming
+  - `(import "./relative/path")` - relative imports
+  - `(import "/absolute/path")` - absolute imports
+  - Module resolution from package directories
+  - No wildcard imports yet
 
 ## 6. Special Literals and Operators
 - **Other implementation**:
@@ -154,6 +162,22 @@ Based on analysis of the other Gene implementation (https://github.com/gcao/gene
   - Conditional variable initialization in expressions
   - Object methods returning self for chaining
 - **Our implementation**: Basic type system only
+
+## 17. Document Properties (Our Implementation)
+- **Our implementation**: Support for bare properties in .gene files
+  - `^name "value"` - bare property syntax at top level
+  - Creates a GeneDocument with properties and expressions
+  - Properties are collected into a map structure
+  - Useful for metadata, configuration, module info
+  - Example:
+    ```gene
+    ^module "mymodule"
+    ^version "1.0.0"
+    ^author "Developer"
+    
+    (fn main [] ...)
+    ```
+- **Other implementation**: Not documented
 
 ## Summary
 The other Gene implementation has significantly more features and a richer syntax, including:

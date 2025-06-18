@@ -1,0 +1,21 @@
+# Math module
+^module "math"
+^description "Basic math functions"
+
+(fn square [x]
+  (* x x))
+
+(fn cube [x]
+  (* x x x))
+
+(fn add [a b]
+  (+ a b))
+
+(fn subtract [a b]
+  (- a b))
+
+(var PI 3.14159)
+(var E 2.71828)
+
+# Export all by default for now
+(print "Math module loaded")

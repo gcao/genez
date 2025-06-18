@@ -1,0 +1,42 @@
+#!/usr/bin/env gene run
+
+# Test interaction between modules and namespaces
+
+# Modules can contain namespaces
+# When importing a module, its namespaces should be accessible
+
+# Example module structure:
+# math.gene:
+#   (ns basic
+#     (fn add [a b] (+ a b)))
+#   (ns advanced  
+#     (fn integral [f x] ...))
+
+# Import scenarios:
+
+# 1. Import entire module (all namespaces available)
+(import "math")
+# Usage: math/basic/add, math/advanced/integral
+
+# 2. Import specific namespace from module
+(import "math/basic" :as basic)
+# Usage: basic/add
+
+# 3. Import items from namespace in module
+(import "math/basic" [add subtract])
+# Usage: add, subtract (directly)
+
+# 4. Module with default exports (not in namespace)
+# utils.gene:
+#   (fn helper1 [] ...)  # Not in namespace
+#   (ns internal
+#     (fn helper2 [] ...))
+(import "utils")
+# Usage: utils/helper1 (default), utils/internal/helper2
+
+# 5. Re-exporting from namespaces
+# lib.gene:
+#   (import "math/basic" [add])
+#   (export add)  # Re-export imported function
+
+(print "Module-namespace interaction patterns documented")

@@ -1,0 +1,22 @@
+# Main module demonstrating various import types
+^module "main"
+
+# Test 1: Import from lib directory (package path)
+(import "math")
+(import "utils" :as u)
+
+# Test 2: Relative import from current directory
+(import "./helpers/string_utils" :as str)
+
+# Test 3: Import specific items
+# (import "math" [square cube PI])
+
+# Test 4: Test usage
+(print "Testing imports...")
+
+# These would work once imports are implemented:
+# (print (math/square 5))
+# (print (u/identity "hello"))
+# (print (str/uppercase "test"))
+
+(print "Main module executed")

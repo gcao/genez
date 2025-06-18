@@ -1,0 +1,24 @@
+#!/usr/bin/env gene run
+
+# Test absolute module imports
+
+# Test 1: Absolute path imports (from root)
+(import "/std/math")
+(import "/std/io" :as io)
+(import "/std/collections" [List Dict])
+
+# Test 2: System modules (hypothetical standard library)
+(import "/sys/os")
+(import "/sys/fs" :as filesystem)
+
+# Test 3: Application root imports
+(import "/app/config")
+(import "/app/models/user" :as User)
+(import "/app/controllers/auth" [login logout])
+
+# Test 4: Mixed absolute imports
+(import "/lib/vendor/json")
+(import "/lib/vendor/http" :as http)
+(import "/lib/internal/cache" [Cache MemCache])
+
+(print "Absolute import syntax parsed successfully")

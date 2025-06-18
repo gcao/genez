@@ -1,0 +1,16 @@
+# String utilities module
+^module "helpers/string_utils"
+
+(fn uppercase [s]
+  # Placeholder - would call string method
+  s)
+
+(fn lowercase [s]
+  # Placeholder
+  s)
+
+(fn trim [s]
+  # Placeholder
+  s)
+
+(print "String utils module loaded")

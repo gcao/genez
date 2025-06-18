@@ -1,0 +1,32 @@
+#!/usr/bin/env gene run
+
+# Test module resolution rules
+
+# Module resolution should follow these rules:
+# 1. Relative paths (./xxx, ../xxx) - relative to current file
+# 2. Absolute paths (/xxx) - from project/system root  
+# 3. Package paths (xxx) - search in package directories
+
+# Test different import formats and their expected resolution
+
+# Current file: /project/src/mymodule.gene
+
+# Relative imports:
+# (import "./helper")        => /project/src/helper.gene
+# (import "../lib/utils")    => /project/lib/utils.gene
+# (import "./sub/module")    => /project/src/sub/module.gene
+
+# Absolute imports:
+# (import "/std/math")       => /system/std/math.gene
+# (import "/app/config")     => /project/app/config.gene
+
+# Package imports (search in src-dirs from package.gene):
+# (import "math")            => /project/lib/math.gene (if lib is in src-dirs)
+# (import "utils/helpers")   => /project/lib/utils/helpers.gene
+
+# Import precedence when same name exists in multiple locations:
+# 1. Relative path (most specific)
+# 2. Package directories (in order listed in src-dirs)
+# 3. System/absolute paths
+
+(print "Module resolution rules documented")

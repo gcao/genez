@@ -1,0 +1,29 @@
+#!/usr/bin/env gene run
+
+# Test import error cases (syntax that should parse but fail at runtime)
+
+# Test 1: Invalid import paths
+# These should parse but would fail during module resolution
+# (import "")  # Empty path
+# (import "   ")  # Whitespace only
+# (import "!!!invalid!!!")  # Invalid characters
+
+# Test 2: Malformed import syntax (these should fail parsing)
+# These are commented out because they would cause parse errors
+# (import)  # Missing path
+# (import "path" :as)  # Missing alias
+# (import "path" [])  # Empty import list
+# (import "path" :as 123)  # Non-identifier alias
+
+# Test 3: Valid syntax that would fail at runtime
+(import "./does_not_exist")  # File not found
+(import "../../../../../outside_root")  # Outside project
+# (import "http://example.com/module")  # Network imports not supported
+# (import "C:\\Windows\\module")  # OS-specific paths discouraged
+
+# Test 4: Import with invalid item specifications
+# (import "module" [123 456])  # Non-identifier items
+# (import "module" [[from]])  # Incomplete rename
+# (import "module" [[from to extra]])  # Too many elements
+
+(print "Import error cases documented")

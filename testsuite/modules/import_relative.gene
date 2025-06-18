@@ -1,0 +1,31 @@
+#!/usr/bin/env gene run
+
+# Test relative module imports
+
+# Test setup: Create a local module structure
+# This simulates what would happen with actual file-based modules
+
+# For now, test that relative import syntax is parsed correctly
+
+# Test 1: Current directory import
+(import "./helper")
+(import "./utils" :as u)
+
+# Test 2: Parent directory import
+(import "../shared/config")
+(import "../../common/base" :as base)
+
+# Test 3: Subdirectory import
+(import "./subdir/module1")
+(import "./subdir/deep/module2" :as m2)
+
+# Test 4: Multiple relative imports
+(import "./math/basic")
+(import "./math/advanced" :as adv)
+(import "./data/structures" [Array Map Set])
+
+# Test 5: Error cases (would fail at runtime, but parse should work)
+# (import "./non_existent")  # Would fail - file not found
+# (import "../../../too_far") # Would fail - outside project root
+
+(print "Relative import syntax parsed successfully")

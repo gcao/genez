@@ -797,6 +797,21 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Add return instruction
             try block.instructions.append(.Return);
         },
+        .import_stmt => |import_ptr| {
+            // Import statements are handled at compile time, not runtime
+            // For now, just push nil as a placeholder
+            _ = import_ptr;
+            try block.instructions.append(.LoadNil);
+        },
+        .module_access => |mod_access| {
+            // Module access will need runtime support
+            // For now, generate a variable load for the full path
+            const full_path = try std.fmt.allocPrint(block.allocator, "{s}/{s}", .{
+                mod_access.module,
+                mod_access.member,
+            });
+            try block.instructions.append(.{ .LoadVariable = full_path });
+        },
     }
 }
 

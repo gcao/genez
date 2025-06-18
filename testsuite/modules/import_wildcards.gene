@@ -1,0 +1,36 @@
+#!/usr/bin/env gene run
+
+# Test wildcard import patterns (future feature)
+
+# These patterns demonstrate potential wildcard syntax
+# Currently not implemented in the parser
+
+# Test 1: Import all from a module
+# (import "math" *)  # Would import all exports
+# (import "utils" * :as u)  # Would import all with namespace prefix
+
+# Test 2: Wildcard with exclusions
+# (import "large_lib" * :except [internal private])
+
+# Test 3: Glob patterns in paths
+# (import "components/*.gene")  # All .gene files in components/
+# (import "models/*")  # All modules in models/
+
+# Test 4: Recursive wildcards  
+# (import "src/**/*.gene")  # All .gene files recursively
+
+# Test 5: Wildcard with specific imports
+# This might be useful to import all + ensure specific ones exist
+# (import "helpers" * [required1 required2])
+
+# Test 6: Conditional wildcards (future feature)
+# (import "plugins/*" :if available)
+
+# For now, explicit imports are required:
+(import "math")  # Import with namespace
+(import "utils" :as u)  # Import with alias
+
+# Note: Wildcard imports can impact performance and clarity
+# Best practice is to import only what you need
+
+(print "Wildcard import patterns documented")

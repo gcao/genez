@@ -1,0 +1,22 @@
+#!/usr/bin/env gene run
+
+# Test circular import detection (when implemented)
+
+# This test documents how circular imports should be handled
+
+# Example 1: Direct circular import
+# File A: (import "./B")
+# File B: (import "./A")
+# Should be detected and reported as error
+
+# Example 2: Indirect circular import
+# File A: (import "./B") 
+# File B: (import "./C")
+# File C: (import "./A")
+# Should also be detected
+
+# Example 3: Self-import
+# (import "./import_circular")  # Would be circular
+
+# For now, just test that the syntax parses
+(print "Circular import test cases documented")

@@ -1,0 +1,19 @@
+# Gene Test Suite
+# This is the correct format that current parser can handle
+
+(package
+  ^name "gene-testsuite"
+  ^version "0.1.0"
+  ^description "Test suite for Gene programming language"
+  ^author "Guoliang Cao"
+  ^license "MIT"
+  ^repository "https://github.com/gcao/genez"
+  ^homepage "https://github.com/gcao/genez"
+  ^bugs "https://github.com/gcao/genez/issues"
+  ^keywords ["gene" "testsuite"]
+  ^src-dirs ["."]
+  ^main ""
+  ^scripts {
+    ^test "./run_tests.sh"
+  }
+)

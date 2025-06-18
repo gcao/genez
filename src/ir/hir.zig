@@ -90,6 +90,8 @@ pub const HIR = struct {
         macro_call: MacroCall, // Macro call
         for_loop: *ForLoop, // For-in loop
         return_expr: *ReturnExpr, // Return statement
+        import_stmt: *ImportStmt, // Import statement
+        module_access: ModuleAccess, // Access to module member
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -133,6 +135,11 @@ pub const HIR = struct {
                     ret_ptr.deinit(allocator);
                     allocator.destroy(ret_ptr);
                 },
+                .import_stmt => |import_ptr| {
+                    import_ptr.deinit(allocator);
+                    allocator.destroy(import_ptr);
+                },
+                .module_access => |*mod_access| mod_access.deinit(allocator),
             }
         }
     };
@@ -737,6 +744,39 @@ pub const HIR = struct {
                 val.deinit(allocator);
                 allocator.destroy(val);
             }
+        }
+    };
+    
+    pub const ImportStmt = struct {
+        module_path: []const u8,
+        alias: ?[]const u8,
+        items: ?[]ImportItem,
+        
+        pub const ImportItem = struct {
+            name: []const u8,
+            alias: ?[]const u8,
+        };
+        
+        pub fn deinit(self: *ImportStmt, allocator: std.mem.Allocator) void {
+            allocator.free(self.module_path);
+            if (self.alias) |a| allocator.free(a);
+            if (self.items) |items| {
+                for (items) |*item| {
+                    allocator.free(item.name);
+                    if (item.alias) |a| allocator.free(a);
+                }
+                allocator.free(items);
+            }
+        }
+    };
+    
+    pub const ModuleAccess = struct {
+        module: []const u8, // Module name or alias
+        member: []const u8, // Member being accessed
+        
+        pub fn deinit(self: *ModuleAccess, allocator: std.mem.Allocator) void {
+            allocator.free(self.module);
+            allocator.free(self.member);
         }
     };
 };
