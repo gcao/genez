@@ -2022,10 +2022,10 @@ Resolution algorithm:
 ## 8.4 Module Path Resolution
 
 ### 8.4.1 Absolute Paths
-Start with `/` - resolved from package root:
+Start with `/` - resolved from filesystem absolute path:
 ```gene
-(import /src/utils/helpers)   # From package root
-(import /lib/external/json)   # From package root
+(import "/Users/x/shared/helpers")   # Absolute filesystem path
+(import "/opt/gene/stdlib/json")     # Absolute filesystem path
 ```
 
 ### 8.4.2 Relative Paths
@@ -2036,11 +2036,20 @@ Start with `./` or `../` - resolved from current module:
 (import ../../lib/utils)     # Two levels up
 ```
 
-### 8.4.3 Package Paths
+### 8.4.3 Source Paths
 No prefix - searched in source directories:
 ```gene
-(import utils/helpers)       # Search in all src-dirs
-(import external/json)       # Search in all src-dirs
+(import "utils/helpers")       # Search in all src-dirs
+(import "external/json")       # Search in all src-dirs
+```
+
+### 8.4.4 Well-Known Modules
+Special modules with reserved prefixes:
+```gene
+(import "gene/core")           # Core standard library
+(import "genex/http")          # Extended standard library
+(import "geney/async")         # Async/concurrent library
+(import "genez/experimental")  # Experimental features
 ```
 
 Search order:
@@ -2052,30 +2061,30 @@ Search order:
 
 ```gene
 # Basic import - loads module into its namespace
-(import utils/math)
+(import "utils/math")
 (math/square 5)              # Qualified access
 
 # Import with alias
-(import utils/math :as m)
+(import "utils/math" => m)
 (m/square 5)                 # Using alias
 
 # Import specific items
-(import utils/math [square cube pow])
+(import "utils/math" [square cube pow])
 (square 5)                   # Direct access
 
-# Import with renaming
-(import utils/math {square :as sq cube :as cb})
+# Import specific items with renaming
+(import "utils/math" [square => sq cube => cb])
 (sq 5)                       # Using renamed import
 
-# Import all public items
-(import utils/math *)
+# Import all public items (not recommended)
+(import "utils/math" *)
 (square 5)                   # All exports available
 
 # Conditional import
-(var json (import? external/json))  # Returns nil if not found
-(if json
-  (json/parse data)
-  (error "JSON module required"))
+(if (== env/USE_NATIVE_JSON "true")
+  (import "native/json")
+ else
+  (import "json"))
 ```
 
 ## 8.6 Module Structure
@@ -2087,7 +2096,7 @@ Search order:
 ^module "utils/math"
 ^exports [square cube pow factorial]
 
-# Private function (not exported)
+# Private function (not exported by default)
 (fn- validate-input [n]
   (if (number? n)
     n
@@ -2165,14 +2174,14 @@ Each module creates a namespace matching its import path:
   (.fn pop [] (/items .pop)))
 
 # File: src/main.gene
-(import data/structures)
+(import "data/structures")
 
 # Full qualification
 (var s (new data/structures/Stack))
 (s .push 42)
 
 # After specific import
-(import data/structures [Stack])
+(import "data/structures" [Stack])
 (var s2 (new Stack))
 ```
 
@@ -2193,14 +2202,14 @@ Each module creates a namespace matching its import path:
 #       lib.gene
 
 # In src/main.gene:
-(import /src/core/config)      # Absolute from package root
-(import core/config)           # Found in src/ (package path)
-(import ./core/config)         # ERROR: no core/ in src/
+(import "./core/config")       # Relative: src/core/config
+(import "core/config")         # Source path: found in src/
+(import "../vendor/external/lib") # Relative path
 
 # In src/core/config.gene:
-(import ../utils/helpers)      # Relative: src/utils/helpers
-(import utils/helpers)         # Package path: found in src/
-(import external/lib)          # Package path: found in vendor/
+(import "../utils/helpers")    # Relative: src/utils/helpers
+(import "utils/helpers")       # Source path: found in src/
+(import "external/lib")        # Source path: found in vendor/
 ```
 
 ## 8.10 Visibility Rules
@@ -2209,15 +2218,15 @@ Each module creates a namespace matching its import path:
 # Public by default
 (fn helper [x] ...)            # Exported
 
-# Private with - suffix
-(fn validate- [x] ...)         # Not exported
+# Private with - prefix
+(fn- validate [x] ...)         # Not exported
 
 # Explicit exports
-^exports [helper process run]  # Only these are public
+^module-exports [helper process run]  # Only these are public
 
 # Import respects visibility
-(import utils [helper])        # OK
-(import utils [validate-])     # ERROR: private
+(import "utils" [helper])      # OK
+(import "utils" [validate])    # ERROR: private function
 ```
 
 ## 8.11 Circular Dependencies
@@ -2226,11 +2235,11 @@ Gene detects and prevents circular dependencies:
 
 ```gene
 # a.gene
-(import b)
+(import "b")
 (fn fa [] (b/fb))
 
 # b.gene  
-(import a)                     # ERROR: Circular dependency
+(import "a")                   # ERROR: Circular dependency
 (fn fb [] (a/fa))
 
 # Solution: refactor shared code
@@ -2238,9 +2247,9 @@ Gene detects and prevents circular dependencies:
 (fn shared [] ...)
 
 # a.gene
-(import common)
+(import "common")
 # b.gene
-(import common)
+(import "common")
 ```
 
 ## 8.12 Module Caching
@@ -2253,13 +2262,13 @@ Modules are cached after first load:
 
 ```gene
 # First import - executes module code
-(import utils/expensive)       # Runs initialization
+(import "utils/expensive")     # Runs initialization
 
 # Second import - returns cached namespace  
-(import utils/expensive)       # No re-execution
+(import "utils/expensive")     # No re-execution
 
 # Force reload (future feature)
-(import! utils/expensive)      # Re-executes module
+(import! "utils/expensive")    # Re-executes module
 ```
 
 ## 8.13 Best Practices

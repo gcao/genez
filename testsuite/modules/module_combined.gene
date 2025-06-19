@@ -15,12 +15,12 @@
 
 # Import from other modules
 (import "std/io")
-(import "std/math" :as math)
+(import "std/math" => math)
 (import "std/string" [concat split trim])
 
 # Another namespace
 (ns myapp
-  (import "../mylib" :as lib)
+  (import "../mylib" => lib)
   
   (fn main []
     (print "Module system test completed")))

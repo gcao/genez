@@ -9,19 +9,19 @@
 
 # Test 1: Current directory import
 (import "./helper")
-(import "./utils" :as u)
+(import "./utils" => u)
 
 # Test 2: Parent directory import
 (import "../shared/config")
-(import "../../common/base" :as base)
+(import "../../common/base" => base)
 
 # Test 3: Subdirectory import
 (import "./subdir/module1")
-(import "./subdir/deep/module2" :as m2)
+(import "./subdir/deep/module2" => m2)
 
 # Test 4: Multiple relative imports
 (import "./math/basic")
-(import "./math/advanced" :as adv)
+(import "./math/advanced" => adv)
 (import "./data/structures" [Array Map Set])
 
 # Test 5: Error cases (would fail at runtime, but parse should work)

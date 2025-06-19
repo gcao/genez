@@ -1,0 +1,25 @@
+#!/usr/bin/env gene run
+
+# Test new import features from packages_and_modules.md
+
+# Test 1: New => alias syntax (already works)
+(import "math" => m)
+(import "utils/helpers" => h)
+
+# Test 2: Import with array and rename
+# (import "utils/helpers" [helper1 => h1 helper2])
+
+# Test 3: Import all (not recommended)
+# (import "utils/helpers" *)
+
+# Test 4: Well-known modules (future feature)
+# (import "gene/core")
+# (import "genex/http")
+
+# Test 5: Private function syntax (future feature)
+# (fn- private-helper [x] (* x 2))
+
+# Test 6: Module exports (future feature)
+# ^module-exports [add subtract multiply]
+
+(print "New import features test completed")

@@ -32,7 +32,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
-            .type_check = false, // Type checking disabled - needs more work to handle all language features
+            .type_check = false, // Type checking disabled - too strict for current language features
         };
 
         // Use pipeline to compile source with special eval flag
@@ -83,7 +83,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
-            .type_check = false, // Type checking disabled - needs more work to handle all language features
+            .type_check = false, // Type checking disabled - too strict for current language features
         };
 
         // Use pipeline to compile file
@@ -179,7 +179,7 @@ pub const Runtime = struct {
         const options = compiler.CompilerOptions{
             .debug_mode = self.debug_mode,
             .optimize = false,
-            .type_check = false, // Type checking disabled - needs more work to handle all language features
+            .type_check = false, // Type checking disabled - too strict for current language features
         };
 
         // Use pipeline to compile file

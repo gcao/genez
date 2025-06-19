@@ -7,7 +7,7 @@
 
 # Test 1: Import all from a module
 # (import "math" *)  # Would import all exports
-# (import "utils" * :as u)  # Would import all with namespace prefix
+# (import "utils" * => u)  # Would import all with namespace prefix
 
 # Test 2: Wildcard with exclusions
 # (import "large_lib" * :except [internal private])
@@ -28,7 +28,7 @@
 
 # For now, explicit imports are required:
 (import "math")  # Import with namespace
-(import "utils" :as u)  # Import with alias
+(import "utils" => u)  # Import with alias
 
 # Note: Wildcard imports can impact performance and clarity
 # Best practice is to import only what you need

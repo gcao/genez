@@ -4,17 +4,17 @@
 
 # Test 1: Import from nested path
 (import "std/collections/map")
-(import "std/collections/set" :as set)
+(import "std/collections/set" => set)
 
 # Test 2: Import multiple items with different patterns
 (import "graphics" [Color [Point2D Point] [Rectangle Rect] Line])
 
 # Test 3: Import with very long names
-(import "com/example/very/long/module/path/utilities" :as utils)
+(import "com/example/very/long/module/path/utilities" => utils)
 
 # Test 4: Import with numbers in names
 (import "math/vec3")
-(import "opengl/gl4" :as gl)
+(import "opengl/gl4" => gl)
 
 # Test 5: Import with underscores and hyphens
 (import "my-module")

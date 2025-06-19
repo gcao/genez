@@ -154,8 +154,14 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
                 continue;
             },
             '=' => {
+                // Check for => operator
+                if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '>') {
+                    // Create an identifier token for =>
+                    const op_str = source_to_parse[i .. i + 2];
+                    try tokens.append(.{ .kind = .{ .Ident = op_str }, .loc = i });
+                    i += 2;
                 // Check for == operator
-                if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '=') {
+                } else if (i + 1 < source_to_parse.len and source_to_parse[i + 1] == '=') {
                     // Create an identifier token for ==
                     const op_str = source_to_parse[i .. i + 2];
                     try tokens.append(.{ .kind = .{ .Ident = op_str }, .loc = i });
@@ -943,6 +949,52 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
     const first = toks[current_pos]; // This is toks[1]
     const current_pos_after_first = current_pos + 1; // This is 2, points after `first`
 
+    // Check for implicit self method call pattern: (.method args...)
+    if (first.kind == .Dot) {
+        // Parse as (self .method args...)
+        var parsing_pos = current_pos + 1; // Skip .
+        
+        if (parsing_pos >= toks.len or toks[parsing_pos].kind != .Ident) {
+            return error.ExpectedMethodName;
+        }
+        
+        const method_name = try alloc.dupe(u8, toks[parsing_pos].kind.Ident);
+        parsing_pos += 1;
+        
+        // Parse arguments
+        var args = std.ArrayList(*ast.Expression).init(alloc);
+        errdefer args.deinit();
+        
+        while (parsing_pos < toks.len and toks[parsing_pos].kind != .RParen) {
+            const arg_result = try parseExpression(alloc, toks[parsing_pos..], depth + 1);
+            const arg_ptr = try alloc.create(ast.Expression);
+            arg_ptr.* = arg_result.node.Expression;
+            try args.append(arg_ptr);
+            parsing_pos += arg_result.consumed;
+        }
+        
+        if (parsing_pos >= toks.len or toks[parsing_pos].kind != .RParen) {
+            return error.ExpectedRParen;
+        }
+        
+        // Create implicit self variable
+        const self_ptr = try alloc.create(ast.Expression);
+        self_ptr.* = .{ .Variable = .{ .name = try alloc.dupe(u8, "self") } };
+        
+        return .{
+            .node = .{
+                .Expression = .{
+                    .MethodCall = .{
+                        .object = self_ptr,
+                        .method_name = method_name,
+                        .args = args,
+                    },
+                },
+            },
+            .consumed = parsing_pos + 1,
+        };
+    }
+
     // Check for field assignment pattern: (/field = value)
     if (first.kind == .Slash) {
         // Parse field assignment
@@ -1674,7 +1726,8 @@ fn parseNamespace(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !
 ///
 /// Supports various forms:
 /// - (import "module/path")              - Import all
-/// - (import "module/path" :as alias)    - Import with alias
+/// - (import "module/path" => alias)     - Import with alias
+/// - (import "module/path" :as alias)    - Import with alias (backward compatibility)
 /// - (import "module/path" [item1 item2]) - Import specific items
 /// - (import "module/path" [[old new]])   - Import with renaming
 fn parseImport(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
@@ -1727,8 +1780,14 @@ fn parseImport(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Par
     // Check for :as alias or specific imports
     debug.log("After parsing module path '{s}', current_pos={}, token={any}", .{module_path, current_pos, if (current_pos < toks.len) toks[current_pos] else null});
     if (current_pos < toks.len and toks[current_pos].kind != .RParen) {
-        // Check for :as pattern
-        if (toks[current_pos].kind == .Ident and std.mem.eql(u8, toks[current_pos].kind.Ident, ":as")) {
+        // Check for => pattern (alias)
+        if (toks[current_pos].kind == .Ident and std.mem.eql(u8, toks[current_pos].kind.Ident, "=>")) {
+            current_pos += 1; // Skip =>
+            if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
+            alias = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+            current_pos += 1;
+        // For backward compatibility, also support :as
+        } else if (toks[current_pos].kind == .Ident and std.mem.eql(u8, toks[current_pos].kind.Ident, ":as")) {
             current_pos += 1; // Skip :as
             if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
             alias = try alloc.dupe(u8, toks[current_pos].kind.Ident);

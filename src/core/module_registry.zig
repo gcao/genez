@@ -47,6 +47,7 @@ pub const CompiledModule = struct {
         self.allocator.free(self.id);
         self.allocator.free(self.path);
         self.namespace.deinit();
+        self.allocator.destroy(self.namespace);
         
         for (self.functions.items) |func| {
             func.deinit();
@@ -59,7 +60,7 @@ pub const CompiledModule = struct {
             self.allocator.destroy(func);
         }
         
-        self.allocator.destroy(self);
+        // Don't destroy self - caller should do that
     }
     
     /// Add a function to the module
@@ -108,7 +109,7 @@ pub const Namespace = struct {
         }
         self.members.deinit();
         
-        self.allocator.destroy(self);
+        // Don't destroy self - caller should do that
     }
     
     /// Define a member in this namespace
@@ -148,6 +149,7 @@ pub const ModuleRegistry = struct {
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
             entry.value_ptr.*.deinit();
+            self.allocator.destroy(entry.value_ptr.*);
         }
         self.modules.deinit();
     }

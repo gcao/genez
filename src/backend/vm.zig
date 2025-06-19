@@ -1854,6 +1854,7 @@ pub const VM = struct {
                     return;
                 }
 
+
                 if (obj_val != .Object) {
                     debug.log("GetField requires an Object or Module, got {}", .{obj_val});
                     return error.TypeMismatch;
@@ -1880,6 +1881,7 @@ pub const VM = struct {
 
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
+
 
                 if (obj_val != .Object) {
                     debug.log("SetField requires an Object, got {}", .{obj_val});
@@ -1919,6 +1921,56 @@ pub const VM = struct {
 
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
+
+                // Handle method calls on modules
+                if (obj_val == .Module) {
+                    const module = obj_val.Module;
+                    debug.log("Method call on module: {s}.{s}", .{ module.id, method_name });
+                    
+                    // Look for the member in the module's namespace
+                    if (module.namespace.members.get(method_name)) |member| {
+                        // Found the member, it should be a function
+                        if (member == .Function) {
+                            const func = member.Function;
+                            
+                            // Set up new call frame for the function
+                            const new_register_base = self.next_free_register;
+                            const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
+                            try self.call_frames.append(frame);
+
+                            // Allocate registers for the function (parameters + locals)
+                            const needed_regs = @as(u16, @intCast(func.param_count + func.register_count));
+                            const allocated_base = try self.allocateRegisters(needed_regs);
+
+                            // Copy arguments to parameter registers
+                            for (0..arg_count) |i| {
+                                // Arguments should be in registers following the object register
+                                const arg_reg = obj_reg + 1 + @as(u16, @intCast(i));
+                                const arg = try self.getRegister(arg_reg);
+                                debug.log("Loading argument {} from R{}: {any}", .{ i, arg_reg, arg });
+
+                                const dest_reg = allocated_base + @as(u16, @intCast(i));
+                                const absolute_dest_reg = dest_reg - self.current_register_base;
+                                self.registers.items[absolute_dest_reg] = arg;
+                            }
+
+                            // Switch to the new function
+                            self.current_func = func;
+                            self.pc = 0;
+                            self.current_register_base = new_register_base;
+
+                            debug.log("Switching to module function with {} params", .{func.param_count});
+                            self.function_called = true;
+                            return;
+                        } else {
+                            debug.log("Module member {s} is not a function", .{method_name});
+                            return error.TypeMismatch;
+                        }
+                    } else {
+                        debug.log("Method {s} not found in module {s}", .{ method_name, module.id });
+                        return error.MethodNotFound;
+                    }
+                }
 
                 // Get the class for the value (works for both objects and primitives)
                 const class = if (obj_val == .Object) blk: {

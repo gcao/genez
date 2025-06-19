@@ -9,7 +9,7 @@ Gene's package and module system provides a flexible way to organize and distrib
 ### Module
 A module is the basic unit of code organization in Gene. A module can be:
 - **File Module**: A `.gene` file containing Gene code
-- **String Module**: A string containing Gene code (useful for dynamic code loading)
+- **String Module**: A string containing Gene code (useful for dynamic code loading). A string module can come from other sources (e.g. database, url)
 
 Every module must be associated with a package.
 
@@ -59,32 +59,34 @@ Example:
 
 ## Module Path Resolution
 
+Module paths are strings (can be normalized to absolute path after its resolved).
 Module paths can be:
 
 ### 1. Absolute Paths
-Start with `/` and are resolved from the package root:
+Start with `/` and are resolved from absolute path in the filesystem:
 
 ```gene
-(import /src/utils/helpers)      # From package root
-(import /lib/core)               # From package root
+(import "/Users/x/shared/helpers")
 ```
 
 ### 2. Relative Paths
 Start with `./` or `../` and are resolved relative to the current module:
 
 ```gene
-(import ./helpers)               # Same directory
-(import ../lib/utils)            # Parent directory
-(import ../../common/shared)     # Two levels up
+(import "./helpers")               # Same directory
+(import "../lib/utils")            # Parent directory
+(import "../../common/shared")     # Two levels up
 ```
 
-### 3. Package Paths
+### 3. Source Paths
 Don't start with `/`, `./`, or `../` and are searched in source directories:
 
 ```gene
-(import utils/helpers)           # Search in all source paths
-(import gene/core)               # Search for gene/core in source paths
+(import "utils/helpers")           # Search in all source paths
 ```
+
+### 4. Well known modules
+(import "gene/core")               # gene, genex, geney, genez are reserved for well known modules
 
 Resolution order for package paths:
 1. Search in each directory listed in `^src-dirs` (from package.gene)
@@ -140,25 +142,30 @@ The `package.gene` file defines package metadata and configuration:
 ## Import Syntax
 
 ```gene
-# Import entire module
-(import utils/helpers)
-(import ./local_module)
-(import /absolute/path/to/module)
+# Import entire module and accessible by the module's base name.
+(import "utils/helpers") # accessed as helpers/...
+(import "./local_module") # accessed as local_module/...
+(import "/absolute/path/to/module")
 
 # Import with alias
-(import utils/helpers :as h)
+(import "utils/helpers" => h) # accessed as h/...
 
 # Import specific items
-(import utils/helpers [helper1 helper2])
+(import "utils/helpers" [helper1 helper2/x]) # accessed directly
 
 # Import specific items with rename
-(import utils/helpers {helper1 :as h1 helper2 :as h2})
+(import "utils/helpers" [helper1 => h1 helper2]) # accessed as h1, helper2
 
-# Import all public items
-(import utils/helpers *)
+# Import all public items - not recommended!
+(import "utils/helpers" *)
 
 # Conditional import
-(import? optional/module)  # Returns nil if not found
+# The condition should be static and evaluatable at compile time
+(if (== env/USE_NATIVE_JSON "true")
+  (import "native/json")
+ else
+  (import "json")
+)
 ```
 
 ## Module Structure
@@ -230,13 +237,13 @@ package.gene:
 src/main.gene:
 ```gene
 # Absolute imports from package root
-(import /src/core/config)
-(import /src/core/database)
+(import "/myproject/src/core/config")
+(import "/myproject/src/core/database")
 
 # Package path imports (searched in src-dirs)
-(import utils/string)
-(import utils/math)
-(import third-party/json)
+(import "utils/string")
+(import "utils/math")
+(import "third-party/json")
 
 # Main application logic
 (fn main []
@@ -248,10 +255,10 @@ src/main.gene:
 src/core/database.gene:
 ```gene
 # Relative import
-(import ./config)
+(import "./config")
 
 # Package path import
-(import utils/string)
+(import "utils/string")
 
 (fn connect [url]
   ...)
@@ -263,7 +270,7 @@ Running a standalone script without package.gene:
 
 ```bash
 # /tmp/quick-script.gene
-(import ./helper)  # Looks for /tmp/helper.gene
+(import "./helper")  # Looks for /tmp/helper.gene
 
 (fn main []
   (helper/do-something))
