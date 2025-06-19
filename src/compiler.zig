@@ -23,18 +23,40 @@ pub const CompilationContext = struct {
     allocator: std.mem.Allocator,
     options: CompilerOptions,
     module_loader: *module.ModuleLoader,
+    module_registry: ?*@import("core/module_registry.zig").ModuleRegistry,
+    current_file: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator, options: CompilerOptions) !CompilationContext {
         const loader = try module.ModuleLoader.init(allocator);
+        errdefer loader.deinit();
+        
+        const registry = try allocator.create(@import("core/module_registry.zig").ModuleRegistry);
+        errdefer allocator.destroy(registry);
+        registry.* = @import("core/module_registry.zig").ModuleRegistry.init(allocator);
+        
         return .{
             .allocator = allocator,
             .options = options,
             .module_loader = loader,
+            .module_registry = registry,
+            .current_file = null,
         };
+    }
+    
+    pub fn initWithFile(allocator: std.mem.Allocator, options: CompilerOptions, filename: ?[]const u8) !CompilationContext {
+        var ctx = try init(allocator, options);
+        ctx.current_file = filename;
+        return ctx;
     }
     
     pub fn deinit(self: *CompilationContext) void {
         self.module_loader.deinit();
+        // Note: module_registry ownership may be transferred to CompiledResult
+        // Only clean up if we still own it
+        if (self.module_registry) |registry| {
+            registry.deinit();
+            self.allocator.destroy(registry);
+        }
     }
 };
 
@@ -62,6 +84,107 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
 
     // Display HIR
     try debug.writeHIR(hir_prog, "HIR");
+
+    // Process imports - load required modules
+    if (hir_prog.imports.items.len > 0) {
+        debug.writeMessage("\n=== Processing Imports ===\n", .{});
+        
+        // Create a module resolver
+        var resolver = try @import("core/module_resolver.zig").ModuleResolver.init(ctx.allocator);
+        defer resolver.deinit();
+        
+        for (hir_prog.imports.items) |import| {
+            debug.writeMessage("Import: {s}", .{import.module_path});
+            if (import.alias) |alias| {
+                debug.writeMessage(" as {s}", .{alias});
+            }
+            debug.writeMessage("\n", .{});
+            
+            // Try to resolve the module
+            var resolved = resolver.resolve(import.module_path, ctx.current_file) catch |err| {
+                debug.writeMessage("  Failed to resolve: {any}\n", .{err});
+                continue;
+            };
+            defer resolved.deinit(ctx.allocator);
+            
+            debug.writeMessage("  Resolved to: {s}\n", .{resolved.absolute_path});
+            
+            // Check if module is already being loaded (circular import detection)
+            if (resolver.isLoaded(resolved.module_id)) {
+                debug.writeMessage("  Module already loaded\n", .{});
+                continue;
+            }
+            
+            // Mark module as being loaded
+            try resolver.beginLoading(resolved.module_id);
+            defer resolver.endLoading(resolved.module_id);
+            
+            // Read the module file
+            const module_source = std.fs.cwd().readFileAlloc(ctx.allocator, resolved.absolute_path, std.math.maxInt(usize)) catch |err| {
+                debug.writeMessage("  Failed to read module file: {any}\n", .{err});
+                continue;
+            };
+            defer ctx.allocator.free(module_source);
+            
+            debug.writeMessage("  Module source loaded ({d} bytes)\n", .{module_source.len});
+            
+            // Parse the module
+            const parser = @import("frontend/parser.zig");
+            const module_parse_result = parser.parseGeneSourceWithFilename(ctx.allocator, module_source, resolved.absolute_path) catch |err| {
+                debug.writeMessage("  Failed to parse module: {any}\n", .{err});
+                continue;
+            };
+            defer {
+                module_parse_result.arena.deinit();
+                ctx.allocator.destroy(module_parse_result.arena);
+            }
+            
+            debug.writeMessage("  Module parsed successfully\n", .{});
+            
+            // Recursively compile the module (this will handle its imports too)
+            var module_ctx = try CompilationContext.init(ctx.allocator, ctx.options);
+            defer module_ctx.deinit();
+            
+            var module_result = compile(module_ctx, module_parse_result.nodes) catch |err| {
+                debug.writeMessage("  Failed to compile module: {any}\n", .{err});
+                continue;
+            };
+            defer module_result.deinit();
+            
+            debug.writeMessage("  Module compiled successfully\n", .{});
+            
+            // Create a CompiledModule and register it
+            const module_registry = @import("core/module_registry.zig");
+            const compiled_module = try module_registry.CompiledModule.init(
+                ctx.allocator,
+                import.module_path,
+                resolved.absolute_path
+            );
+            errdefer compiled_module.deinit();
+            
+            // Add all functions from the module to the compiled module
+            for (module_result.created_functions.items) |func| {
+                try compiled_module.addFunction(func);
+            }
+            
+            // Also add the main function if it has a meaningful name
+            if (!std.mem.eql(u8, module_result.main_func.name, "main")) {
+                const main_func_copy = try ctx.allocator.create(bytecode.Function);
+                main_func_copy.* = try module_result.main_func.clone(ctx.allocator);
+                try compiled_module.addFunction(main_func_copy);
+            }
+            
+            // Register the module
+            if (ctx.module_registry) |registry| {
+                try registry.registerModule(compiled_module);
+            } else {
+                // If no registry, we have to clean up the module
+                compiled_module.deinit();
+            }
+            
+            debug.writeMessage("  Module registered with {d} functions\n", .{compiled_module.functions.items.len});
+        }
+    }
 
     // Type checking (if enabled)
     if (ctx.options.type_check) {

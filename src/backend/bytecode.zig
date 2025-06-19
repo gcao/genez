@@ -158,6 +158,29 @@ pub const Function = struct {
             self.allocator.free(self.name);
         }
     }
+    
+    pub fn clone(self: *const Function, allocator: std.mem.Allocator) !Function {
+        var new_func = Function.init(allocator);
+        new_func.name = try allocator.dupe(u8, self.name);
+        new_func.param_count = self.param_count;
+        new_func.register_count = self.register_count;
+        new_func.local_count = self.local_count;
+        new_func.temp_count = self.temp_count;
+        
+        // Clone instructions
+        for (self.instructions.items) |instr| {
+            var new_instr = instr;
+            if (instr.immediate) |imm| {
+                new_instr.immediate = try imm.clone(allocator);
+            }
+            if (instr.var_name) |name| {
+                new_instr.var_name = try allocator.dupe(u8, name);
+            }
+            try new_func.instructions.append(new_instr);
+        }
+        
+        return new_func;
+    }
 };
 
 pub const Module = struct {
@@ -387,8 +410,8 @@ pub const Module = struct {
                 std.mem.writeInt(usize, &usize_buf, addr.arg_count, .little);
                 try writer.writeAll(&usize_buf);
             },
-            .Array, .Map, .Class, .Object, .CPtr, .CFunction, .CStruct, .CArray => {
-                // For now, we don't support serializing complex types like arrays, maps, classes, objects, and FFI types
+            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray => {
+                // For now, we don't support serializing complex types like arrays, maps, classes, objects, modules, and FFI types
                 // This would require more sophisticated serialization
                 return error.UnsupportedComplexType;
             },

@@ -60,6 +60,9 @@ pub const ModuleResolver = struct {
             try resolver.loadPackageConfig(root);
         }
         
+        // Always add current working directory as a source directory
+        try resolver.src_dirs.append(try allocator.dupe(u8, cwd));
+        
         return resolver;
     }
     
@@ -228,8 +231,13 @@ pub const ModuleResolver = struct {
     
     /// Resolve package import path
     fn resolvePackage(self: *ModuleResolver, import_path: []const u8) !ResolvedModule {
+        debug.log("Resolving package import: {s}", .{import_path});
+        debug.log("Source directories: {d}", .{self.src_dirs.items.len});
+        
         // Search in source directories
         for (self.src_dirs.items) |src_dir| {
+            debug.log("Checking source dir: {s}", .{src_dir});
+            
             // Try with .gene extension
             const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.gene", .{import_path});
             defer self.allocator.free(with_ext);
@@ -237,7 +245,10 @@ pub const ModuleResolver = struct {
             const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ src_dir, with_ext });
             errdefer self.allocator.free(full_path);
             
+            debug.log("Checking path: {s}", .{full_path});
+            
             if (std.fs.cwd().access(full_path, .{})) |_| {
+                debug.log("Found module at: {s}", .{full_path});
                 const module_id = try self.allocator.dupe(u8, import_path);
                 return ResolvedModule{
                     .absolute_path = full_path,
@@ -245,6 +256,7 @@ pub const ModuleResolver = struct {
                     .is_system = false,
                 };
             } else |_| {
+                debug.log("Not found at: {s}", .{full_path});
                 self.allocator.free(full_path);
             }
             

@@ -33,6 +33,7 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .CFunction => |func| log("CFunction: {*}", .{func}),
         .CStruct => |ptr| log("CStruct: {*}", .{ptr}),
         .CArray => |arr| log("CArray[{} x {}]", .{ arr.len, arr.element_size }),
+        .Module => |module| log("Module: {s}", .{module.id}),
     }
 }
 

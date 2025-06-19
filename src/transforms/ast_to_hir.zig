@@ -137,6 +137,35 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
                         // Still add the namespace to main nodes for other processing
                         try main_nodes.append(node);
                     },
+                    .ImportStmt => |import_stmt| {
+                        // Extract import statements to the program level
+                        const hir_import = try allocator.create(hir.HIR.ImportStmt);
+                        errdefer allocator.destroy(hir_import);
+                        
+                        hir_import.* = hir.HIR.ImportStmt{
+                            .module_path = try allocator.dupe(u8, import_stmt.module_path),
+                            .alias = if (import_stmt.alias) |a| try allocator.dupe(u8, a) else null,
+                            .items = null,
+                        };
+                        
+                        // Convert import items if any
+                        if (import_stmt.items) |items| {
+                            const hir_items = try allocator.alloc(hir.HIR.ImportStmt.ImportItem, items.len);
+                            errdefer allocator.free(hir_items);
+                            
+                            for (items, 0..) |item, i| {
+                                hir_items[i] = .{
+                                    .name = try allocator.dupe(u8, item.name),
+                                    .alias = if (item.alias) |a| try allocator.dupe(u8, a) else null,
+                                };
+                            }
+                            
+                            hir_import.items = hir_items;
+                        }
+                        
+                        // Add import to HIR program imports
+                        try hir_prog.imports.append(hir_import);
+                    },
                     else => {
                         // Keep other expressions for main function
                         try main_nodes.append(node);
@@ -191,6 +220,7 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .CFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CFunction
             .CStruct => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CStruct
             .CArray => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CArray
+            .Module => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Module
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -748,7 +778,8 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             } };
         },
         .FieldAccess => |field| {
-            // Convert FieldAccess to HIR
+            // For now, just convert field access normally
+            // TODO: Add module tracking to properly distinguish module access from field access
             const hir_object = if (field.object) |obj| blk: {
                 var hir_obj = try lowerExpression(allocator, obj.*);
                 errdefer hir_obj.deinit(allocator);

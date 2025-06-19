@@ -15,11 +15,13 @@ pub const Type = enum {
 pub const HIR = struct {
     allocator: std.mem.Allocator,
     functions: std.ArrayList(Function),
+    imports: std.ArrayList(*ImportStmt),
 
     pub fn init(allocator: std.mem.Allocator) HIR {
         return HIR{
             .allocator = allocator,
             .functions = std.ArrayList(Function).init(allocator),
+            .imports = std.ArrayList(*ImportStmt).init(allocator),
         };
     }
 
@@ -28,6 +30,12 @@ pub const HIR = struct {
             func.deinit();
         }
         self.functions.deinit();
+        
+        for (self.imports.items) |import| {
+            import.deinit(self.allocator);
+            self.allocator.destroy(import);
+        }
+        self.imports.deinit();
     }
 
     pub const Function = struct {

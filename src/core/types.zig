@@ -150,6 +150,7 @@ pub const Value = union(enum) {
     BuiltinOperator: BuiltinOperatorType,
     Class: *ClassDefinition,
     Object: u32, // Object ID instead of pointer for reference semantics
+    Module: *@import("module_registry.zig").CompiledModule, // Module namespace
     
     // FFI types
     CPtr: ?*anyopaque, // C pointer (nullable)
@@ -194,6 +195,9 @@ pub const Value = union(enum) {
             },
             .Object => {
                 // Objects are managed by the VM's object pool, not freed here
+            },
+            .Module => {
+                // Modules are managed by the module registry, not freed here
             },
             .CPtr => {}, // C pointers are not owned by Gene, don't free
             .CFunction => {}, // Function pointers are not owned by Gene
@@ -255,6 +259,7 @@ pub const Value = union(enum) {
             .BuiltinOperator => |op| Value{ .BuiltinOperator = op },
             .Class => |class| Value{ .Class = class }, // Classes are immutable, shallow copy
             .Object => |id| Value{ .Object = id }, // Just copy the object ID
+            .Module => |module| Value{ .Module = module }, // Modules are shared references
             .CPtr => |ptr| Value{ .CPtr = ptr }, // Just copy the pointer
             .CFunction => |func| Value{ .CFunction = func }, // Just copy the function pointer
             .CStruct => |ptr| Value{ .CStruct = ptr }, // Just copy the struct pointer

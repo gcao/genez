@@ -37,7 +37,11 @@
       "Bash(timeout:*)",
       "Bash(./testsuite/data_parser/run_tests.sh:*)",
       "Bash(./hello_world.gene)",
-      "Bash(gene run:*)"
+      "Bash(gene run:*)",
+      "Bash(./run_test.sh:*)",
+      "Bash(./bin/gene run:*)",
+      "Bash(../zig-out/bin/gene run test_module_resolution.gene --debug)",
+      "Bash(../zig-out/bin/gene run:*)"
     ],
     "deny": []
   },

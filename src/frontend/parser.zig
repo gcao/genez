@@ -1725,6 +1725,7 @@ fn parseImport(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Par
     var items: ?[]ast.ImportStmt.ImportItem = null;
 
     // Check for :as alias or specific imports
+    debug.log("After parsing module path '{s}', current_pos={}, token={any}", .{module_path, current_pos, if (current_pos < toks.len) toks[current_pos] else null});
     if (current_pos < toks.len and toks[current_pos].kind != .RParen) {
         // Check for :as pattern
         if (toks[current_pos].kind == .Ident and std.mem.eql(u8, toks[current_pos].kind.Ident, ":as")) {

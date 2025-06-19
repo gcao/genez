@@ -62,6 +62,7 @@ pub const VM = struct {
     allocated_classes: std.ArrayList(*types.ClassDefinition), // Track allocated class objects for cleanup
     core_classes: ?builtin_classes.CoreClasses, // Core built-in classes
     garbage_collector: ?*gc.GC, // Garbage collector
+    module_registry: ?*@import("../core/module_registry.zig").ModuleRegistry, // Module registry for imports
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
 
@@ -133,6 +134,7 @@ pub const VM = struct {
             .allocated_classes = std.ArrayList(*types.ClassDefinition).init(allocator),
             .core_classes = null,
             .garbage_collector = null,
+            .module_registry = null,
         };
 
         // Initialize garbage collector
@@ -189,6 +191,10 @@ pub const VM = struct {
         // Note: We don't deinit the function itself as it's owned by the caller
         // or has already been cleaned up as part of the stack or variables
         self.current_func = null;
+    }
+
+    pub fn setModuleRegistry(self: *VM, registry: *@import("../core/module_registry.zig").ModuleRegistry) void {
+        self.module_registry = registry;
     }
 
     pub fn getObjectById(self: *VM, id: u32) ?*types.ObjectInstance {
@@ -441,8 +447,29 @@ pub const VM = struct {
                     debug.log("Found variable in global scope: {any}", .{value});
                     try self.setRegister(dst_reg, try value.clone(self.allocator));
                 } else {
-                    debug.log("ERROR: Variable {s} not found", .{name});
-                    return error.UndefinedVariable;
+                    // Check if this is a module member access (contains /)
+                    if (std.mem.indexOf(u8, name, "/")) |slash_pos| {
+                        const module_name = name[0..slash_pos];
+                        const member_name = name[slash_pos + 1..];
+                        debug.log("Checking for module member: {s}/{s}", .{module_name, member_name});
+                        
+                        // Look up in module registry
+                        if (self.module_registry) |registry| {
+                            if (registry.resolveMember(module_name, member_name)) |value| {
+                                debug.log("Found module member: {any}", .{value});
+                                try self.setRegister(dst_reg, try value.clone(self.allocator));
+                            } else {
+                                debug.log("ERROR: Module member {s}/{s} not found", .{module_name, member_name});
+                                return error.UndefinedVariable;
+                            }
+                        } else {
+                            debug.log("ERROR: No module registry available", .{});
+                            return error.UndefinedVariable;
+                        }
+                    } else {
+                        debug.log("ERROR: Variable {s} not found", .{name});
+                        return error.UndefinedVariable;
+                    }
                 }
             },
             .LoadParam => {
@@ -825,6 +852,7 @@ pub const VM = struct {
                     .CFunction => |func| try self.stdout.print("CFunction: {*}\n", .{func}),
                     .CStruct => |ptr| try self.stdout.print("CStruct: {*}\n", .{ptr}),
                     .CArray => |arr| try self.stdout.print("CArray: ptr={*}, len={}, element_size={}\n", .{ arr.ptr, arr.len, arr.element_size }),
+                    .Module => |module| try self.stdout.print("Module: {s}\n", .{module.id}),
                 }
             },
             .Call => {
@@ -883,6 +911,7 @@ pub const VM = struct {
                                         try self.stdout.print("Object(invalid ID: {})", .{obj_id});
                                     }
                                 },
+                                .Module => |module| try self.stdout.print("Module: {s}", .{module.id}),
                                 .CPtr => |ptr| {
                                     if (ptr) |p| {
                                         try self.stdout.print("CPtr: {*}", .{p});
@@ -944,6 +973,7 @@ pub const VM = struct {
                                         try self.stdout.print("Object(invalid ID: {})", .{obj_id});
                                     }
                                 },
+                                .Module => |module| try self.stdout.print("Module: {s}", .{module.id}),
                                 .CPtr => |ptr| {
                                     if (ptr) |p| {
                                         try self.stdout.print("CPtr: {*}", .{p});
@@ -1477,6 +1507,7 @@ pub const VM = struct {
                                         try self.stdout.print("Object(invalid ID: {})", .{obj_id});
                                     }
                                 },
+                                .Module => |module| try self.stdout.print("Module: {s}", .{module.id}),
                                 .CPtr => |ptr| {
                                     if (ptr) |p| {
                                         try self.stdout.print("CPtr: {*}", .{p});
@@ -1807,8 +1838,24 @@ pub const VM = struct {
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
 
+                // Handle Module field access
+                if (obj_val == .Module) {
+                    const module = obj_val.Module;
+                    debug.log("GetField on module: looking for {s} in module {s}", .{ field_name, module.id });
+                    
+                    // Look for the member in the module's namespace
+                    if (module.namespace.members.get(field_name)) |member| {
+                        try self.setRegister(dst_reg, try member.clone(self.allocator));
+                        debug.log("Found module member {s}", .{field_name});
+                    } else {
+                        debug.log("Module member {s} not found", .{field_name});
+                        return error.FieldNotFound;
+                    }
+                    return;
+                }
+
                 if (obj_val != .Object) {
-                    debug.log("GetField requires an Object, got {}", .{obj_val});
+                    debug.log("GetField requires an Object or Module, got {}", .{obj_val});
                     return error.TypeMismatch;
                 }
 

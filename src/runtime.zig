@@ -92,7 +92,7 @@ pub const Runtime = struct {
 
         debug.log("Compilation completed, starting execution...", .{});
 
-        try self.executeWithFunctions(@constCast(&result.main_func), result.created_functions.items);
+        try self.executeWithFunctionsAndRegistry(@constCast(&result.main_func), result.created_functions.items, result.module_registry);
 
         debug.log("File execution completed successfully!", .{});
     }
@@ -120,6 +120,10 @@ pub const Runtime = struct {
     }
 
     fn executeWithFunctions(self: *Runtime, func: *bytecode.Function, created_functions: []*bytecode.Function) !void {
+        self.executeWithFunctionsAndRegistry(func, created_functions, null) catch |err| return err;
+    }
+    
+    fn executeWithFunctionsAndRegistry(self: *Runtime, func: *bytecode.Function, created_functions: []*bytecode.Function, module_registry: ?*@import("core/module_registry.zig").ModuleRegistry) !void {
         // Use debug output for bytecode display
         const debug_out = debug_output.DebugOutput.init(self.stdout, self.debug_mode);
         debug_out.writeBytecodeInstructions(func);
@@ -127,6 +131,40 @@ pub const Runtime = struct {
         // Create VM and execute bytecode
         var gene_vm = vm.VM.init(self.allocator, self.stdout);
         defer gene_vm.deinit();
+
+        // Set module registry if available and register module namespaces
+        if (module_registry) |registry| {
+            gene_vm.setModuleRegistry(registry);
+            
+            // Create namespace objects for each module
+            var it = registry.modules.iterator();
+            while (it.next()) |entry| {
+                const module_id = entry.key_ptr.*;
+                const module = entry.value_ptr.*;
+                
+                // Create a Module value for the module namespace
+                const module_value = types.Value{ .Module = module };
+                
+                // Register with full module ID
+                try gene_vm.setVariable(module_id, module_value);
+                
+                // Also register with base name for convenience
+                // Extract base name from path (e.g., "./math" -> "math")
+                var alias = module_id;
+                if (std.mem.lastIndexOfScalar(u8, module_id, '/')) |slash_idx| {
+                    alias = module_id[slash_idx + 1..];
+                }
+                
+                // Remove .gene extension if present
+                if (std.mem.endsWith(u8, alias, ".gene")) {
+                    alias = alias[0..alias.len - 5];
+                }
+                
+                try gene_vm.setVariable(alias, module_value);
+                
+                debug.log("Registered module namespace: {s} (alias: {s})", .{module_id, alias});
+            }
+        }
 
         // Register user-defined functions as global variables
         for (created_functions) |user_func| {

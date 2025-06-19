@@ -16,6 +16,8 @@ pub const CompiledResult = struct {
     parse_arena: *std.heap.ArenaAllocator,
     /// Allocator used for the compilation
     allocator: std.mem.Allocator,
+    /// Module registry containing all loaded modules
+    module_registry: ?*@import("core/module_registry.zig").ModuleRegistry,
 
     pub fn deinit(self: *CompiledResult) void {
         // Clean up created functions
@@ -28,6 +30,12 @@ pub const CompiledResult = struct {
         // Clean up main function
         self.main_func.deinit();
 
+        // Clean up module registry if present (must be done before arena cleanup)
+        if (self.module_registry) |registry| {
+            registry.deinit();
+            // Note: registry itself is allocated in the arena, so don't destroy it
+        }
+        
         // Clean up parse arena - this will free all arena-allocated memory
         self.parse_arena.deinit();
         self.allocator.destroy(self.parse_arena);
@@ -48,15 +56,21 @@ pub fn compileSourceWithFilename(allocator: std.mem.Allocator, source: []const u
     // Compile nodes to bytecode
     // Use the arena allocator for compilation to ensure consistent memory management
     const arena_allocator = parse_result.arena.allocator();
-    var ctx = try compiler.CompilationContext.init(arena_allocator, options);
-    defer ctx.deinit();
+    var ctx = try compiler.CompilationContext.initWithFile(arena_allocator, options, filename);
+    // Don't defer deinit here, ownership transfers to CompiledResult
     const conversion_result = try compiler.compile(ctx, nodes);
+
+    // Transfer ownership of module_registry
+    const registry = ctx.module_registry;
+    ctx.module_registry = null; // Prevent double-free
+    ctx.deinit();
 
     return CompiledResult{
         .main_func = conversion_result.main_func,
         .created_functions = conversion_result.created_functions,
         .parse_arena = parse_result.arena,
         .allocator = allocator,
+        .module_registry = registry,
     };
 }
 
