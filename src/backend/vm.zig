@@ -146,6 +146,12 @@ pub const VM = struct {
         return vm;
     }
 
+    /// Clone a value - for now, keep using manual allocation
+    /// TODO: Properly integrate GC by tracking allocated values
+    pub fn cloneValue(self: *VM, value: types.Value) !types.Value {
+        return try value.clone(self.allocator);
+    }
+
     pub fn deinit(self: *VM) void {
         // Clean up garbage collector first
         if (self.garbage_collector) |gc_ptr| {
@@ -414,7 +420,7 @@ pub const VM = struct {
                 const reg_value = if (value == .Function)
                     value
                 else
-                    try value.clone(self.allocator);
+                    try self.cloneValue(value);
 
                 try self.setRegister(dst_reg, reg_value);
             },
@@ -1843,8 +1849,8 @@ pub const VM = struct {
                     const module = obj_val.Module;
                     debug.log("GetField on module: looking for {s} in module {s}", .{ field_name, module.id });
                     
-                    // Look for the member in the module's namespace
-                    if (module.namespace.members.get(field_name)) |member| {
+                    // Look for the member in the module using getMember
+                    if (module.getMember(field_name)) |member| {
                         try self.setRegister(dst_reg, try member.clone(self.allocator));
                         debug.log("Found module member {s}", .{field_name});
                     } else {
@@ -1927,6 +1933,35 @@ pub const VM = struct {
                     const module = obj_val.Module;
                     debug.log("Method call on module: {s}.{s}", .{ module.id, method_name });
                     
+                    // Special handling for get_member
+                    if (std.mem.eql(u8, method_name, "get_member")) {
+                        // get_member(key) - get a member from the module
+                        if (arg_count != 1) {
+                            debug.log("get_member expects 1 argument, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+                        
+                        // Get the key argument
+                        const key_reg = obj_reg + 1;
+                        var key_val = try self.getRegister(key_reg);
+                        defer key_val.deinit(self.allocator);
+                        
+                        if (key_val != .String) {
+                            debug.log("get_member key must be String, got {}", .{key_val});
+                            return error.TypeMismatch;
+                        }
+                        
+                        const member_name = key_val.String;
+                        if (module.getMember(member_name)) |member| {
+                            try self.setRegister(dst_reg, try member.clone(self.allocator));
+                            debug.log("Found module member {s}", .{member_name});
+                        } else {
+                            debug.log("Module member {s} not found", .{member_name});
+                            try self.setRegister(dst_reg, .{ .Nil = {} });
+                        }
+                        return;
+                    }
+                    
                     // Look for the member in the module's namespace
                     if (module.namespace.members.get(method_name)) |member| {
                         // Found the member, it should be a function
@@ -1970,6 +2005,84 @@ pub const VM = struct {
                         debug.log("Method {s} not found in module {s}", .{ method_name, module.id });
                         return error.MethodNotFound;
                     }
+                }
+
+                // Handle get_member on objects
+                if (obj_val == .Object and std.mem.eql(u8, method_name, "get_member")) {
+                    // get_member(key) - get a field from the object
+                    if (arg_count != 1) {
+                        debug.log("get_member expects 1 argument, got {}", .{arg_count});
+                        return error.ArgumentCountMismatch;
+                    }
+                    
+                    // Get the key argument
+                    const key_reg = obj_reg + 1;
+                    var key_val = try self.getRegister(key_reg);
+                    defer key_val.deinit(self.allocator);
+                    
+                    if (key_val != .String) {
+                        debug.log("get_member key must be String, got {}", .{key_val});
+                        return error.TypeMismatch;
+                    }
+                    
+                    const field_name = key_val.String;
+                    const obj = self.getObjectById(obj_val.Object) orelse {
+                        debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                        return error.InvalidInstruction;
+                    };
+                    
+                    if (obj.fields.get(field_name)) |field_value| {
+                        try self.setRegister(dst_reg, try field_value.clone(self.allocator));
+                        debug.log("Found object field {s}", .{field_name});
+                    } else {
+                        debug.log("Object field {s} not found", .{field_name});
+                        try self.setRegister(dst_reg, .{ .Nil = {} });
+                    }
+                    return;
+                }
+                
+                // Handle set_member on objects
+                if (obj_val == .Object and std.mem.eql(u8, method_name, "set_member")) {
+                    // set_member(key, value) - set a field on the object
+                    if (arg_count != 2) {
+                        debug.log("set_member expects 2 arguments, got {}", .{arg_count});
+                        return error.ArgumentCountMismatch;
+                    }
+                    
+                    // Get the key and value arguments
+                    const key_reg = obj_reg + 1;
+                    const value_reg = obj_reg + 2;
+                    var key_val = try self.getRegister(key_reg);
+                    defer key_val.deinit(self.allocator);
+                    var value_val = try self.getRegister(value_reg);
+                    defer value_val.deinit(self.allocator);
+                    
+                    if (key_val != .String) {
+                        debug.log("set_member key must be String, got {}", .{key_val});
+                        return error.TypeMismatch;
+                    }
+                    
+                    const field_name = key_val.String;
+                    const obj = self.getObjectById(obj_val.Object) orelse {
+                        debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                        return error.InvalidInstruction;
+                    };
+                    
+                    // Update or insert the field
+                    if (obj.fields.get(field_name)) |old_value| {
+                        // Field exists, update it
+                        var old_value_copy = old_value;
+                        old_value_copy.deinit(self.allocator);
+                        try obj.fields.put(field_name, try value_val.clone(self.allocator));
+                    } else {
+                        // New field, need to duplicate the key
+                        try obj.fields.put(try self.allocator.dupe(u8, field_name), try value_val.clone(self.allocator));
+                    }
+                    
+                    // Return the object itself for chaining
+                    try self.setRegister(dst_reg, obj_val);
+                    debug.log("Set object field {s}", .{field_name});
+                    return;
                 }
 
                 // Get the class for the value (works for both objects and primitives)

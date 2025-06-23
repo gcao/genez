@@ -584,6 +584,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             } });
         },
         .field_access => |field_access| {
+            // Field access x/a compiles to (x .get_member 'a')
             if (field_access.object) |obj| {
                 // Evaluate the object
                 try convertExpressionWithContext(block, obj.*, context);
@@ -597,11 +598,17 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 }
             }
 
-            // Get the field value
-            try block.instructions.append(.{ .GetField = try block.allocator.dupe(u8, field_access.field_name) });
+            // Load the field name as a string
+            try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, field_access.field_name) });
+            
+            // Call get_member method with 1 argument
+            try block.instructions.append(.{ .CallMethod = .{
+                .method_name = try block.allocator.dupe(u8, "get_member"),
+                .arg_count = 1,
+            } });
         },
         .field_assignment => |field_assign| {
-            // Evaluate the object first
+            // Field assignment (= x/a value) compiles to (x .set_member 'a' value)
             if (field_assign.object) |obj| {
                 // Evaluate the object
                 try convertExpressionWithContext(block, obj.*, context);
@@ -615,11 +622,17 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 }
             }
 
+            // Load the field name as a string
+            try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, field_assign.field_name) });
+
             // Then evaluate the value to assign
             try convertExpressionWithContext(block, field_assign.value.*, context);
 
-            // Set the field value
-            try block.instructions.append(.{ .SetField = try block.allocator.dupe(u8, field_assign.field_name) });
+            // Call set_member method with 2 arguments (field_name, value)
+            try block.instructions.append(.{ .CallMethod = .{
+                .method_name = try block.allocator.dupe(u8, "set_member"),
+                .arg_count = 2,
+            } });
         },
         .match_expr => |match_expr| {
             // Pattern matching compilation to MIR

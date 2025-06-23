@@ -699,36 +699,22 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                     return parseFieldAssignment(alloc, toks, depth + 1);
                 },
                 .Slash => {
-                    // Check if this is a simple field access pattern: (/field)
+                    // Check if this is (/field) which should be parsed as ( /field )
                     if (toks.len == 4 and toks[2].kind == .Ident and toks[3].kind == .RParen) {
-                        // This is (/field) - parse as implicit self field access
-                        const field_name = try alloc.dupe(u8, toks[2].kind.Ident);
+                        // This is (/field) - parse /field as field access, then wrap in function call
+                        const field_result = try parseExpression(alloc, toks[1..3], depth + 1); // Parse /field
+                        const func_expr = try alloc.create(ast.Expression);
+                        func_expr.* = field_result.node.Expression;
+                        
+                        const args = std.ArrayList(*ast.Expression).init(alloc);
+                        
                         return .{
-                            .node = .{ .Expression = .{ .FieldAccess = .{
-                                .object = null, // implicit self
-                                .field_name = field_name,
+                            .node = .{ .Expression = .{ .FuncCall = .{ 
+                                .func = func_expr, 
+                                .args = args 
                             }}},
-                            .consumed = 4, // (LParen, Slash, Ident, RParen)
+                            .consumed = 4, // LParen + /field (2 tokens) + RParen
                         };
-                    }
-                    // Check if this is an assignment pattern: (/field = value)
-                    else if (toks.len > 3 and toks[2].kind == .Ident and toks[3].kind == .Equals) {
-                        // This is (/field = value) which should be parsed as (= /field value)
-                        // Create modified tokens to parse as assignment
-                        var modified_toks = try alloc.alloc(Token, toks.len);
-                        defer alloc.free(modified_toks);
-                        
-                        // Rearrange tokens: (/ field = value) -> (= /field value)
-                        modified_toks[0] = toks[0]; // LParen
-                        modified_toks[1] = toks[3]; // Equals
-                        modified_toks[2] = toks[1]; // Slash
-                        modified_toks[3] = toks[2]; // field name
-                        // Copy remaining tokens
-                        if (toks.len > 4) {
-                            @memcpy(modified_toks[4..], toks[4..]);
-                        }
-                        
-                        return parseFieldAssignment(alloc, modified_toks, depth + 1);
                     } else {
                         // Handle division operator as function call: (/ 10 5)
                         // Create an operator token as if it were an identifier

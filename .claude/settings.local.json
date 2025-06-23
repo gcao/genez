@@ -41,7 +41,9 @@
       "Bash(./run_test.sh:*)",
       "Bash(./bin/gene run:*)",
       "Bash(../zig-out/bin/gene run test_module_resolution.gene --debug)",
-      "Bash(../zig-out/bin/gene run:*)"
+      "Bash(../zig-out/bin/gene run:*)",
+      "Bash(git restore:*)",
+      "Bash(realpath:*)"
     ],
     "deny": []
   },

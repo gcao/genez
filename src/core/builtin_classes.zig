@@ -111,6 +111,8 @@ pub const CoreClasses = struct {
         try self.addMethod(self.map_class, "put", createPutMethod);
         try self.addMethod(self.map_class, "contains", createMapContainsMethod);
         try self.addMethod(self.map_class, "keys", createKeysMethod);
+        try self.addMethod(self.map_class, "get_member", createGetMemberMethod);
+        try self.addMethod(self.map_class, "set_member", createSetMemberMethod);
 
         // Add methods to Class metaclass
         try self.addMethod(self.class_class, "new", createNewMethod);
@@ -358,6 +360,24 @@ fn createKeysMethod(allocator: std.mem.Allocator) !*bytecode.Function {
     const func = try createFunction(allocator, "keys", 1, 1);
     // TODO: Need MapKeys instruction
     try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    return func;
+}
+
+fn createGetMemberMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "get_member", 2, 3);
+    // get_member for Map is the same as get - get value by key
+    // (self in r0, key in r1)
+    try func.instructions.append(.{ .op = .MapGet, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
+    return func;
+}
+
+fn createSetMemberMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "set_member", 3, 0);
+    // set_member for Map is the same as put - set value by key
+    // (self in r0, key in r1, value in r2)
+    try func.instructions.append(.{ .op = .MapSet, .src1 = 0, .src2 = 1, .immediate = .{ .Int = 2 } });
+    try func.instructions.append(.{ .op = .Return, .src1 = 0 }); // Return self for chaining
     return func;
 }
 

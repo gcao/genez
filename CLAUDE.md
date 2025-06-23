@@ -136,6 +136,11 @@ The `testsuite/` directory contains comprehensive language-level tests that veri
   - Bare property syntax (`^name "value"`) in any .gene file
   - GeneDocument structure for properties and expressions
   - Comprehensive module tests in testsuite/modules/
+- Field access now compiles to `get_member`/`set_member` method calls:
+  - `x/a` compiles to `(x .get_member "a")`
+  - `(= x/a val)` compiles to `(x .set_member "a" val)`
+  - Works for Map, Module, and Object types
+  - Note: Map mutations don't persist due to value semantics
 
 **Next Development Priorities:**
 1. **Module System** - Basic imports/exports and namespaces  

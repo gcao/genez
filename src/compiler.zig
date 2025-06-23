@@ -163,8 +163,11 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
             errdefer compiled_module.deinit();
             
             // Add all functions from the module to the compiled module
+            // We need to clone functions since module_result will be cleaned up
             for (module_result.created_functions.items) |func| {
-                try compiled_module.addFunction(func);
+                const func_copy = try ctx.allocator.create(bytecode.Function);
+                func_copy.* = try func.clone(ctx.allocator);
+                try compiled_module.addFunction(func_copy);
             }
             
             // Also add the main function if it has a meaningful name
