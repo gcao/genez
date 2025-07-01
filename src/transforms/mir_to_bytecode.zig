@@ -64,14 +64,14 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
     defer mir_to_bytecode_addr.deinit();
 
     const main_mir_func = &mir_prog.functions.items[num_functions - 1];
-    
+
     // First pass: Convert instructions and build address mapping
     for (main_mir_func.blocks.items) |*block| {
         for (block.instructions.items, 0..) |*instr, mir_addr| {
             // Record the mapping from MIR address to current bytecode address
             const bytecode_addr = main_func.instructions.items.len;
             try mir_to_bytecode_addr.put(mir_addr, bytecode_addr);
-            
+
             try convertInstructionWithStack(&main_func, instr, &created_functions, &next_reg, &stack);
         }
     }
@@ -854,43 +854,40 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             });
             // std.debug.print("  -> Generated: New r{} = new r{}({} args)\n", .{ dst_reg, class_reg, arg_count });
         },
-        .GetField => |field_name| {
-            // Pop the instance from stack
-            if (stack.len() < 1) {
-                std.debug.print("ERROR: GetField needs an instance but stack is empty\n", .{});
+        .Get => {
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: Get needs object and key but stack has {} items\n", .{stack.len()});
                 return error.StackUnderflow;
             }
-            const instance_reg = stack.pop();
-
+            const key_reg = stack.pop();
+            const obj_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
 
-
             try func.instructions.append(.{
-                .op = bytecode.OpCode.GetField,
+                .op = bytecode.OpCode.Get,
                 .dst = dst_reg,
-                .src1 = instance_reg,
-                .var_name = try func.allocator.dupe(u8, field_name),
+                .src1 = obj_reg,
+                .src2 = key_reg,
             });
-            // std.debug.print("  -> Generated: GetField r{} = r{}.{s}\n", .{ dst_reg, instance_reg, field_name });
         },
-        .SetField => |field_name| {
-            // Pop value and instance from stack
-            if (stack.len() < 2) {
-                std.debug.print("ERROR: SetField needs instance and value but stack has {} items\n", .{stack.len()});
+        .Set => {
+            // Pop value, key, and object from stack
+            if (stack.len() < 3) {
+                std.debug.print("ERROR: Set needs object, key, and value but stack has {} items\n", .{stack.len()});
                 return error.StackUnderflow;
             }
             const value_reg = stack.pop();
-            const instance_reg = stack.pop();
+            const key_reg = stack.pop();
+            const obj_reg = stack.pop();
 
             try func.instructions.append(.{
-                .op = bytecode.OpCode.SetField,
-                .src1 = instance_reg,
-                .src2 = value_reg,
-                .var_name = try func.allocator.dupe(u8, field_name),
+                .op = bytecode.OpCode.Set,
+                .src1 = obj_reg,
+                .src2 = key_reg,
+                .dst = value_reg, // Using dst as value reg
             });
-            // std.debug.print("  -> Generated: SetField r{}.{s} = r{}\n", .{ instance_reg, field_name, value_reg });
         },
         // Commented out unimplemented instructions for now
         // .Dup, .Pop, .IsArray, .IsMap, .GetLength, .GetArrayElement, .GetMapValue

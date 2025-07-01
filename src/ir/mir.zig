@@ -109,8 +109,6 @@ pub const MIR = struct {
                         class_def.methods.deinit();
                     },
                     .CreateInstance => |*inst_creation| self.allocator.free(inst_creation.class_name),
-                    .GetField => |field_name| self.allocator.free(field_name),
-                    .SetField => |field_name| self.allocator.free(field_name),
                     .CallMethod => |*method_call| {
                         self.allocator.free(method_call.method_name);
                     },
@@ -149,8 +147,8 @@ pub const MIR = struct {
         // Class-related instructions
         DefineClass: ClassDefinition,
         CreateInstance: InstanceCreation,
-        GetField: []const u8, // Field name
-        SetField: []const u8, // Field name
+        Get, // Universal get for maps, arrays, fields
+        Set, // Universal set for maps, arrays, fields
         CallMethod: MethodCall,
         
         // Pattern matching support

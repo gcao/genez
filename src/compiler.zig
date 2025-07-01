@@ -2,7 +2,8 @@ const std = @import("std");
 const ast = @import("frontend/ast.zig");
 const bytecode = @import("backend/bytecode.zig");
 const debug_output = @import("core/debug_output.zig");
-const module = @import("core/module.zig");
+const module_resolver = @import("core/module_resolver.zig");
+const module_registry = @import("core/module_registry.zig");
 
 // Stage transformation modules (direct imports, no interfaces)
 const ast_to_hir = @import("transforms/ast_to_hir.zig");
@@ -22,22 +23,24 @@ pub const CompilerOptions = struct {
 pub const CompilationContext = struct {
     allocator: std.mem.Allocator,
     options: CompilerOptions,
-    module_loader: *module.ModuleLoader,
-    module_registry: ?*@import("core/module_registry.zig").ModuleRegistry,
+    module_resolver: *module_resolver.ModuleResolver,
+    module_registry: ?*module_registry.ModuleRegistry,
     current_file: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator, options: CompilerOptions) !CompilationContext {
-        const loader = try module.ModuleLoader.init(allocator);
-        errdefer loader.deinit();
+        const resolver = try allocator.create(module_resolver.ModuleResolver);
+        errdefer allocator.destroy(resolver);
+        resolver.* = try module_resolver.ModuleResolver.init(allocator);
+        errdefer resolver.deinit();
         
-        const registry = try allocator.create(@import("core/module_registry.zig").ModuleRegistry);
+        const registry = try allocator.create(module_registry.ModuleRegistry);
         errdefer allocator.destroy(registry);
-        registry.* = @import("core/module_registry.zig").ModuleRegistry.init(allocator);
+        registry.* = module_registry.ModuleRegistry.init(allocator);
         
         return .{
             .allocator = allocator,
             .options = options,
-            .module_loader = loader,
+            .module_resolver = resolver,
             .module_registry = registry,
             .current_file = null,
         };
@@ -50,7 +53,8 @@ pub const CompilationContext = struct {
     }
     
     pub fn deinit(self: *CompilationContext) void {
-        self.module_loader.deinit();
+        self.module_resolver.deinit();
+        self.allocator.destroy(self.module_resolver);
         // Note: module_registry ownership may be transferred to CompiledResult
         // Only clean up if we still own it
         if (self.module_registry) |registry| {
@@ -154,7 +158,6 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
             debug.writeMessage("  Module compiled successfully\n", .{});
             
             // Create a CompiledModule and register it
-            const module_registry = @import("core/module_registry.zig");
             const compiled_module = try module_registry.CompiledModule.init(
                 ctx.allocator,
                 import.module_path,

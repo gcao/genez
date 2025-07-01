@@ -777,43 +777,38 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
                 .args = args,
             } };
         },
-        .FieldAccess => |field| {
-            // For now, just convert field access normally
-            // TODO: Add module tracking to properly distinguish module access from field access
-            const hir_object = if (field.object) |obj| blk: {
-                var hir_obj = try lowerExpression(allocator, obj.*);
-                errdefer hir_obj.deinit(allocator);
-                const obj_ptr = try allocator.create(hir.HIR.Expression);
-                errdefer allocator.destroy(obj_ptr);
-                obj_ptr.* = hir_obj;
-                break :blk obj_ptr;
-            } else null;
+        .PathAccess => |path_access| {
+            // Convert path access expressions (obj/field, map["key"], array[index])
+            const hir_object = try lowerExpression(allocator, path_access.object.*);
+            const obj_ptr = try allocator.create(hir.HIR.Expression);
+            obj_ptr.* = hir_object;
 
-            return hir.HIR.Expression{ .field_access = .{
-                .object = hir_object,
-                .field_name = try allocator.dupe(u8, field.field_name),
+            const hir_path = try lowerExpression(allocator, path_access.path.*);
+            const path_ptr = try allocator.create(hir.HIR.Expression);
+            path_ptr.* = hir_path;
+
+            // For now, we compile path access as a method call to get_member
+            // This will be optimized in MIR for maps/arrays
+            var args = std.ArrayList(*hir.HIR.Expression).init(allocator);
+            try args.append(path_ptr);
+
+            return hir.HIR.Expression{ .method_call = .{
+                .object = obj_ptr,
+                .method_name = try allocator.dupe(u8, "get_member"),
+                .args = args,
             } };
         },
-        .FieldAssignment => |assign| {
-            // Convert FieldAssignment to HIR
-            const hir_object = if (assign.object) |obj| blk: {
-                var hir_obj = try lowerExpression(allocator, obj.*);
-                errdefer hir_obj.deinit(allocator);
-                const obj_ptr = try allocator.create(hir.HIR.Expression);
-                errdefer allocator.destroy(obj_ptr);
-                obj_ptr.* = hir_obj;
-                break :blk obj_ptr;
-            } else null;
+        .PathAssignment => |assign| {
+            const hir_path = try lowerExpression(allocator, assign.path.*);
+            const path_ptr = try allocator.create(hir.HIR.Expression);
+            path_ptr.* = hir_path;
 
-            var hir_value = try lowerExpression(allocator, assign.value.*);
-            errdefer hir_value.deinit(allocator);
+            const hir_value = try lowerExpression(allocator, assign.value.*);
             const value_ptr = try allocator.create(hir.HIR.Expression);
-            errdefer allocator.destroy(value_ptr);
             value_ptr.* = hir_value;
 
-            return hir.HIR.Expression{ .field_assignment = .{
-                .object = hir_object,
-                .field_name = try allocator.dupe(u8, assign.field_name),
+            return hir.HIR.Expression{ .path_assignment = .{
+                .path = path_ptr,
                 .value = value_ptr,
             } };
         },
@@ -912,24 +907,21 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             return error.NotImplemented;
         },
         .NamespaceDecl => |ns_decl| {
-            // For now, transform namespace body as a do block
-            // This ensures the content is processed and not lost
-            // TODO: Integrate with proper module/namespace system
-
+            // Create a proper namespace declaration in HIR
+            const ns_ptr = try allocator.create(hir.HIR.NamespaceDecl);
+            errdefer allocator.destroy(ns_ptr);
+            
             // Convert the namespace body
             const body_expr = try lowerExpression(allocator, ns_decl.body.*);
-
-            // If the body is already a do block, return it as is
-            if (body_expr == .do_block) {
-                return body_expr;
-            }
-
-            // Otherwise, wrap the single expression in a do block
-            var statements = try allocator.alloc(*hir.HIR.Expression, 1);
-            statements[0] = try allocator.create(hir.HIR.Expression);
-            statements[0].* = body_expr;
-
-            return hir.HIR.Expression{ .do_block = .{ .statements = statements } };
+            const body_ptr = try allocator.create(hir.HIR.Expression);
+            body_ptr.* = body_expr;
+            
+            ns_ptr.* = .{
+                .name = try allocator.dupe(u8, ns_decl.name),
+                .body = body_ptr,
+            };
+            
+            return hir.HIR.Expression{ .namespace_decl = ns_ptr };
         },
         .ForLoop => |for_loop| {
             const for_ptr = try allocator.create(hir.HIR.ForLoop);

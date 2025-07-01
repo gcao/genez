@@ -234,6 +234,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try block.instructions.append(.{ .JumpIfFalse = 0 });
 
             // Generate code for the then branch
+            // The then branch will leave its result on the stack
             try convertExpressionWithContext(block, if_expr.then_branch.*, context);
 
             // If there's an else branch, we need to jump over it after the then branch
@@ -249,7 +250,11 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 
             // Generate code for the else branch if it exists
             if (if_expr.else_branch) |else_branch| {
+                // The else branch will leave its result on the stack
                 try convertExpressionWithContext(block, else_branch.*, context);
+            } else {
+                // If there's no else branch, push nil as the result
+                try block.instructions.append(.LoadNil);
             }
 
             // Now we know where the code after the if statement starts, so we can set the Jump target
@@ -259,6 +264,9 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 const after_if_index = block.instructions.items.len;
                 block.instructions.items[jump_over_else_index].Jump = after_if_index;
             }
+            
+            // At this point, either branch will have left a value on the stack
+            // This value is the result of the if expression
         },
         .func_call => |func_call| {
             // Check if the function is a builtin operator like + or - so we can
@@ -607,32 +615,37 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 .arg_count = 1,
             } });
         },
-        .field_assignment => |field_assign| {
-            // Field assignment (= x/a value) compiles to (x .set_member 'a' value)
-            if (field_assign.object) |obj| {
+        .path_assignment => |path_assign| {
+            // Path assignment needs special handling
+            // We need to put object, key, and value on the stack for Set instruction
+            
+            // Check if the path is a PathAccess (the common case)
+            if (path_assign.path.* == .method_call and 
+                std.mem.eql(u8, path_assign.path.method_call.method_name, "get_member")) {
+                // This is a PathAccess compiled as get_member method call
+                // We need to extract the object and key
+                const method_call = path_assign.path.method_call;
+                
                 // Evaluate the object
-                try convertExpressionWithContext(block, obj.*, context);
-            } else {
-                // No object means implicit self - check if it's a parameter
-                if (context.isParameter("self")) |param_index| {
-                    try block.instructions.append(.{ .LoadParameter = param_index });
+                try convertExpressionWithContext(block, method_call.object.*, context);
+                
+                // Evaluate the key (first argument to get_member)
+                if (method_call.args.items.len > 0) {
+                    try convertExpressionWithContext(block, method_call.args.items[0].*, context);
                 } else {
-                    // Fall back to loading as variable
-                    try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+                    return error.InvalidPathAccess;
                 }
+                
+                // Evaluate the value to be assigned
+                try convertExpressionWithContext(block, path_assign.value.*, context);
+                
+                // Emit the Set instruction
+                try block.instructions.append(.Set);
+            } else {
+                // For other path types, we'd need different handling
+                // For now, this is an error
+                return error.UnsupportedPathAssignment;
             }
-
-            // Load the field name as a string
-            try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, field_assign.field_name) });
-
-            // Then evaluate the value to assign
-            try convertExpressionWithContext(block, field_assign.value.*, context);
-
-            // Call set_member method with 2 arguments (field_name, value)
-            try block.instructions.append(.{ .CallMethod = .{
-                .method_name = try block.allocator.dupe(u8, "set_member"),
-                .arg_count = 2,
-            } });
         },
         .match_expr => |match_expr| {
             // Pattern matching compilation to MIR
@@ -824,6 +837,12 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 mod_access.member,
             });
             try block.instructions.append(.{ .LoadVariable = full_path });
+        },
+        .namespace_decl => |ns_ptr| {
+            // Namespace declarations need runtime support
+            // For now, just evaluate the namespace body
+            // TODO: Create proper namespace at runtime
+            try convertExpressionWithContext(block, ns_ptr.body.*, context);
         },
     }
 }

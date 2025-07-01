@@ -1835,85 +1835,97 @@ pub const VM = struct {
                     debug.log("No constructor found for class {s}", .{class.name});
                 }
             },
-            .GetField => {
-                // Get object field: GetField Rd, obj_reg, field_name
+            .Get => {
+                // Universal get for objects, maps, arrays, modules
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
-                const field_name = instruction.var_name orelse return error.InvalidInstruction;
+                const key_reg = instruction.src2 orelse return error.InvalidInstruction;
 
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
 
-                // Handle Module field access
-                if (obj_val == .Module) {
-                    const module = obj_val.Module;
-                    debug.log("GetField on module: looking for {s} in module {s}", .{ field_name, module.id });
-                    
-                    // Look for the member in the module using getMember
-                    if (module.getMember(field_name)) |member| {
-                        try self.setRegister(dst_reg, try member.clone(self.allocator));
-                        debug.log("Found module member {s}", .{field_name});
-                    } else {
-                        debug.log("Module member {s} not found", .{field_name});
-                        return error.FieldNotFound;
-                    }
-                    return;
-                }
+                var key_val = try self.getRegister(key_reg);
+                defer key_val.deinit(self.allocator);
 
-
-                if (obj_val != .Object) {
-                    debug.log("GetField requires an Object or Module, got {}", .{obj_val});
-                    return error.TypeMismatch;
-                }
-
-                const obj = self.getObjectById(obj_val.Object) orelse {
-                    debug.log("Object with ID {} not found in pool", .{obj_val.Object});
-                    return error.InvalidInstruction;
-                };
-
-                if (obj.fields.get(field_name)) |field_value| {
-                    try self.setRegister(dst_reg, try field_value.clone(self.allocator));
-                    debug.log("Got field {s} from object in R{}", .{ field_name, dst_reg });
-                } else {
-                    debug.log("Field {s} not found in object", .{field_name});
-                    return error.FieldNotFound;
+                switch (obj_val) {
+                    .Object => |obj_id| {
+                        const obj = self.getObjectById(obj_id) orelse return error.InvalidInstruction;
+                        if (key_val != .String) return error.TypeMismatch;
+                        const field_name = key_val.String;
+                        if (obj.fields.get(field_name)) |field_value| {
+                            try self.setRegister(dst_reg, try field_value.clone(self.allocator));
+                        } else {
+                            return error.FieldNotFound;
+                        }
+                    },
+                    .Map => |map| {
+                        if (key_val != .String) return error.TypeMismatch;
+                        const key = key_val.String;
+                        if (map.get(key)) |value| {
+                            try self.setRegister(dst_reg, try value.clone(self.allocator));
+                        } else {
+                            try self.setRegister(dst_reg, .Nil);
+                        }
+                    },
+                    .Array => |array| {
+                        if (key_val != .Int) return error.TypeMismatch;
+                        const index = @as(usize, @intCast(key_val.Int));
+                        if (index >= array.len) return error.StackOverflow;
+                        try self.setRegister(dst_reg, try array[index].clone(self.allocator));
+                    },
+                    .Module => |module| {
+                        if (key_val != .String) return error.TypeMismatch;
+                        const member_name = key_val.String;
+                        if (module.getMember(member_name)) |member| {
+                            try self.setRegister(dst_reg, try member.clone(self.allocator));
+                        } else {
+                            return error.FieldNotFound;
+                        }
+                    },
+                    else => return error.TypeMismatch,
                 }
             },
-            .SetField => {
-                // Set object field: SetField obj_reg, field_name, value_reg
+            .Set => {
                 const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
-                const value_reg = instruction.src2 orelse return error.InvalidInstruction;
-                const field_name = instruction.var_name orelse return error.InvalidInstruction;
+                const key_reg = instruction.src2 orelse return error.InvalidInstruction;
+                const value_reg = instruction.dst orelse return error.InvalidInstruction; // Using dst as value reg
 
                 var obj_val = try self.getRegister(obj_reg);
                 defer obj_val.deinit(self.allocator);
 
+                var key_val = try self.getRegister(key_reg);
+                defer key_val.deinit(self.allocator);
 
-                if (obj_val != .Object) {
-                    debug.log("SetField requires an Object, got {}", .{obj_val});
-                    return error.TypeMismatch;
+                switch (obj_val) {
+                    .Object => |obj_id| {
+                        const obj = self.getObjectById(obj_id) orelse return error.InvalidInstruction;
+                        if (key_val != .String) return error.TypeMismatch;
+                        const field_name = key_val.String;
+                        const value = try self.getRegister(value_reg);
+                        if (obj.fields.get(field_name)) |old_value| {
+                            var old_value_copy = old_value;
+                            old_value_copy.deinit(self.allocator);
+                            try obj.fields.put(field_name, value);
+                        } else {
+                            try obj.fields.put(try self.allocator.dupe(u8, field_name), value);
+                        }
+                    },
+                    .Map => |map| {
+                        // Maps have value semantics, so mutations don't persist
+                        // TODO: Implement proper map mutation support
+                        _ = map;
+                        debug.log("Warning: Map mutations don't persist due to value semantics", .{});
+                    },
+                    .Array => |array| {
+                        if (key_val != .Int) return error.TypeMismatch;
+                        const index = @as(usize, @intCast(key_val.Int));
+                        if (index >= array.len) return error.StackOverflow;
+                        const value = try self.getRegister(value_reg);
+                        array[index].deinit(self.allocator);
+                        array[index] = value;
+                    },
+                    else => return error.TypeMismatch,
                 }
-
-                const obj = self.getObjectById(obj_val.Object) orelse {
-                    debug.log("Object with ID {} not found in pool", .{obj_val.Object});
-                    return error.InvalidInstruction;
-                };
-
-                var value = try self.getRegister(value_reg);
-                defer value.deinit(self.allocator);
-
-                // Check if field already exists
-                if (obj.fields.get(field_name)) |old_value| {
-                    // Field exists, just update the value
-                    var old_value_copy = old_value;
-                    old_value_copy.deinit(self.allocator);
-                    // Update existing entry
-                    try obj.fields.put(field_name, try value.clone(self.allocator));
-                } else {
-                    // Field doesn't exist, create new entry with duplicated key
-                    try obj.fields.put(try self.allocator.dupe(u8, field_name), try value.clone(self.allocator));
-                }
-                debug.log("Set field {s} on object", .{field_name});
             },
             .CallMethod => {
                 // Call method: CallMethod Rd, obj_reg, method_name, [arg1, arg2, ...]

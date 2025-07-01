@@ -92,7 +92,7 @@ pub const HIR = struct {
         instance_creation: InstanceCreation, // Creating class instances
         method_call: MethodCall, // Calling methods on instances
         field_access: FieldAccess, // Accessing fields on instances
-        field_assignment: FieldAssignment, // Assigning fields on instances
+        path_assignment: PathAssignment, // Assigning fields on instances
         match_expr: *MatchExpr, // Pattern matching expression
         macro_def: *MacroDef, // Macro definition
         macro_call: MacroCall, // Macro call
@@ -100,6 +100,7 @@ pub const HIR = struct {
         return_expr: *ReturnExpr, // Return statement
         import_stmt: *ImportStmt, // Import statement
         module_access: ModuleAccess, // Access to module member
+        namespace_decl: *NamespaceDecl, // Namespace declaration
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -125,7 +126,7 @@ pub const HIR = struct {
                 .instance_creation => |*inst_creation| inst_creation.deinit(allocator),
                 .method_call => |*method_call| method_call.deinit(allocator),
                 .field_access => |*field_access| field_access.deinit(allocator),
-                .field_assignment => |*field_assign| field_assign.deinit(allocator),
+                .path_assignment => |*path_assign| path_assign.deinit(allocator),
                 .match_expr => |match_ptr| {
                     match_ptr.deinit(allocator);
                     allocator.destroy(match_ptr);
@@ -148,6 +149,10 @@ pub const HIR = struct {
                     allocator.destroy(import_ptr);
                 },
                 .module_access => |*mod_access| mod_access.deinit(allocator),
+                .namespace_decl => |ns_ptr| {
+                    ns_ptr.deinit(allocator);
+                    allocator.destroy(ns_ptr);
+                },
             }
         }
     };
@@ -463,17 +468,13 @@ pub const HIR = struct {
         }
     };
     
-    pub const FieldAssignment = struct {
-        object: ?*Expression, // The object instance (null for implicit self)
-        field_name: []const u8,
+    pub const PathAssignment = struct {
+        path: *Expression, // The path expression to assign to
         value: *Expression,
-        
-        pub fn deinit(self: *FieldAssignment, allocator: std.mem.Allocator) void {
-            if (self.object) |obj| {
-                obj.deinit(allocator);
-                allocator.destroy(obj);
-            }
-            allocator.free(self.field_name);
+
+        pub fn deinit(self: *PathAssignment, allocator: std.mem.Allocator) void {
+            self.path.deinit(allocator);
+            allocator.destroy(self.path);
             self.value.deinit(allocator);
             allocator.destroy(self.value);
         }
@@ -785,6 +786,17 @@ pub const HIR = struct {
         pub fn deinit(self: *ModuleAccess, allocator: std.mem.Allocator) void {
             allocator.free(self.module);
             allocator.free(self.member);
+        }
+    };
+
+    pub const NamespaceDecl = struct {
+        name: []const u8, // Namespace path (e.g., "geometry/shapes")
+        body: *Expression, // Namespace body (usually a DoBlock)
+        
+        pub fn deinit(self: *NamespaceDecl, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
         }
     };
 };

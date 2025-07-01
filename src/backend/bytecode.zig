@@ -49,8 +49,8 @@ pub const OpCode = enum {
     // Class operations
     DefineClass, // Define a class: DefineClass Rd, class_name, parent_reg (optional)
     New, // Create object instance: New Rd, class_reg, [arg1, arg2, ...]
-    GetField, // Get object field: GetField Rd, obj_reg, field_name
-    SetField, // Set object field: SetField obj_reg, field_name, value_reg
+    Get, // Universal get for maps, arrays, fields
+    Set, // Universal set for maps, arrays, fields
     CallMethod, // Call method: CallMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
     
     // Type checking operations

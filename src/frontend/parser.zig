@@ -571,9 +571,12 @@ fn parsePostfixExpression(alloc: std.mem.Allocator, toks: []const Token, primary
         const obj_ptr = try alloc.create(ast.Expression);
         obj_ptr.* = current_expr;
         
-        current_expr = .{ .FieldAccess = .{
+        const path_ptr = try alloc.create(ast.Expression);
+        path_ptr.* = .{ .Literal = .{ .value = .{ .String = field_name } } };
+        
+        current_expr = .{ .PathAccess = .{
             .object = obj_ptr,
-            .field_name = field_name,
+            .path = path_ptr,
         }};
     }
     
@@ -680,6 +683,10 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .Import => return parseImport(alloc, toks, depth + 1),
                 .For => return parseFor(alloc, toks, depth + 1),
                 .Return => return parseReturn(alloc, toks, depth + 1),
+                .Dot => {
+                    // Implicit self method call: (.method args...)
+                    return parseImplicitSelfMethodCall(alloc, toks, depth + 1);
+                },
                 .Ident => {
                     // Check if this is a method call pattern (obj .method ...)
                     if (toks.len > 2 and toks[2].kind == .Dot) {
@@ -696,34 +703,16 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 },
                 .Equals => {
                     // Handle field assignment: (= obj/field value)
-                    return parseFieldAssignment(alloc, toks, depth + 1);
+                    return parsePathAssignment(alloc, toks, depth + 1);
                 },
                 .Slash => {
-                    // Check if this is (/field) which should be parsed as ( /field )
-                    if (toks.len == 4 and toks[2].kind == .Ident and toks[3].kind == .RParen) {
-                        // This is (/field) - parse /field as field access, then wrap in function call
-                        const field_result = try parseExpression(alloc, toks[1..3], depth + 1); // Parse /field
-                        const func_expr = try alloc.create(ast.Expression);
-                        func_expr.* = field_result.node.Expression;
-                        
-                        const args = std.ArrayList(*ast.Expression).init(alloc);
-                        
-                        return .{
-                            .node = .{ .Expression = .{ .FuncCall = .{ 
-                                .func = func_expr, 
-                                .args = args 
-                            }}},
-                            .consumed = 4, // LParen + /field (2 tokens) + RParen
-                        };
-                    } else {
-                        // Handle division operator as function call: (/ 10 5)
-                        // Create an operator token as if it were an identifier
-                        var modified_toks = try alloc.alloc(Token, toks.len);
-                        @memcpy(modified_toks, toks);
-                        modified_toks[1] = .{ .kind = .{ .Ident = "/" }, .loc = toks[1].loc };
-                        defer alloc.free(modified_toks);
-                        return parseCall(alloc, modified_toks, depth + 1);
-                    }
+                    // Handle division operator as function call: (/ 10 5)
+                    // Create an operator token as if it were an identifier
+                    var modified_toks = try alloc.alloc(Token, toks.len);
+                    @memcpy(modified_toks, toks);
+                    modified_toks[1] = .{ .kind = .{ .Ident = "/" }, .loc = toks[1].loc };
+                    defer alloc.free(modified_toks);
+                    return parseCall(alloc, modified_toks, depth + 1);
                 },
                 else => return parseList(alloc, toks, depth + 1), // Fallback for other S-expressions e.g. ((...)) or (Literal ...)
             }
@@ -742,10 +731,17 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
             if (toks[1].kind != .Ident) return error.UnexpectedToken;
             
             const field_name = try alloc.dupe(u8, toks[1].kind.Ident);
+            const self_expr = ast.Expression{ .Variable = .{ .name = try alloc.dupe(u8, "self") } };
+            const self_ptr = try alloc.create(ast.Expression);
+            self_ptr.* = self_expr;
+
+            const path_ptr = try alloc.create(ast.Expression);
+            path_ptr.* = .{ .Literal = .{ .value = .{ .String = field_name } } };
+
             return .{
-                .node = .{ .Expression = .{ .FieldAccess = .{
-                    .object = null, // /field means self.field
-                    .field_name = field_name,
+                .node = .{ .Expression = .{ .PathAccess = .{
+                    .object = self_ptr,
+                    .path = path_ptr,
                 }}},
                 .consumed = 2,
             };
@@ -981,46 +977,8 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
         };
     }
 
-    // Check for field assignment pattern: (/field = value)
-    if (first.kind == .Slash) {
-        // Parse field assignment
-        var parsing_pos = current_pos + 1; // Skip /
-        
-        if (parsing_pos >= toks.len or toks[parsing_pos].kind != .Ident) {
-            return error.UnexpectedToken;
-        }
-        
-        const field_name = try alloc.dupe(u8, toks[parsing_pos].kind.Ident);
-        parsing_pos += 1;
-        
-        // Expect equals sign
-        if (parsing_pos >= toks.len or toks[parsing_pos].kind != .Equals) {
-            return error.ExpectedEquals;
-        }
-        parsing_pos += 1;
-        
-        // Parse the value
-        if (parsing_pos >= toks.len) return error.UnexpectedEOF;
-        const value_result = try parseExpression(alloc, toks[parsing_pos..], depth + 1);
-        parsing_pos += value_result.consumed;
-        
-        // Expect closing paren
-        if (parsing_pos >= toks.len or toks[parsing_pos].kind != .RParen) {
-            return error.ExpectedRParen;
-        }
-        
-        const value_ptr = try alloc.create(ast.Expression);
-        value_ptr.* = value_result.node.Expression;
-        
-        return .{
-            .node = .{ .Expression = .{ .FieldAssignment = .{
-                .object = null, // null means implicit self
-                .field_name = field_name,
-                .value = value_ptr,
-            }}},
-            .consumed = parsing_pos + 1,
-        };
-    }
+    // Note: (/field = value) pattern has been removed.
+    // Use (= /field value) or (= self/field value) instead.
 
     // Special case for nested expressions like ((fib (n - 1)) + (fib (n - 2)))
     // or function calls like ((get-adder) 5)
@@ -1668,10 +1626,28 @@ fn parseNamespace(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !
 
     var current_pos: usize = 2; // Skip LParen and Ns
 
-    // Parse namespace name/path
+    // Parse namespace name/path (e.g., "com/example/app" or "geometry/shapes")
     if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
-    const ns_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+    
+    var path_parts = std.ArrayList(u8).init(alloc);
+    defer path_parts.deinit();
+    
+    // Start with the first identifier
+    try path_parts.appendSlice(toks[current_pos].kind.Ident);
     current_pos += 1;
+    
+    // Handle namespace paths with slashes
+    while (current_pos < toks.len and toks[current_pos].kind == .Slash) {
+        // Found a slash, append it and expect another identifier
+        try path_parts.append('/');
+        current_pos += 1;
+        
+        if (current_pos >= toks.len or toks[current_pos].kind != .Ident) return error.UnexpectedToken;
+        try path_parts.appendSlice(toks[current_pos].kind.Ident);
+        current_pos += 1;
+    }
+    
+    const ns_name = try path_parts.toOwnedSlice();
 
     // Parse namespace body (usually expressions that define classes, functions, etc.)
     var body_exprs = std.ArrayList(*ast.Expression).init(alloc);
@@ -1941,7 +1917,7 @@ fn parseReturn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Par
 ///   depth: The current recursion depth.
 ///
 /// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
-fn parseFieldAssignment(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+fn parsePathAssignment(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
     // Expects (= obj/field value) or (= /field value)
     // toks[0] is LParen, toks[1] is Equals
     // Minimum: (= target value) -> LParen, Equals, target, value, RParen (5 tokens)
@@ -1954,9 +1930,9 @@ fn parseFieldAssignment(alloc: std.mem.Allocator, toks: []const Token, depth: us
     const target_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
     current_pos += target_result.consumed;
     
-    // Verify target is a field access
-    if (target_result.node.Expression != .FieldAccess) {
-        return error.InvalidExpression; // Assignment target must be a field access
+    // Verify target is a path access
+    if (target_result.node.Expression != .PathAccess) {
+        return error.InvalidExpression; // Assignment target must be a path access
     }
     
     // Parse the value
@@ -1966,13 +1942,15 @@ fn parseFieldAssignment(alloc: std.mem.Allocator, toks: []const Token, depth: us
     if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
     current_pos += 1; // Consume RParen
     
+    const path_ptr = try alloc.create(ast.Expression);
+    path_ptr.* = target_result.node.Expression;
+    
     const value_ptr = try alloc.create(ast.Expression);
     value_ptr.* = value_result.node.Expression;
     
     return ParseResult{
-        .node = .{ .Expression = .{ .FieldAssignment = .{
-            .object = target_result.node.Expression.FieldAccess.object,
-            .field_name = target_result.node.Expression.FieldAccess.field_name,
+        .node = .{ .Expression = .{ .PathAssignment = .{
+            .path = path_ptr,
             .value = value_ptr,
         }}},
         .consumed = current_pos,
@@ -2582,19 +2560,24 @@ fn parseClassConstructor(alloc: std.mem.Allocator, toks: []const Token, class_na
         errdefer statements.deinit();
         
         // Create the field assignment: (= /param param)
+        const self_expr = try alloc.create(ast.Expression);
+        self_expr.* = .{ .Variable = .{ .name = try alloc.dupe(u8, "self") } };
+        
+        const path_expr = try alloc.create(ast.Expression);
+        path_expr.* = .{ .Literal = .{ .value = .{ .String = try alloc.dupe(u8, param) } } };
+        
         const field_access = try alloc.create(ast.Expression);
-        field_access.* = .{ .FieldAccess = .{
-            .object = null, // implicit self
-            .field_name = try alloc.dupe(u8, param),
+        field_access.* = .{ .PathAccess = .{
+            .object = self_expr,
+            .path = path_expr,
         }};
         
         const param_var = try alloc.create(ast.Expression);
         param_var.* = .{ .Variable = .{ .name = try alloc.dupe(u8, param) }};
         
         const assignment = try alloc.create(ast.Expression);
-        assignment.* = .{ .FieldAssignment = .{
-            .object = null, // implicit self
-            .field_name = try alloc.dupe(u8, param),
+        assignment.* = .{ .PathAssignment = .{
+            .path = field_access,
             .value = param_var,
         }};
         
@@ -2696,6 +2679,53 @@ fn parseNew(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
                 },
             },
         },
+        .consumed = current_pos,
+    };
+}
+
+fn parseImplicitSelfMethodCall(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (.method arg1 arg2 ...)
+    // Minimum: (.method) -> LParen, Dot, Ident, RParen (4 tokens)
+    if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .Dot) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    // Skip LParen and Dot
+    var current_pos: usize = 2;
+    
+    // Expect method name
+    if (current_pos >= toks.len) return error.ExpectedMethodName;
+    const method_name = switch (toks[current_pos].kind) {
+        .Ident => |name| try alloc.dupe(u8, name),
+        else => return error.ExpectedMethodName,
+    };
+    current_pos += 1;
+    
+    // Parse arguments
+    var args = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer args.deinit();
+    
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const arg_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        const arg_ptr = try alloc.create(ast.Expression);
+        arg_ptr.* = arg_result.node.Expression;
+        try args.append(arg_ptr);
+        current_pos += arg_result.consumed;
+    }
+    
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+    
+    // Create self expression
+    const self_expr = ast.Expression{ .Variable = .{ .name = try alloc.dupe(u8, "self") } };
+    const self_ptr = try alloc.create(ast.Expression);
+    self_ptr.* = self_expr;
+    
+    return .{
+        .node = .{ .Expression = .{ .MethodCall = .{
+            .object = self_ptr,
+            .method_name = method_name,
+            .args = args,
+        } } },
         .consumed = current_pos,
     };
 }

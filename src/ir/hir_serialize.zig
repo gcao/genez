@@ -244,16 +244,11 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
                 try writer.print("/{s}", .{field_access.field_name});
             }
         },
-        .field_assignment => |field_assign| {
-            try writer.writeAll("(");
-            if (field_assign.object) |obj| {
-                try serializeExpression(writer, obj.*, indent);
-                try writer.print("/{s}", .{field_assign.field_name});
-            } else {
-                try writer.print("/{s}", .{field_assign.field_name});
-            }
-            try writer.writeAll(" = ");
-            try serializeExpression(writer, field_assign.value.*, indent);
+        .path_assignment => |path_assign| {
+            try writer.writeAll("(= ");
+            try serializeExpression(writer, path_assign.path.*, indent);
+            try writer.writeAll(" ");
+            try serializeExpression(writer, path_assign.value.*, indent);
             try writer.writeAll(")");
         },
         .match_expr => |match_expr| {
@@ -340,6 +335,11 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
         },
         .module_access => |mod_access| {
             try writer.print("{s}/{s}", .{mod_access.module, mod_access.member});
+        },
+        .namespace_decl => |ns_ptr| {
+            try writer.print("(ns \"{s}\" ", .{ns_ptr.name});
+            try serializeExpression(writer, ns_ptr.body.*, indent + 1);
+            try writer.writeAll(")");
         },
     }
 }

@@ -290,23 +290,15 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             }
             try writer.writeAll(")");
         },
-        .FieldAccess => |field| {
-            if (field.object) |obj| {
-                try serializeExpression(writer, obj.*, indent);
-                try writer.print("/{s}", .{field.field_name});
-            } else {
-                try writer.print("/{s}", .{field.field_name});
-            }
+        .PathAccess => |path| {
+            try serializeExpression(writer, path.object.*, indent);
+            try writer.writeAll("/");
+            try serializeExpression(writer, path.path.*, indent);
         },
-        .FieldAssignment => |assign| {
-            try writer.writeAll("(");
-            if (assign.object) |obj| {
-                try serializeExpression(writer, obj.*, indent);
-                try writer.print("/{s}", .{assign.field_name});
-            } else {
-                try writer.print("/{s}", .{assign.field_name});
-            }
-            try writer.writeAll(" = ");
+        .PathAssignment => |assign| {
+            try writer.writeAll("(= ");
+            try serializeExpression(writer, assign.path.*, indent);
+            try writer.writeAll(" ");
             try serializeExpression(writer, assign.value.*, indent);
             try writer.writeAll(")");
         },

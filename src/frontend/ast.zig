@@ -828,64 +828,7 @@ pub const InstanceCreation = struct {
     }
 };
 
-pub const FieldAccess = struct {
-    object: ?*Expression, // null for implicit 'self' access like /msg
-    field_name: []const u8,
-    
-    pub fn deinit(self: *FieldAccess, allocator: std.mem.Allocator) void {
-        if (self.object) |obj| {
-            obj.deinit(allocator);
-            allocator.destroy(obj);
-        }
-        allocator.free(self.field_name);
-    }
-    
-    pub fn clone(self: FieldAccess, allocator: std.mem.Allocator) !FieldAccess {
-        const new_object = if (self.object) |obj| blk: {
-            const new_obj = try allocator.create(Expression);
-            new_obj.* = try obj.clone(allocator);
-            break :blk new_obj;
-        } else null;
-        
-        return FieldAccess{
-            .object = new_object,
-            .field_name = try allocator.dupe(u8, self.field_name),
-        };
-    }
-};
-
-pub const FieldAssignment = struct {
-    object: ?*Expression, // null for implicit 'self' access
-    field_name: []const u8,
-    value: *Expression,
-    
-    pub fn deinit(self: *FieldAssignment, allocator: std.mem.Allocator) void {
-        if (self.object) |obj| {
-            obj.deinit(allocator);
-            allocator.destroy(obj);
-        }
-        allocator.free(self.field_name);
-        self.value.deinit(allocator);
-        allocator.destroy(self.value);
-    }
-    
-    pub fn clone(self: FieldAssignment, allocator: std.mem.Allocator) !FieldAssignment {
-        const new_object = if (self.object) |obj| blk: {
-            const new_obj = try allocator.create(Expression);
-            new_obj.* = try obj.clone(allocator);
-            break :blk new_obj;
-        } else null;
-        
-        const new_value = try allocator.create(Expression);
-        new_value.* = try self.value.clone(allocator);
-        
-        return FieldAssignment{
-            .object = new_object,
-            .field_name = try allocator.dupe(u8, self.field_name),
-            .value = new_value,
-        };
-    }
-};
+// FieldAccess and FieldAssignment have been replaced by PathAccess and PathAssignment
 
 pub const MethodCall = struct {
     object: *Expression,
@@ -1349,6 +1292,56 @@ pub const ForLoop = struct {
     }
 };
 
+pub const PathAccess = struct {
+    object: *Expression, // The object being accessed
+    path: *Expression,   // The path or key used for access
+
+    pub fn deinit(self: *PathAccess, allocator: std.mem.Allocator) void {
+        self.object.deinit(allocator);
+        allocator.destroy(self.object);
+        self.path.deinit(allocator);
+        allocator.destroy(self.path);
+    }
+
+    pub fn clone(self: PathAccess, allocator: std.mem.Allocator) !PathAccess {
+        const new_object = try allocator.create(Expression);
+        new_object.* = try self.object.clone(allocator);
+
+        const new_path = try allocator.create(Expression);
+        new_path.* = try self.path.clone(allocator);
+
+        return PathAccess{
+            .object = new_object,
+            .path = new_path,
+        };
+    }
+};
+
+pub const PathAssignment = struct {
+    path: *Expression, // The path expression to assign to
+    value: *Expression,
+
+    pub fn deinit(self: *PathAssignment, allocator: std.mem.Allocator) void {
+        self.path.deinit(allocator);
+        allocator.destroy(self.path);
+        self.value.deinit(allocator);
+        allocator.destroy(self.value);
+    }
+
+    pub fn clone(self: PathAssignment, allocator: std.mem.Allocator) !PathAssignment {
+        const new_path = try allocator.create(Expression);
+        new_path.* = try self.path.clone(allocator);
+
+        const new_value = try allocator.create(Expression);
+        new_value.* = try self.value.clone(allocator);
+
+        return PathAssignment{
+            .path = new_path,
+            .value = new_value,
+        };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
@@ -1363,8 +1356,8 @@ pub const Expression = union(enum) {
     DoBlock: DoBlock, // New
     ClassDef: ClassDef, // New - Class definitions for OOP
     InstanceCreation: InstanceCreation, // New - Object instantiation
-    FieldAccess: FieldAccess, // New - Field access with /
-    FieldAssignment: FieldAssignment, // New - Field assignment with /
+    PathAccess: PathAccess, // New - Field access with /
+    PathAssignment: PathAssignment, // New - Field assignment with /
     MethodCall: MethodCall, // New - Method calls with .
     MatchExpr: MatchExpr, // New - Pattern matching expressions
     ModuleDef: ModuleDef, // New - Module definitions
@@ -1394,8 +1387,8 @@ pub const Expression = union(enum) {
             .DoBlock => |*do_block| do_block.deinit(allocator), // New
             .ClassDef => |*class_def| class_def.deinit(allocator), // New
             .InstanceCreation => |*inst| inst.deinit(allocator), // New
-            .FieldAccess => |*field| field.deinit(allocator), // New
-            .FieldAssignment => |*assign| assign.deinit(allocator), // New
+            .PathAccess => |*path| path.deinit(allocator), // New
+            .PathAssignment => |*assign| assign.deinit(allocator), // New
             .MethodCall => |*call| call.deinit(allocator), // New
             .MatchExpr => |*match_expr| match_expr.deinit(allocator), // New
             .ModuleDef => |*module_def| module_def.deinit(allocator), // New
@@ -1427,8 +1420,8 @@ pub const Expression = union(enum) {
             .DoBlock => |do_block| Expression{ .DoBlock = try do_block.clone(allocator) }, // New
             .ClassDef => |class_def| Expression{ .ClassDef = try class_def.clone(allocator) }, // New
             .InstanceCreation => |inst| Expression{ .InstanceCreation = try inst.clone(allocator) }, // New
-            .FieldAccess => |field| Expression{ .FieldAccess = try field.clone(allocator) }, // New
-            .FieldAssignment => |assign| Expression{ .FieldAssignment = try assign.clone(allocator) }, // New
+            .PathAccess => |path| Expression{ .PathAccess = try path.clone(allocator) }, // New
+            .PathAssignment => |assign| Expression{ .PathAssignment = try assign.clone(allocator) }, // New
             .MethodCall => |call| Expression{ .MethodCall = try call.clone(allocator) }, // New
             .MatchExpr => |match_expr| Expression{ .MatchExpr = try match_expr.clone(allocator) }, // New
             .ModuleDef => |module_def| Expression{ .ModuleDef = try module_def.clone(allocator) }, // New
