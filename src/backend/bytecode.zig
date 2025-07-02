@@ -35,8 +35,8 @@ pub const OpCode = enum {
     JumpIfFalse, // JumpIfFalse Rs, #offset
 
     // Collection operations
-    Array, // Create array: Array Rd, [Rs1, Rs2, ...]
-    Map, // Create map: Map Rd, [Rkey1, Rval1, ...]
+    CreateArray, // Create array from N elements: CreateArray Rd, #count (uses N registers starting from src1)
+    CreateMap, // Create map from N key-value pairs: CreateMap Rd, #count (uses N*2 registers starting from src1)
     Length, // Get length: Length Rd, Rs (string/array/map)
     ArrayGet, // Get array element: ArrayGet Rd, array_reg, index_reg
     ArraySet, // Set array element: ArraySet array_reg, index_reg, value_reg
@@ -45,6 +45,7 @@ pub const OpCode = enum {
     
     // String operations
     Substring, // Get substring: Substring Rd, str_reg, start_reg, end_reg
+    ToString, // Convert value to string: ToString Rd, Rs
     
     // Class operations
     DefineClass, // Define a class: DefineClass Rd, class_name, parent_reg (optional)

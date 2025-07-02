@@ -3,10 +3,10 @@
 
 # Test 1: Import from lib directory (package path)
 (import "math")
-(import "utils" :as u)
+(import "utils" => u)
 
 # Test 2: Relative import from current directory
-(import "./helpers/string_utils" :as str)
+(import "./helpers/string_utils" => str)
 
 # Test 3: Import specific items
 # (import "math" [square cube PI])

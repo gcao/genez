@@ -1342,6 +1342,97 @@ pub const PathAssignment = struct {
     }
 };
 
+pub const TryExpr = struct {
+    body: *Expression, // The try block
+    catch_clauses: []CatchClause, // List of catch clauses
+    finally_block: ?*Expression, // Optional finally block
+    
+    pub const CatchClause = struct {
+        error_var: ?[]const u8, // Optional variable name to bind the error
+        error_type: ?[]const u8, // Optional error type to match
+        body: *Expression, // The catch block body
+        
+        pub fn deinit(self: *CatchClause, allocator: std.mem.Allocator) void {
+            if (self.error_var) |var_name| {
+                allocator.free(var_name);
+            }
+            if (self.error_type) |type_name| {
+                allocator.free(type_name);
+            }
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+        
+        pub fn clone(self: CatchClause, allocator: std.mem.Allocator) !CatchClause {
+            const new_body = try allocator.create(Expression);
+            new_body.* = try self.body.clone(allocator);
+            
+            return CatchClause{
+                .error_var = if (self.error_var) |var_name| try allocator.dupe(u8, var_name) else null,
+                .error_type = if (self.error_type) |type_name| try allocator.dupe(u8, type_name) else null,
+                .body = new_body,
+            };
+        }
+    };
+    
+    pub fn deinit(self: *TryExpr, allocator: std.mem.Allocator) void {
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+        
+        for (self.catch_clauses) |*clause| {
+            clause.deinit(allocator);
+        }
+        allocator.free(self.catch_clauses);
+        
+        if (self.finally_block) |finally| {
+            finally.deinit(allocator);
+            allocator.destroy(finally);
+        }
+    }
+    
+    pub fn clone(self: TryExpr, allocator: std.mem.Allocator) !TryExpr {
+        const new_body = try allocator.create(Expression);
+        new_body.* = try self.body.clone(allocator);
+        
+        var new_catch_clauses = try allocator.alloc(CatchClause, self.catch_clauses.len);
+        errdefer allocator.free(new_catch_clauses);
+        
+        for (self.catch_clauses, 0..) |clause, i| {
+            new_catch_clauses[i] = try clause.clone(allocator);
+        }
+        
+        const new_finally = if (self.finally_block) |finally| blk: {
+            const new_finally_expr = try allocator.create(Expression);
+            new_finally_expr.* = try finally.clone(allocator);
+            break :blk new_finally_expr;
+        } else null;
+        
+        return TryExpr{
+            .body = new_body,
+            .catch_clauses = new_catch_clauses,
+            .finally_block = new_finally,
+        };
+    }
+};
+
+pub const ThrowExpr = struct {
+    value: *Expression, // The value/error to throw
+    
+    pub fn deinit(self: *ThrowExpr, allocator: std.mem.Allocator) void {
+        self.value.deinit(allocator);
+        allocator.destroy(self.value);
+    }
+    
+    pub fn clone(self: ThrowExpr, allocator: std.mem.Allocator) !ThrowExpr {
+        const new_value = try allocator.create(Expression);
+        new_value.* = try self.value.clone(allocator);
+        
+        return ThrowExpr{
+            .value = new_value,
+        };
+    }
+};
+
 pub const Expression = union(enum) {
     Literal: Literal,
     Variable: Variable,
@@ -1371,6 +1462,8 @@ pub const Expression = union(enum) {
     NamespaceDecl: NamespaceDecl, // New - Namespace declaration
     ForLoop: ForLoop, // New - For-in loops
     Return: Return, // New - Return statement
+    TryExpr: TryExpr, // New - Try/catch/finally expression
+    ThrowExpr: ThrowExpr, // New - Throw expression
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -1402,6 +1495,8 @@ pub const Expression = union(enum) {
             .NamespaceDecl => |*ns_decl| ns_decl.deinit(allocator), // New
             .ForLoop => |*for_loop| for_loop.deinit(allocator), // New
             .Return => |*ret| ret.deinit(allocator), // New
+            .TryExpr => |*try_expr| try_expr.deinit(allocator), // New
+            .ThrowExpr => |*throw_expr| throw_expr.deinit(allocator), // New
         }
     }
 
@@ -1435,6 +1530,8 @@ pub const Expression = union(enum) {
             .NamespaceDecl => |ns_decl| Expression{ .NamespaceDecl = try ns_decl.clone(allocator) }, // New
             .ForLoop => |for_loop| Expression{ .ForLoop = try for_loop.clone(allocator) }, // New
             .Return => |ret| Expression{ .Return = try ret.clone(allocator) }, // New
+            .TryExpr => |try_expr| Expression{ .TryExpr = try try_expr.clone(allocator) }, // New
+            .ThrowExpr => |throw_expr| Expression{ .ThrowExpr = try throw_expr.clone(allocator) }, // New
         };
     }
 };

@@ -956,6 +956,18 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             
             return .{ .return_expr = ret_ptr };
         },
+        .TryExpr => |try_expr| {
+            // For now, we'll lower try/catch/finally to a simple do block
+            // Later we'll need proper HIR representation for error handling
+            const body_expr = try lowerExpression(allocator, try_expr.body.*);
+            return body_expr;
+        },
+        .ThrowExpr => |throw_expr| {
+            // For now, we'll lower throw to a simple expression
+            // Later we'll need proper HIR representation for error handling
+            const value_expr = try lowerExpression(allocator, throw_expr.value.*);
+            return value_expr;
+        },
     };
 }
 

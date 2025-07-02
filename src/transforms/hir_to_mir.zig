@@ -8,8 +8,73 @@ pub fn convert(allocator: std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
     errdefer mir_prog.deinit();
 
     // Convert each HIR function to MIR function
-    for (hir_prog.functions.items) |func| {
-        const mir_func = try convertFunction(allocator, func);
+    for (hir_prog.functions.items, 0..) |func, i| {
+        var mir_func = try convertFunction(allocator, func);
+
+        // If this is the main function and we have imports with selective items,
+        // add instructions to create bindings for those items
+        if (i == hir_prog.functions.items.len - 1 and std.mem.eql(u8, func.name, "main")) {
+            // Process imports at the beginning of the main function
+            if (hir_prog.imports.items.len > 0 and mir_func.blocks.items.len > 0) {
+                var new_instructions = std.ArrayList(mir.MIR.Instruction).init(allocator);
+                defer new_instructions.deinit();
+
+                // Add import binding instructions
+                for (hir_prog.imports.items) |import| {
+                    if (import.items) |items| {
+                        // Get the module name
+                        const module_name = import.alias orelse blk: {
+                            var path = import.module_path;
+                            if (std.mem.startsWith(u8, path, "./")) {
+                                path = path[2..];
+                            }
+                            if (std.mem.endsWith(u8, path, ".gene")) {
+                                path = path[0 .. path.len - 5];
+                            }
+                            break :blk path;
+                        };
+
+                        // Create bindings for each imported item
+                        // Note: We only create bindings if the module was successfully loaded
+                        // The module loading happens at compile time in compiler.zig
+                        // If the module doesn't exist, we skip creating bindings
+                        for (items) |item| {
+                            // Load the module
+                            try new_instructions.append(.{ .LoadVariable = try allocator.dupe(u8, module_name) });
+
+                            // Load the member name
+                            try new_instructions.append(.{ .LoadString = try allocator.dupe(u8, item.name) });
+
+                            // Access the member (module/member)
+                            try new_instructions.append(.{ .CallMethod = .{
+                                .method_name = try allocator.dupe(u8, "get_member"),
+                                .arg_count = 1,
+                            } });
+
+                            // Store it in a variable
+                            const var_name = item.alias orelse item.name;
+                            try new_instructions.append(.{ .StoreVariable = try allocator.dupe(u8, var_name) });
+                        }
+                    }
+                }
+
+                // Prepend the new instructions to the main function's first block
+                var first_block = &mir_func.blocks.items[0];
+                const original_instructions = try first_block.instructions.toOwnedSlice();
+                defer allocator.free(original_instructions);
+
+                // Add all new instructions first
+                for (new_instructions.items) |instr| {
+                    try first_block.instructions.append(instr);
+                }
+
+                // Then add the original instructions
+                for (original_instructions) |instr| {
+                    try first_block.instructions.append(instr);
+                }
+            }
+        }
+
         try mir_prog.functions.append(mir_func);
     }
 
@@ -33,11 +98,7 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
     var entry_block = mir.MIR.Block.init(allocator);
 
     // Create context for the function body with parameter names
-    var func_context = ConversionContext{ 
-        .param_names = mir_func.param_names.items,
-        .allocator = allocator,
-        .next_temp_id = 0
-    };
+    var func_context = ConversionContext{ .param_names = mir_func.param_names.items, .allocator = allocator, .next_temp_id = 0 };
 
     // Convert HIR statements to MIR instructions
     for (func.body.items) |stmt| {
@@ -103,45 +164,10 @@ const ConversionContext = struct {
 };
 
 fn convertExpression(block: *mir.MIR.Block, expr: hir.HIR.Expression) !void {
-    var empty_context = ConversionContext{ 
-        .param_names = null,
-        .allocator = block.allocator,
-        .next_temp_id = 0
-    };
+    var empty_context = ConversionContext{ .param_names = null, .allocator = block.allocator, .next_temp_id = 0 };
     try convertExpressionWithContext(block, expr, &empty_context);
 }
 
-fn hirLiteralToValue(allocator: std.mem.Allocator, hir_expr: hir.HIR.Expression) !types.Value {
-    return switch (hir_expr) {
-        .literal => |lit| switch (lit) {
-            .int => |val| types.Value{ .Int = val },
-            .string => |val| types.Value{ .String = try allocator.dupe(u8, val) },
-            .bool => |val| types.Value{ .Bool = val },
-            .float => |val| types.Value{ .Float = val },
-            .nil => types.Value{ .Nil = {} },
-            .symbol => |val| types.Value{ .Symbol = try allocator.dupe(u8, val) },
-            .array => |_| {
-                // Nested arrays within a LoadArray instruction are not directly supported.
-                // This would require a more complex representation or separate instructions.
-                std.debug.print("Nested arrays in hirLiteralToValue are not supported for direct MIR LoadArray conversion.\n", .{});
-                return error.UnsupportedExpression;
-            },
-            .map => |_| {
-                // Maps within a LoadArray instruction are not directly supported.
-                std.debug.print("Maps in hirLiteralToValue are not supported for direct MIR LoadArray conversion.\n", .{});
-                return error.UnsupportedExpression;
-            },
-        },
-        else => {
-            // If it's not a literal, it cannot be part of a MIR LoadArray/LoadMap directly.
-            // This indicates an issue, as LoadArray/LoadMap expect constant values.
-            // A prior compilation stage should have handled complex expressions or
-            // a different MIR instruction sequence should be generated.
-            std.debug.print("Unexpected non-literal expression type ('{s}') encountered in hirLiteralToValue. LoadArray/LoadMap expect constant values.\n", .{@tagName(hir_expr)});
-            @panic("Cannot convert non-literal HIR expression to constant MIR Value for LoadArray/LoadMap.");
-        },
-    };
-}
 
 fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression, context: *ConversionContext) anyerror!void {
     switch (expr) {
@@ -154,43 +180,25 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             .float => |val| try block.instructions.append(.{ .LoadFloat = val }),
             .nil => try block.instructions.append(.LoadNil),
             .symbol => |val| try block.instructions.append(.{ .LoadSymbol = try block.allocator.dupe(u8, val) }),
-            .array => |hir_array_elements| { // hir_array_elements is []*hir.HIR.Expression
-                var mir_value_array = try block.allocator.alloc(types.Value, hir_array_elements.len);
-                errdefer block.allocator.free(mir_value_array);
-
-                for (hir_array_elements, 0..) |hir_expr_ptr, i| {
-                    // Each element must be convertible to a constant types.Value
-                    // hirLiteralToValue will panic if hir_expr_ptr.* is not a literal
-                    mir_value_array[i] = try hirLiteralToValue(block.allocator, hir_expr_ptr.*);
-                    // Ensure deinit for values created by hirLiteralToValue if subsequent conversion fails
-                    errdefer mir_value_array[i].deinit(block.allocator);
+            .array => |hir_array_elements| { 
+                // Convert array literals using CreateArray
+                for (hir_array_elements) |hir_expr_ptr| {
+                    try convertExpressionWithContext(block, hir_expr_ptr.*, context);
                 }
-                try block.instructions.append(.{ .LoadArray = mir_value_array });
+                try block.instructions.append(.{ .CreateArray = hir_array_elements.len });
             },
-            .map => |hir_map| { // hir_map is std.StringHashMap(*hir.HIR.Expression)
-                var mir_value_map = std.StringHashMap(types.Value).init(block.allocator);
-                errdefer { // Deinit map and its contents if an error occurs
-                    var it = mir_value_map.iterator();
-                    while (it.next()) |entry| {
-                        block.allocator.free(entry.key_ptr.*); // key is []const u8, dupe'd
-                        entry.value_ptr.deinit(block.allocator); // value is types.Value
-                    }
-                    mir_value_map.deinit();
-                }
-
+            .map => |hir_map| { 
+                // Convert map literals using CreateMap
                 var hir_map_iter = hir_map.iterator();
                 while (hir_map_iter.next()) |hir_entry| {
-                    const key_str = try block.allocator.dupe(u8, hir_entry.key_ptr.*);
-                    errdefer block.allocator.free(key_str);
-
-                    // Each value must be convertible to a constant types.Value
-                    // hirLiteralToValue will panic if hir_entry.value_ptr.*.* is not a literal
-                    var mir_value = try hirLiteralToValue(block.allocator, hir_entry.value_ptr.*.*); // Dereference the pointer
-                    errdefer (&mir_value).deinit(block.allocator); // Pass pointer to local mir_value
-
-                    try mir_value_map.put(key_str, mir_value);
+                    // Push key
+                    const key_str = hir_entry.key_ptr.*;
+                    try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, key_str) });
+                    
+                    // Push value
+                    try convertExpressionWithContext(block, hir_entry.value_ptr.*.*, context);
                 }
-                try block.instructions.append(.{ .LoadMap = mir_value_map });
+                try block.instructions.append(.{ .CreateMap = hir_map.count() });
             },
         },
         .binary_op => |bin_op| {
@@ -264,7 +272,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 const after_if_index = block.instructions.items.len;
                 block.instructions.items[jump_over_else_index].Jump = after_if_index;
             }
-            
+
             // At this point, either branch will have left a value on the stack
             // This value is the result of the if expression
         },
@@ -324,11 +332,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             errdefer body_block.deinit();
 
             // Create context for the function body with parameter names
-            var func_context = ConversionContext{ 
-                .param_names = func.param_names.items,
-                .allocator = block.allocator,
-                .next_temp_id = 0
-            };
+            var func_context = ConversionContext{ .param_names = func.param_names.items, .allocator = block.allocator, .next_temp_id = 0 };
 
             // Convert the function body with parameter context
             try convertExpressionWithContext(&body_block, func_def.body.*, &func_context);
@@ -355,7 +359,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 
             // Load the function as a constant
             try block.instructions.append(.{ .LoadFunction = func_obj });
-            
+
             // Don't store anonymous functions - they'll be stored by var declarations
             // Only store if it's not an anonymous function (doesn't start with "anon_")
             if (!std.mem.startsWith(u8, func_def.name, "anon_")) {
@@ -380,7 +384,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 
             // Load the MIR function object as a constant
             try block.instructions.append(.{ .LoadFunction = mir_func_obj });
-            
+
             // Don't store anonymous functions - they'll be stored by var declarations
             // Only store if it's not an anonymous function (doesn't start with "anon_")
             if (!std.mem.startsWith(u8, hir_func_ptr.*.name, "anon_")) {
@@ -398,90 +402,36 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try block.instructions.append(.{ .StoreVariable = name_copy });
         },
         .array_literal => |array_lit| {
-            // Convert each element in the array
-            var mir_elements = std.ArrayList(types.Value).init(block.allocator);
-            errdefer {
-                for (mir_elements.items) |*val| {
-                    val.deinit(block.allocator);
-                }
-                mir_elements.deinit();
-            }
-
+            // Always use CreateArray for consistency
+            // For each element, evaluate it and push to stack
             for (array_lit.elements) |elem_ptr| {
-                const elem = elem_ptr.*;
-                switch (elem) {
-                    .literal => |lit| {
-                        const value = switch (lit) {
-                            .int => |val| types.Value{ .Int = val },
-                            .float => |val| types.Value{ .Float = val },
-                            .bool => |val| types.Value{ .Bool = val },
-                            .string => |val| types.Value{ .String = try block.allocator.dupe(u8, val) },
-                            .nil => types.Value.Nil,
-                            .symbol => |val| types.Value{ .Symbol = try block.allocator.dupe(u8, val) },
-                            .array => |_| types.Value.Nil, // Nested arrays not yet supported
-                            .map => |_| types.Value.Nil, // Nested maps not yet supported
-                        };
-                        try mir_elements.append(value);
-                    },
-                    else => {
-                        // For complex expressions, we would need to evaluate them first
-                        // For now, we'll use a placeholder
-                        try mir_elements.append(types.Value.Nil);
-                    },
-                }
+                try convertExpressionWithContext(block, elem_ptr.*, context);
             }
 
-            const elements_slice = try mir_elements.toOwnedSlice();
-            try block.instructions.append(.{ .LoadArray = elements_slice });
+            // Create array from stack elements
+            try block.instructions.append(.{ .CreateArray = array_lit.elements.len });
         },
         .map_literal => |map_lit| {
-            // Convert each entry in the map
-            var mir_map = std.StringHashMap(types.Value).init(block.allocator);
-            errdefer {
-                var it = mir_map.iterator();
-                while (it.next()) |entry| {
-                    block.allocator.free(entry.key_ptr.*);
-                    entry.value_ptr.deinit(block.allocator);
-                }
-                mir_map.deinit();
-            }
-
+            // Always use CreateMap for consistency
+            // For each entry, push key then value to stack
             for (map_lit.entries) |entry| {
-                // Convert key (must be a symbol with ^ prefix in Gene)
+                // Push key (convert to string)
                 const key_str = switch (entry.key.*) {
                     .literal => |lit| switch (lit) {
-                        .symbol => |sym| try block.allocator.dupe(u8, sym),
-                        .string => |str| try block.allocator.dupe(u8, str),
-                        .int => |val| try std.fmt.allocPrint(block.allocator, "{}", .{val}),
-                        .float => |val| try std.fmt.allocPrint(block.allocator, "{}", .{val}),
-                        .bool => |val| try std.fmt.allocPrint(block.allocator, "{}", .{val}),
-                        .nil => try block.allocator.dupe(u8, "nil"),
-                        .array => |_| try block.allocator.dupe(u8, "array_key"),
-                        .map => |_| try block.allocator.dupe(u8, "map_key"),
+                        .symbol => |sym| sym,
+                        .string => |str| str,
+                        else => "unknown_key",
                     },
-                    .variable => |var_expr| try block.allocator.dupe(u8, var_expr.name),
-                    else => try block.allocator.dupe(u8, "unknown_key"),
+                    else => "unknown_key",
                 };
+                try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, key_str) });
 
-                // Convert value
-                const value = switch (entry.value.*) {
-                    .literal => |lit| switch (lit) {
-                        .int => |val| types.Value{ .Int = val },
-                        .float => |val| types.Value{ .Float = val },
-                        .bool => |val| types.Value{ .Bool = val },
-                        .string => |val| types.Value{ .String = try block.allocator.dupe(u8, val) },
-                        .nil => types.Value.Nil,
-                        .symbol => |val| types.Value{ .Symbol = try block.allocator.dupe(u8, val) },
-                        .array => |_| types.Value.Nil, // Nested arrays not yet supported
-                        .map => |_| types.Value.Nil, // Nested maps not yet supported
-                    },
-                    else => types.Value.Nil,
-                };
-
-                try mir_map.put(key_str, value);
+                // Push value (evaluate expression)
+                try convertExpressionWithContext(block, entry.value.*, context);
             }
 
-            try block.instructions.append(.{ .LoadMap = mir_map });
+            // Create map from stack elements (key-value pairs)
+            try block.instructions.append(.{ .CreateMap = map_lit.entries.len });
         },
         .do_block => |do_block| {
             // Process each statement in the do block
@@ -525,11 +475,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 var method_block = mir.MIR.Block.init(block.allocator);
 
                 // Create context with method parameters
-                var method_context = ConversionContext{ 
-                    .param_names = method_func.param_names.items,
-                    .allocator = block.allocator,
-                    .next_temp_id = 0
-                };
+                var method_context = ConversionContext{ .param_names = method_func.param_names.items, .allocator = block.allocator, .next_temp_id = 0 };
 
                 // Convert method body
                 try convertExpressionWithContext(&method_block, method.body.*, &method_context);
@@ -608,7 +554,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 
             // Load the field name as a string
             try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, field_access.field_name) });
-            
+
             // Call get_member method with 1 argument
             try block.instructions.append(.{ .CallMethod = .{
                 .method_name = try block.allocator.dupe(u8, "get_member"),
@@ -618,27 +564,28 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
         .path_assignment => |path_assign| {
             // Path assignment needs special handling
             // We need to put object, key, and value on the stack for Set instruction
-            
+
             // Check if the path is a PathAccess (the common case)
-            if (path_assign.path.* == .method_call and 
-                std.mem.eql(u8, path_assign.path.method_call.method_name, "get_member")) {
+            if (path_assign.path.* == .method_call and
+                std.mem.eql(u8, path_assign.path.method_call.method_name, "get_member"))
+            {
                 // This is a PathAccess compiled as get_member method call
                 // We need to extract the object and key
                 const method_call = path_assign.path.method_call;
-                
+
                 // Evaluate the object
                 try convertExpressionWithContext(block, method_call.object.*, context);
-                
+
                 // Evaluate the key (first argument to get_member)
                 if (method_call.args.items.len > 0) {
                     try convertExpressionWithContext(block, method_call.args.items[0].*, context);
                 } else {
                     return error.InvalidPathAccess;
                 }
-                
+
                 // Evaluate the value to be assigned
                 try convertExpressionWithContext(block, path_assign.value.*, context);
-                
+
                 // Emit the Set instruction
                 try block.instructions.append(.Set);
             } else {
@@ -726,14 +673,12 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // They need to be stored in the environment for later expansion
             // For now, we'll skip them in MIR as they need special handling
             // TODO: Implement proper macro storage and expansion
-            std.debug.print("Warning: Macro definitions not yet fully implemented in MIR\n", .{});
             try block.instructions.append(.LoadNil);
         },
         .macro_call => |macro_call| {
             // Macro calls need special handling for lazy evaluation
             // For now, we'll evaluate them as regular function calls
             // TODO: Implement proper lazy evaluation for macro arguments
-            std.debug.print("Warning: Macro calls not yet fully implemented in MIR (treating as regular function call)\n", .{});
 
             // Evaluate the macro expression
             try convertExpressionWithContext(block, macro_call.macro.*, context);
@@ -748,7 +693,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
         },
         .for_loop => |for_ptr| {
             // Implement a simple for-in loop for arrays
-            // Desugar to: 
+            // Desugar to:
             // var _arr = iterable
             // var _i = 0
             // while (_i < _arr.length) {
@@ -756,58 +701,58 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             //   body
             //   _i = _i + 1
             // }
-            
+
             // Generate unique temp variable names
             const array_var = try std.fmt.allocPrint(context.allocator, "_for_arr_{}", .{context.next_temp_id});
             const index_var = try std.fmt.allocPrint(context.allocator, "_for_idx_{}", .{context.next_temp_id});
             context.next_temp_id += 1;
-            
+
             // Store the iterable in a temp variable
             try convertExpressionWithContext(block, for_ptr.iterable.*, context);
             try block.instructions.append(.{ .StoreVariable = array_var });
-            
+
             // Initialize index to 0
             try block.instructions.append(.{ .LoadInt = 0 });
             try block.instructions.append(.{ .StoreVariable = index_var });
-            
+
             // Start of loop - record position for jump back
             // IMPORTANT: This is where we'll jump back to
             const loop_start = block.instructions.items.len;
-            
+
             // Check condition: index < array.length
             try block.instructions.append(.{ .LoadVariable = index_var });
             try block.instructions.append(.{ .LoadVariable = array_var });
             try block.instructions.append(.Length); // Get array length
             try block.instructions.append(.LessThan);
-            
+
             // Jump to end if false
             const jump_if_false_index = block.instructions.items.len;
             try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will patch later
-            
+
             // Get current element: array[index]
             try block.instructions.append(.{ .LoadVariable = array_var });
             try block.instructions.append(.{ .LoadVariable = index_var });
             try block.instructions.append(.ArrayGet); // array[index]
-            
+
             // Store in iterator variable
             try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, for_ptr.iterator) });
-            
+
             // Execute loop body
             try convertExpressionWithContext(block, for_ptr.body.*, context);
-            
+
             // Increment index: index = index + 1
             try block.instructions.append(.{ .LoadVariable = index_var });
             try block.instructions.append(.{ .LoadInt = 1 });
             try block.instructions.append(.Add);
             try block.instructions.append(.{ .StoreVariable = index_var });
-            
+
             // Jump back to start
             try block.instructions.append(.{ .Jump = loop_start });
-            
+
             // Patch the conditional jump to here
             const end_pos = block.instructions.items.len;
             block.instructions.items[jump_if_false_index] = .{ .JumpIfFalse = end_pos };
-            
+
             // Clean up temp variables by loading nil
             try block.instructions.append(.LoadNil);
         },
@@ -824,9 +769,42 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try block.instructions.append(.Return);
         },
         .import_stmt => |import_ptr| {
-            // Import statements are handled at compile time, not runtime
-            // For now, just push nil as a placeholder
-            _ = import_ptr;
+            // Import statements create runtime bindings for selective imports
+            if (import_ptr.items) |items| {
+                // For selective imports, we need to create individual variable bindings
+                // First, get the module name (use alias if provided, otherwise extract from path)
+                const module_name = import_ptr.alias orelse blk: {
+                    var path = import_ptr.module_path;
+                    if (std.mem.startsWith(u8, path, "./")) {
+                        path = path[2..];
+                    }
+                    if (std.mem.endsWith(u8, path, ".gene")) {
+                        path = path[0 .. path.len - 5];
+                    }
+                    break :blk path;
+                };
+
+                // For each imported item, create a binding
+                for (items) |item| {
+                    // Load the module
+                    try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, module_name) });
+
+                    // Load the member name
+                    try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, item.name) });
+
+                    // Access the member (module/member)
+                    try block.instructions.append(.{ .CallMethod = .{
+                        .method_name = try block.allocator.dupe(u8, "get_member"),
+                        .arg_count = 1,
+                    } });
+
+                    // Store it in a variable (use alias if provided, otherwise use the original name)
+                    const var_name = item.alias orelse item.name;
+                    try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, var_name) });
+                }
+            }
+
+            // Push nil as the result of the import expression
             try block.instructions.append(.LoadNil);
         },
         .module_access => |mod_access| {

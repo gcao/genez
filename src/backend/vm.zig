@@ -456,16 +456,16 @@ pub const VM = struct {
                     // Check if this is a module member access (contains /)
                     if (std.mem.indexOf(u8, name, "/")) |slash_pos| {
                         const module_name = name[0..slash_pos];
-                        const member_name = name[slash_pos + 1..];
-                        debug.log("Checking for module member: {s}/{s}", .{module_name, member_name});
-                        
+                        const member_name = name[slash_pos + 1 ..];
+                        debug.log("Checking for module member: {s}/{s}", .{ module_name, member_name });
+
                         // Look up in module registry
                         if (self.module_registry) |registry| {
                             if (registry.resolveMember(module_name, member_name)) |value| {
                                 debug.log("Found module member: {any}", .{value});
                                 try self.setRegister(dst_reg, try value.clone(self.allocator));
                             } else {
-                                debug.log("ERROR: Module member {s}/{s} not found", .{module_name, member_name});
+                                debug.log("ERROR: Module member {s}/{s} not found", .{ module_name, member_name });
                                 return error.UndefinedVariable;
                             }
                         } else {
@@ -474,6 +474,11 @@ pub const VM = struct {
                         }
                     } else {
                         debug.log("ERROR: Variable {s} not found", .{name});
+                        debug.log("Available variables:", .{});
+                        var it = self.variables.iterator();
+                        while (it.next()) |entry| {
+                            debug.log("  - {s}", .{entry.key_ptr.*});
+                        }
                         return error.UndefinedVariable;
                     }
                 }
@@ -1416,13 +1421,13 @@ pub const VM = struct {
                         // Convert to boolean and negate
                         const result = switch (arg) {
                             .Bool => |b| !b,
-                            .Nil => true,  // !nil is true
-                            .Int => |i| i == 0,  // !0 is true, !non-zero is false
-                            .Float => |f| f == 0.0,  // !0.0 is true, !non-zero is false
-                            .String => |s| s.len == 0,  // !"" is true, !non-empty is false
-                            .Array => |arr| arr.len == 0,  // ![] is true, !non-empty is false
-                            .Map => |map| map.count() == 0,  // !{} is true, !non-empty is false
-                            else => false,  // For other types, !value is false
+                            .Nil => true, // !nil is true
+                            .Int => |i| i == 0, // !0 is true, !non-zero is false
+                            .Float => |f| f == 0.0, // !0.0 is true, !non-zero is false
+                            .String => |s| s.len == 0, // !"" is true, !non-empty is false
+                            .Array => |arr| arr.len == 0, // ![] is true, !non-empty is false
+                            .Map => |map| map.count() == 0, // !{} is true, !non-empty is false
+                            else => false, // For other types, !value is false
                         };
 
                         try self.setRegister(dst_reg, .{ .Bool = result });
@@ -1700,28 +1705,6 @@ pub const VM = struct {
                     self.pc = target - 1;
                 }
             },
-            .Array => {
-                // Register-based array creation: Array Rs1, Rs2, ... -> Rd
-                debug.log("Array instruction: create array", .{});
-
-                // For now, just create an empty array slice
-                // TODO: Implement proper array creation with elements from registers
-                const empty_array = try self.allocator.alloc(types.Value, 0);
-                const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
-
-                try self.setRegister(dst_reg, .{ .Array = empty_array });
-            },
-            .Map => {
-                // Register-based map creation: Map Rs1, Rs2, ... -> Rd
-                debug.log("Map instruction: create map", .{});
-
-                // For now, just create an empty map
-                // TODO: Implement proper map creation with key-value pairs from registers
-                const empty_map = std.StringHashMap(types.Value).init(self.allocator);
-                const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
-
-                try self.setRegister(dst_reg, .{ .Map = empty_map });
-            },
             .DefineClass => {
                 // DefineClass is handled at compile time, classes are loaded as constants
                 debug.log("DefineClass instruction should not appear at runtime", .{});
@@ -1944,7 +1927,7 @@ pub const VM = struct {
                 if (obj_val == .Module) {
                     const module = obj_val.Module;
                     debug.log("Method call on module: {s}.{s}", .{ module.id, method_name });
-                    
+
                     // Special handling for get_member
                     if (std.mem.eql(u8, method_name, "get_member")) {
                         // get_member(key) - get a member from the module
@@ -1952,17 +1935,17 @@ pub const VM = struct {
                             debug.log("get_member expects 1 argument, got {}", .{arg_count});
                             return error.ArgumentCountMismatch;
                         }
-                        
+
                         // Get the key argument
                         const key_reg = obj_reg + 1;
                         var key_val = try self.getRegister(key_reg);
                         defer key_val.deinit(self.allocator);
-                        
+
                         if (key_val != .String) {
                             debug.log("get_member key must be String, got {}", .{key_val});
                             return error.TypeMismatch;
                         }
-                        
+
                         const member_name = key_val.String;
                         if (module.getMember(member_name)) |member| {
                             try self.setRegister(dst_reg, try member.clone(self.allocator));
@@ -1973,13 +1956,13 @@ pub const VM = struct {
                         }
                         return;
                     }
-                    
+
                     // Look for the member in the module's namespace
                     if (module.namespace.members.get(method_name)) |member| {
                         // Found the member, it should be a function
                         if (member == .Function) {
                             const func = member.Function;
-                            
+
                             // Set up new call frame for the function
                             const new_register_base = self.next_free_register;
                             const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
@@ -2019,6 +2002,82 @@ pub const VM = struct {
                     }
                 }
 
+                // Handle get_member on maps
+                if (obj_val == .Map and std.mem.eql(u8, method_name, "get_member")) {
+                    // get_member(key) - get a value from the map
+                    if (arg_count != 1) {
+                        debug.log("get_member expects 1 argument, got {}", .{arg_count});
+                        return error.ArgumentCountMismatch;
+                    }
+
+                    // Get the key argument
+                    const key_reg = obj_reg + 1;
+                    var key_val = try self.getRegister(key_reg);
+                    defer key_val.deinit(self.allocator);
+
+                    if (key_val != .String) {
+                        debug.log("get_member key must be String, got {}", .{key_val});
+                        return error.TypeMismatch;
+                    }
+
+                    const key = key_val.String;
+                    const map = obj_val.Map;
+
+                    debug.log("Map has {} entries, looking for key: {s}", .{ map.count(), key });
+                    var it = map.iterator();
+                    while (it.next()) |entry| {
+                        debug.log("  Map entry: {s} => {s}", .{ entry.key_ptr.*, @tagName(entry.value_ptr.*) });
+                    }
+
+                    if (map.get(key)) |value| {
+                        const cloned_value = try value.clone(self.allocator);
+                        debug.log("Found map entry {s}, value type: {s}", .{ key, @tagName(cloned_value) });
+                        try self.setRegister(dst_reg, cloned_value);
+                    } else {
+                        debug.log("Map entry {s} not found", .{key});
+                        try self.setRegister(dst_reg, .{ .Nil = {} });
+                    }
+                    return;
+                }
+
+                // Handle set_member on maps
+                if (obj_val == .Map and std.mem.eql(u8, method_name, "set_member")) {
+                    // set_member(key, value) - set a value in the map
+                    if (arg_count != 2) {
+                        debug.log("set_member expects 2 arguments, got {}", .{arg_count});
+                        return error.ArgumentCountMismatch;
+                    }
+
+                    // Get the key and value arguments
+                    const key_reg = obj_reg + 1;
+                    const value_reg = obj_reg + 2;
+                    var key_val = try self.getRegister(key_reg);
+                    defer key_val.deinit(self.allocator);
+                    var value_val = try self.getRegister(value_reg);
+                    defer value_val.deinit(self.allocator);
+
+                    if (key_val != .String) {
+                        debug.log("set_member key must be String, got {}", .{key_val});
+                        return error.TypeMismatch;
+                    }
+
+                    const key = key_val.String;
+                    var map = obj_val.Map;
+
+                    // Note: Maps have value semantics, so this mutation won't persist
+                    // This is a known limitation mentioned in CLAUDE.md
+                    if (map.get(key)) |old_value| {
+                        var old_value_copy = old_value;
+                        old_value_copy.deinit(self.allocator);
+                    }
+                    try map.put(try self.allocator.dupe(u8, key), try value_val.clone(self.allocator));
+
+                    // Return the map itself for chaining
+                    try self.setRegister(dst_reg, obj_val);
+                    debug.log("Set map entry {s} (note: may not persist due to value semantics)", .{key});
+                    return;
+                }
+
                 // Handle get_member on objects
                 if (obj_val == .Object and std.mem.eql(u8, method_name, "get_member")) {
                     // get_member(key) - get a field from the object
@@ -2026,23 +2085,23 @@ pub const VM = struct {
                         debug.log("get_member expects 1 argument, got {}", .{arg_count});
                         return error.ArgumentCountMismatch;
                     }
-                    
+
                     // Get the key argument
                     const key_reg = obj_reg + 1;
                     var key_val = try self.getRegister(key_reg);
                     defer key_val.deinit(self.allocator);
-                    
+
                     if (key_val != .String) {
                         debug.log("get_member key must be String, got {}", .{key_val});
                         return error.TypeMismatch;
                     }
-                    
+
                     const field_name = key_val.String;
                     const obj = self.getObjectById(obj_val.Object) orelse {
                         debug.log("Object with ID {} not found in pool", .{obj_val.Object});
                         return error.InvalidInstruction;
                     };
-                    
+
                     if (obj.fields.get(field_name)) |field_value| {
                         try self.setRegister(dst_reg, try field_value.clone(self.allocator));
                         debug.log("Found object field {s}", .{field_name});
@@ -2052,7 +2111,7 @@ pub const VM = struct {
                     }
                     return;
                 }
-                
+
                 // Handle set_member on objects
                 if (obj_val == .Object and std.mem.eql(u8, method_name, "set_member")) {
                     // set_member(key, value) - set a field on the object
@@ -2060,7 +2119,7 @@ pub const VM = struct {
                         debug.log("set_member expects 2 arguments, got {}", .{arg_count});
                         return error.ArgumentCountMismatch;
                     }
-                    
+
                     // Get the key and value arguments
                     const key_reg = obj_reg + 1;
                     const value_reg = obj_reg + 2;
@@ -2068,18 +2127,18 @@ pub const VM = struct {
                     defer key_val.deinit(self.allocator);
                     var value_val = try self.getRegister(value_reg);
                     defer value_val.deinit(self.allocator);
-                    
+
                     if (key_val != .String) {
                         debug.log("set_member key must be String, got {}", .{key_val});
                         return error.TypeMismatch;
                     }
-                    
+
                     const field_name = key_val.String;
                     const obj = self.getObjectById(obj_val.Object) orelse {
                         debug.log("Object with ID {} not found in pool", .{obj_val.Object});
                         return error.InvalidInstruction;
                     };
-                    
+
                     // Update or insert the field
                     if (obj.fields.get(field_name)) |old_value| {
                         // Field exists, update it
@@ -2090,7 +2149,7 @@ pub const VM = struct {
                         // New field, need to duplicate the key
                         try obj.fields.put(try self.allocator.dupe(u8, field_name), try value_val.clone(self.allocator));
                     }
-                    
+
                     // Return the object itself for chaining
                     try self.setRegister(dst_reg, obj_val);
                     debug.log("Set object field {s}", .{field_name});
@@ -2489,6 +2548,111 @@ pub const VM = struct {
 
                 try self.setRegister(dst_reg, .{ .Bool = has_key });
             },
+            .ToString => {
+                // Convert value to string: ToString Rd, Rs
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const src_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var value = try self.getRegister(src_reg);
+                defer value.deinit(self.allocator);
+
+                const str = switch (value) {
+                    .String => |s| try self.allocator.dupe(u8, s),
+                    .Int => |i| try std.fmt.allocPrint(self.allocator, "{d}", .{i}),
+                    .Float => |f| try std.fmt.allocPrint(self.allocator, "{d}", .{f}),
+                    .Bool => |b| try self.allocator.dupe(u8, if (b) "true" else "false"),
+                    .Nil => try self.allocator.dupe(u8, "nil"),
+                    .Symbol => |s| try std.fmt.allocPrint(self.allocator, ":{s}", .{s}),
+                    .Array => try std.fmt.allocPrint(self.allocator, "[Array of {} elements]", .{value.Array.len}),
+                    .Map => try std.fmt.allocPrint(self.allocator, "[Map with {} entries]", .{value.Map.count()}),
+                    .Object => |obj_id| blk: {
+                        if (self.getObjectById(obj_id)) |obj| {
+                            break :blk try std.fmt.allocPrint(self.allocator, "[{s} instance]", .{obj.class.name});
+                        } else {
+                            break :blk try self.allocator.dupe(u8, "[Invalid object]");
+                        }
+                    },
+                    .Class => |class| try std.fmt.allocPrint(self.allocator, "[Class {s}]", .{class.name}),
+                    .Function => try self.allocator.dupe(u8, "[Function]"),
+                    .BuiltinOperator => |op| try std.fmt.allocPrint(self.allocator, "[BuiltinOperator {s}]", .{@tagName(op)}),
+                    else => try self.allocator.dupe(u8, "[Unknown]"),
+                };
+
+                try self.setRegister(dst_reg, .{ .String = str });
+            },
+            .CreateArray => {
+                // Create array from N elements: CreateArray Rd, #count
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const count = if (instruction.immediate) |imm| switch (imm) {
+                    .Int => @as(usize, @intCast(imm.Int)),
+                    else => return error.TypeMismatch,
+                } else return error.InvalidInstruction;
+                const first_reg = instruction.src1;
+
+                debug.log("CreateArray: creating array with {} elements", .{count});
+
+                // Create array with the specified number of elements
+                const array = try self.allocator.alloc(types.Value, count);
+                errdefer self.allocator.free(array);
+
+                // Populate array from registers
+                // If first_reg is provided, elements are in consecutive registers starting from first_reg
+                // Otherwise, they were pushed in previous instructions
+                if (first_reg) |start_reg| {
+                    for (0..count) |i| {
+                        const src_reg = start_reg + @as(u16, @intCast(i));
+                        array[i] = try self.getRegister(src_reg);
+                    }
+                } else {
+                    // Elements should have been prepared in previous instructions
+                    for (0..count) |i| {
+                        array[i] = .{ .Nil = {} }; // Default to nil
+                    }
+                }
+
+                try self.setRegister(dst_reg, .{ .Array = array });
+            },
+            .CreateMap => {
+                // Create map from N key-value pairs: CreateMap Rd, #count
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const count = if (instruction.immediate) |imm| switch (imm) {
+                    .Int => @as(usize, @intCast(imm.Int)),
+                    else => return error.TypeMismatch,
+                } else return error.InvalidInstruction;
+                const first_reg = instruction.src1;
+
+                debug.log("CreateMap: creating map with {} key-value pairs", .{count});
+
+                // Create map
+                var map = std.StringHashMap(types.Value).init(self.allocator);
+                errdefer map.deinit();
+
+                // Populate map from registers
+                // If first_reg is provided, key-value pairs are in consecutive registers
+                // Keys are at even indices, values at odd indices
+                if (first_reg) |start_reg| {
+                    for (0..count) |i| {
+                        const key_reg = start_reg + @as(u16, @intCast(i * 2));
+                        const val_reg = start_reg + @as(u16, @intCast(i * 2 + 1));
+                        
+                        var key_val = try self.getRegister(key_reg);
+                        defer key_val.deinit(self.allocator);
+                        const value_val = try self.getRegister(val_reg);
+
+                        // Convert key to string
+                        const key_str = switch (key_val) {
+                            .String => |s| try self.allocator.dupe(u8, s),
+                            .Symbol => |s| try self.allocator.dupe(u8, s),
+                            .Int => |int_val| try std.fmt.allocPrint(self.allocator, "{}", .{int_val}),
+                            else => try self.allocator.dupe(u8, "unknown_key"),
+                        };
+
+                        try map.put(key_str, value_val);
+                    }
+                }
+
+                try self.setRegister(dst_reg, .{ .Map = map });
+            },
             .Dup => {
                 // Duplicate register value: Dup Rs -> same register used as source
                 // Note: In our MIR->bytecode, we use Move to implement Dup
@@ -2503,12 +2667,12 @@ pub const VM = struct {
     }
 
     fn valuesEqual(self: *VM, val1: types.Value, val2: types.Value) !bool {
-        
+
         // Check if types are different
         if (@intFromEnum(val1) != @intFromEnum(val2)) {
             return false;
         }
-        
+
         // Compare values based on type
         return switch (val1) {
             .Int => |n1| n1 == val2.Int,

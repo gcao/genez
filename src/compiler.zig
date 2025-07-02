@@ -4,6 +4,7 @@ const bytecode = @import("backend/bytecode.zig");
 const debug_output = @import("core/debug_output.zig");
 const module_resolver = @import("core/module_resolver.zig");
 const module_registry = @import("core/module_registry.zig");
+const types = @import("core/types.zig");
 
 // Stage transformation modules (direct imports, no interfaces)
 const ast_to_hir = @import("transforms/ast_to_hir.zig");
@@ -93,9 +94,8 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
     if (hir_prog.imports.items.len > 0) {
         debug.writeMessage("\n=== Processing Imports ===\n", .{});
         
-        // Create a module resolver
-        var resolver = try @import("core/module_resolver.zig").ModuleResolver.init(ctx.allocator);
-        defer resolver.deinit();
+        // Use the module resolver from context
+        const resolver = ctx.module_resolver;
         
         for (hir_prog.imports.items) |import| {
             debug.writeMessage("Import: {s}", .{import.module_path});
@@ -158,12 +158,31 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
             debug.writeMessage("  Module compiled successfully\n", .{});
             
             // Create a CompiledModule and register it
+            // Use the module ID from import (or alias if provided)
+            const module_id = import.alias orelse blk: {
+                // Extract module name from path (e.g., "./math" -> "math", "utils/helpers" -> "utils/helpers")
+                var path = import.module_path;
+                if (std.mem.startsWith(u8, path, "./")) {
+                    path = path[2..];
+                } else if (std.mem.startsWith(u8, path, "../")) {
+                    // For parent imports, use the full path as ID
+                    break :blk import.module_path;
+                }
+                // Remove .gene extension if present
+                if (std.mem.endsWith(u8, path, ".gene")) {
+                    break :blk path[0..path.len - 5];
+                }
+                break :blk path;
+            };
+            
             const compiled_module = try module_registry.CompiledModule.init(
                 ctx.allocator,
-                import.module_path,
+                module_id,
                 resolved.absolute_path
             );
             errdefer compiled_module.deinit();
+            
+            debug.writeMessage("  Created CompiledModule with ID: {s}\n", .{module_id});
             
             // Add all functions from the module to the compiled module
             // We need to clone functions since module_result will be cleaned up
@@ -173,11 +192,75 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
                 try compiled_module.addFunction(func_copy);
             }
             
-            // Also add the main function if it has a meaningful name
-            if (!std.mem.eql(u8, module_result.main_func.name, "main")) {
-                const main_func_copy = try ctx.allocator.create(bytecode.Function);
-                main_func_copy.* = try module_result.main_func.clone(ctx.allocator);
-                try compiled_module.addFunction(main_func_copy);
+            // Check if the module has properties (first expression is a map)
+            // Parse the source again to get the AST since we need property info
+            const module_ast = parser.parseGeneSourceWithFilename(ctx.allocator, module_source, resolved.absolute_path) catch |err| {
+                debug.writeMessage("  Failed to re-parse module for properties: {any}\n", .{err});
+                return err;
+            };
+            defer {
+                module_ast.arena.deinit();
+                ctx.allocator.destroy(module_ast.arena);
+            }
+            
+            // If the first node is a map, it contains module properties
+            if (module_ast.nodes.len > 0) {
+                if (module_ast.nodes[0] == .Expression) {
+                    if (module_ast.nodes[0].Expression == .MapLiteral) {
+                        const map_literal = module_ast.nodes[0].Expression.MapLiteral;
+                        debug.writeMessage("  Processing {} module properties\n", .{map_literal.entries.len});
+                        
+                        // Add each property to the module namespace
+                        for (map_literal.entries) |entry| {
+                            // Get property name
+                            const key_str = switch (entry.key.*.Literal.value) {
+                                .String => |s| s,
+                                else => continue, // Skip non-string keys
+                            };
+                            
+                            // Convert AST value to runtime value
+                            const value = switch (entry.value.*) {
+                                .Literal => |lit| switch (lit.value) {
+                                    .Int => |i| types.Value{ .Int = i },
+                                    .Float => |f| types.Value{ .Float = f },
+                                    .String => |s| types.Value{ .String = try ctx.allocator.dupe(u8, s) },
+                                    .Bool => |b| types.Value{ .Bool = b },
+                                    .Nil => types.Value{ .Nil = {} },
+                                    else => continue, // Skip complex values for now
+                                },
+                                else => continue, // Skip non-literal values
+                            };
+                            
+                            // Add to module namespace
+                            try compiled_module.namespace.define(key_str, value);
+                            debug.writeMessage("    Added property: {s} = {any}\n", .{key_str, value});
+                        }
+                    }
+                }
+            }
+            
+            // Execute the module's main function to initialize properties
+            // This will evaluate top-level expressions like property definitions
+            if (module_result.main_func.instructions.items.len > 1) { // More than just Return
+                debug.writeMessage("  Executing module initialization...\n", .{});
+                
+                // Create a temporary VM to execute the module's init code
+                var init_vm = @import("backend/vm.zig").VM.init(ctx.allocator, std.io.getStdOut().writer());
+                defer init_vm.deinit();
+                
+                // Set the module registry so the init code can access other modules if needed
+                if (ctx.module_registry) |registry| {
+                    init_vm.setModuleRegistry(registry);
+                }
+                
+                // Execute the init function
+                init_vm.execute(&module_result.main_func) catch |err| {
+                    debug.writeMessage("  Module initialization failed: {any}\n", .{err});
+                };
+                
+                // Extract any values that were set and add them to the module namespace
+                // For now, we'll need to handle this differently since the VM doesn't expose its variables
+                debug.writeMessage("  Module initialization completed\n", .{});
             }
             
             // Register the module
@@ -189,6 +272,45 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
             }
             
             debug.writeMessage("  Module registered with {d} functions\n", .{compiled_module.functions.items.len});
+            
+            // Handle selective imports - create individual bindings for each imported item
+            if (import.items) |items| {
+                debug.writeMessage("  Processing selective imports ({d} items)\n", .{items.len});
+                
+                // We need to add the imported items to the main function's scope
+                // This will be done during MIR generation when we process the import statement
+                // For now, we just validate that the items exist in the module
+                
+                for (items) |item| {
+                    // Check if the item exists in the module's namespace
+                    if (compiled_module.namespace.lookup(item.name)) |_| {
+                        debug.writeMessage("    Found item: {s}", .{item.name});
+                        if (item.alias) |alias| {
+                            debug.writeMessage(" (aliased as {s})", .{alias});
+                        }
+                        debug.writeMessage("\n", .{});
+                    } else {
+                        // Check if it's a function
+                        var found = false;
+                        for (compiled_module.functions.items) |func| {
+                            if (std.mem.eql(u8, func.name, item.name)) {
+                                found = true;
+                                debug.writeMessage("    Found function: {s}", .{item.name});
+                                if (item.alias) |alias| {
+                                    debug.writeMessage(" (aliased as {s})", .{alias});
+                                }
+                                debug.writeMessage("\n", .{});
+                                break;
+                            }
+                        }
+                        
+                        if (!found) {
+                            debug.writeMessage("    WARNING: Item '{s}' not found in module\n", .{item.name});
+                            // Don't error out - let it fail at runtime if the item is actually used
+                        }
+                    }
+                }
+            }
         }
     }
 

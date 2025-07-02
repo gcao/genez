@@ -24,7 +24,7 @@ This directory contains tests for Gene's module system, including namespace decl
 The module system currently supports:
 - ✅ Parsing `(ns name ...)` declarations
 - ✅ Parsing `(import "module")` statements
-- ✅ Import with aliases: `(import "module" :as alias)`
+- ✅ Import with aliases: `(import "module" => alias)`
 - ✅ Import specific items: `(import "module" [item1 item2])`
 - ✅ Import with renaming: `(import "module" [[old new]])`
 - ✅ Nested namespace paths: `(ns com/example/app)`

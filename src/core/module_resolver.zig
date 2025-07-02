@@ -162,11 +162,13 @@ pub const ModuleResolver = struct {
     
     /// Resolve relative import path
     fn resolveRelative(self: *ModuleResolver, import_path: []const u8, current_file: ?[]const u8) !ResolvedModule {
+        debug.log("resolveRelative: import_path={s}, current_file={?s}", .{import_path, current_file});
         if (current_file == null) {
             return error.InvalidModulePath;
         }
         
-        const dir = std.fs.path.dirname(current_file.?) orelse return error.InvalidModulePath;
+        const dir = std.fs.path.dirname(current_file.?) orelse ".";
+        debug.log("resolveRelative: dir={s}", .{dir});
         
         // Try with .gene extension
         const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.gene", .{import_path});

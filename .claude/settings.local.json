@@ -35,7 +35,18 @@
       "Bash(gene:*)",
       "Bash(git restore:*)",
       "Bash(realpath:*)",
-      "Bash(for:*)"
+      "Bash(for:*)",
+      "Bash(../../zig-out/bin/gene run:*)",
+      "Bash(cat:*)",
+      "Bash(../../zig-out/bin/gene parse:*)",
+      "Bash(do if [ \"$f\" != \"*.gene\" ])",
+      "Bash(then mv \"$f\" \"$f%.gene.gdata\")",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(../zig-out/bin/gene run:*)",
+      "Bash(diff:*)",
+      "Bash(/Users/gcao/proj/zig/gene/zig-out/bin/gene run test_import.gene)",
+      "Bash(./test_selective.gene)"
     ],
     "deny": []
   },

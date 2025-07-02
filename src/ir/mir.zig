@@ -70,20 +70,6 @@ pub const MIR = struct {
                     .LoadString => |str| self.allocator.free(str),
                     .LoadSymbol => |sym| self.allocator.free(sym),
                     .LoadVariable => |name| self.allocator.free(name),
-                    .LoadArray => |arr| {
-                        for (arr) |*val| {
-                            val.deinit(self.allocator);
-                        }
-                        self.allocator.free(arr);
-                    },
-                    .LoadMap => |*map| {
-                        var it = map.iterator();
-                        while (it.next()) |entry| {
-                            self.allocator.free(entry.key_ptr.*);
-                            entry.value_ptr.deinit(self.allocator);
-                        }
-                        map.deinit();
-                    },
                     .StoreVariable => |name| self.allocator.free(name), // Free the stored name
                     .LoadFunction => |func_ptr| {
                         // Deallocate the function object pointed to
@@ -99,7 +85,7 @@ pub const MIR = struct {
                             self.allocator.free(field);
                         }
                         self.allocator.free(class_def.fields);
-                        
+
                         var method_iter = class_def.methods.iterator();
                         while (method_iter.next()) |entry| {
                             self.allocator.free(entry.key_ptr.*);
@@ -126,8 +112,8 @@ pub const MIR = struct {
         LoadString: []const u8,
         LoadNil,
         LoadSymbol: []const u8,
-        LoadArray: []types.Value,
-        LoadMap: std.StringHashMap(types.Value),
+        CreateArray: usize, // Create array from top N stack elements
+        CreateMap: usize, // Create map from top N*2 stack elements (key-value pairs)
         LoadVariable: []const u8,
         LoadParameter: usize, // Load parameter by index
         LoadFunction: *Function,
@@ -150,7 +136,7 @@ pub const MIR = struct {
         Get, // Universal get for maps, arrays, fields
         Set, // Universal set for maps, arrays, fields
         CallMethod: MethodCall,
-        
+
         // Pattern matching support
         Length, // Get length of array/map/string
         ArrayGet, // Get array element (index on stack)
@@ -160,19 +146,19 @@ pub const MIR = struct {
         IsArray, // Check if value is array
         IsMap, // Check if value is map
     };
-    
+
     pub const ClassDefinition = struct {
         name: []const u8,
         parent_name: ?[]const u8,
         fields: [][]const u8,
         methods: std.StringHashMap(*Function),
     };
-    
+
     pub const MethodCall = struct {
         method_name: []const u8,
         arg_count: usize,
     };
-    
+
     pub const InstanceCreation = struct {
         class_name: []const u8,
         arg_count: usize,

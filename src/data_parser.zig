@@ -519,6 +519,14 @@ fn parseDataExpression(allocator: std.mem.Allocator, tokens: []const DataToken, 
                 const key_token = tokens[pos.*];
                 const key = switch (key_token.kind) {
                     .Keyword => |kw| kw,
+                    .Symbol => |sym| blk: {
+                        // Accept ^property syntax for map keys
+                        if (std.mem.startsWith(u8, sym, "^")) {
+                            break :blk sym[1..]; // Remove the ^ prefix
+                        } else {
+                            return error.MapKeyMustBeKeyword;
+                        }
+                    },
                     else => return error.MapKeyMustBeKeyword,
                 };
                 pos.* += 1;
@@ -684,7 +692,7 @@ pub fn printDataValue(writer: anytype, value: DataValue, indent: usize) !void {
             while (iter.next()) |entry| {
                 if (!first) try writer.print(" ", .{});
                 first = false;
-                try writer.print(":{s} ", .{entry.key_ptr.*});
+                try writer.print("^{s} ", .{entry.key_ptr.*});
                 try printDataValue(writer, entry.value_ptr.*, indent);
             }
             try writer.print("}}", .{});

@@ -186,10 +186,10 @@ fn createFunction(allocator: std.mem.Allocator, name: []const u8, param_count: u
 // These create bytecode.Function objects that wrap built-in behavior
 
 fn createToStringMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "toString", 1, 0);
-    // This would be a built-in function that converts any value to string
-    // For now, it's a placeholder
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    const func = try createFunction(allocator, "toString", 1, 2);
+    // Convert self (register 0) to string and store in register 1
+    try func.instructions.append(.{ .op = .ToString, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
     return func;
 }
 

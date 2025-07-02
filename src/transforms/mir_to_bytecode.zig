@@ -75,7 +75,7 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
             try convertInstructionWithStack(&main_func, instr, &created_functions, &next_reg, &stack);
         }
     }
-    
+
     // Second pass: Fix jump targets using the address mapping
     for (main_func.instructions.items) |*bytecode_instr| {
         switch (bytecode_instr.op) {
@@ -164,8 +164,7 @@ fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function)
             // Record the mapping from MIR address to current bytecode address
             const bytecode_addr = bytecode_func.instructions.items.len;
             try mir_to_bytecode_addr.put(mir_addr, bytecode_addr);
-            
-            
+
             try convertInstructionWithStack(&bytecode_func, instr, &empty_functions, &next_reg, &stack);
         }
     }
@@ -406,31 +405,62 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             // No need to clear MIR instr if we're duplicating
             // instr.* = .LoadNil; // REMOVED
         },
-        .LoadArray => |val| {
-            // Take ownership of the array
+        .CreateArray => |count| {
+            // Pop N elements from stack and create array
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg); // Track this value on the stack
+
+            // The CreateArray instruction expects the elements to be in consecutive registers
+            // starting from src1. We'll collect the registers that hold the elements.
+            var src_regs = try func.allocator.alloc(u16, count);
+            defer func.allocator.free(src_regs);
+
+            // Pop in reverse order so first array element is first popped
+            var i: usize = count;
+            while (i > 0) {
+                i -= 1;
+                src_regs[i] = stack.pop();
+            }
+
+            // Generate CreateArray instruction
+            // src1 will be the first element register (if any)
+            // immediate will contain the count
             try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadConst,
+                .op = bytecode.OpCode.CreateArray,
                 .dst = dst_reg,
-                .immediate = types.Value{ .Array = val },
+                .src1 = if (count > 0) src_regs[0] else null,
+                .immediate = types.Value{ .Int = @intCast(count) },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
+
+            try stack.push(dst_reg);
         },
-        .LoadMap => |val| {
-            // Take ownership of the map
+        .CreateMap => |count| {
+            // Pop N*2 elements from stack (key-value pairs) and create map
             const dst_reg = next_reg.*;
             next_reg.* += 1;
-            try stack.push(dst_reg); // Track this value on the stack
+
+            // The CreateMap instruction expects key-value pairs in consecutive registers
+            var src_regs = try func.allocator.alloc(u16, count * 2);
+            defer func.allocator.free(src_regs);
+
+            // Pop in reverse order so first key-value pair is first popped
+            var i: usize = count * 2;
+            while (i > 0) {
+                i -= 1;
+                src_regs[i] = stack.pop();
+            }
+
+            // Generate CreateMap instruction
+            // src1 will be the first key register (if any)
+            // immediate will contain the count of key-value pairs
             try func.instructions.append(.{
-                .op = bytecode.OpCode.LoadConst,
+                .op = bytecode.OpCode.CreateMap,
                 .dst = dst_reg,
-                .immediate = types.Value{ .Map = val },
+                .src1 = if (count > 0) src_regs[0] else null,
+                .immediate = types.Value{ .Int = @intCast(count) },
             });
-            // Clear the MIR instruction so it won't be freed
-            instr.* = .LoadNil;
+
+            try stack.push(dst_reg);
         },
         .LoadVariable => |val| {
             // Duplicate the variable name (symbol) for the bytecode operand
@@ -719,7 +749,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 func_ptr.* = bytecode_func;
                 try created_functions.append(func_ptr);
                 func_index = created_functions.items.len - 1;
-                
+
                 // Debug output
                 // std.debug.print("INFO: Converted anonymous function '{s}' on demand\n", .{mir_func_ptr.name});
             }
@@ -925,38 +955,38 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             });
             // std.debug.print("  -> Generated: CallMethod r{} = r{}.{s}({} args)\n", .{ dst_reg, instance_reg, method_call.method_name, method_call.arg_count });
         },
-        
+
         // Pattern matching support instructions
         .Length => {
             if (stack.len() < 1) {
                 std.debug.print("ERROR: Length needs 1 operand but stack is empty\n", .{});
                 return error.StackUnderflow;
             }
-            
+
             const src_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Length,
                 .dst = dst_reg,
                 .src1 = src_reg,
             });
         },
-        
+
         .ArrayGet => {
             if (stack.len() < 2) {
                 std.debug.print("ERROR: ArrayGet needs 2 operands but stack has {}\n", .{stack.len()});
                 return error.StackUnderflow;
             }
-            
+
             const index_reg = stack.pop();
             const array_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.ArrayGet,
                 .dst = dst_reg,
@@ -964,19 +994,19 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .src2 = index_reg,
             });
         },
-        
+
         .MapGet => {
             if (stack.len() < 2) {
                 std.debug.print("ERROR: MapGet needs 2 operands but stack has {}\n", .{stack.len()});
                 return error.StackUnderflow;
             }
-            
+
             const key_reg = stack.pop();
             const map_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.MapGet,
                 .dst = dst_reg,
@@ -984,64 +1014,64 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .src2 = key_reg,
             });
         },
-        
+
         .Duplicate => {
             if (stack.len() < 1) {
                 std.debug.print("ERROR: Duplicate needs 1 operand but stack is empty\n", .{});
                 return error.StackUnderflow;
             }
-            
+
             const src_reg = stack.peek(0); // Get top without popping
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Move,
                 .dst = dst_reg,
                 .src1 = src_reg,
             });
         },
-        
+
         .Pop => {
             if (stack.len() < 1) {
                 std.debug.print("ERROR: Pop needs 1 operand but stack is empty\n", .{});
                 return error.StackUnderflow;
             }
-            
+
             _ = stack.pop(); // Just discard the value
             // No bytecode instruction needed - register will be reused
         },
-        
+
         .IsArray => {
             if (stack.len() < 1) {
                 std.debug.print("ERROR: IsArray needs 1 operand but stack is empty\n", .{});
                 return error.StackUnderflow;
             }
-            
+
             const src_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.IsArray,
                 .dst = dst_reg,
                 .src1 = src_reg,
             });
         },
-        
+
         .IsMap => {
             if (stack.len() < 1) {
                 std.debug.print("ERROR: IsMap needs 1 operand but stack is empty\n", .{});
                 return error.StackUnderflow;
             }
-            
+
             const src_reg = stack.pop();
             const dst_reg = next_reg.*;
             next_reg.* += 1;
             try stack.push(dst_reg);
-            
+
             try func.instructions.append(.{
                 .op = bytecode.OpCode.IsMap,
                 .dst = dst_reg,

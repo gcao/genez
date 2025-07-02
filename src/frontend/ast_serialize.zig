@@ -398,7 +398,13 @@ fn serializeValue(writer: anytype, value: types.Value) !void {
             try writer.print("{d}", .{int_val});
         },
         .Float => |float_val| {
-            try writer.print("{d}", .{float_val});
+            // Always print with decimal point to distinguish from integers
+            if (@floor(float_val) == float_val and float_val == @trunc(float_val)) {
+                // It's a whole number, print with .0
+                try writer.print("{d:.1}", .{float_val});
+            } else {
+                try writer.print("{d}", .{float_val});
+            }
         },
         .Bool => |bool_val| {
             try writer.print("{}", .{bool_val});

@@ -146,6 +146,7 @@ pub const Runtime = struct {
                 const module_value = types.Value{ .Module = module };
                 
                 // Register with full module ID
+                debug.log("Registering module variable: {s}", .{module_id});
                 try gene_vm.setVariable(module_id, module_value);
                 
                 // Also register with base name for convenience

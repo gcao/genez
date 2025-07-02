@@ -21,7 +21,7 @@ FAILED=0
 
 # Test basic parsing
 echo "--- Basic Parsing ---"
-if $GENE parse "$SCRIPT_DIR/basic_types.gene" > /tmp/basic_output 2>&1; then
+if $GENE parse "$SCRIPT_DIR/basic_types.gene" --raw > /tmp/basic_output 2>&1; then
     # Check if float parsing issue affects the test
     if grep -q "^1$" /tmp/basic_output; then
         echo -e "${RED}FAIL${NC} basic_types (float parsing issue)"
@@ -37,7 +37,7 @@ else
 fi
 
 # Test collections
-if $GENE parse "$SCRIPT_DIR/collections.gene" > /dev/null 2>&1; then
+if $GENE parse "$SCRIPT_DIR/collections.gene" --raw > /dev/null 2>&1; then
     echo -e "${GREEN}PASS${NC} collections"
     PASSED=$((PASSED + 1))
 else
@@ -46,7 +46,7 @@ else
 fi
 
 # Test Gene expressions
-if $GENE parse "$SCRIPT_DIR/gene_expressions.gene" > /dev/null 2>&1; then
+if $GENE parse "$SCRIPT_DIR/gene_expressions.gene" --raw > /dev/null 2>&1; then
     echo -e "${GREEN}PASS${NC} gene_expressions"
     PASSED=$((PASSED + 1))
 else

@@ -112,38 +112,37 @@ pub fn main() !void {
 
         const file = args[2];
         
-        // Check if this is a .gene file
-        if (std.mem.endsWith(u8, file, ".gene")) {
+        // Parse output format flags first to determine parser type
+        const OutputFormat = enum { raw, json, parsed };
+        var output_format = OutputFormat.raw;
+        var use_data_parser = false;
+        var pretty = false;
+        
+        for (args) |arg| {
+            if (std.mem.eql(u8, arg, "--json")) {
+                output_format = .json;
+                use_data_parser = true;
+            } else if (std.mem.eql(u8, arg, "--parsed")) {
+                output_format = .parsed;
+                use_data_parser = true;
+            } else if (std.mem.eql(u8, arg, "--raw")) {
+                output_format = .raw;
+                use_data_parser = true;
+            } else if (std.mem.eql(u8, arg, "--pretty")) {
+                pretty = true;
+            }
+        }
+        
+        // Check if this is a .gene file and no data parser flags specified
+        if (std.mem.endsWith(u8, file, ".gene") and !use_data_parser) {
             // Use the enhanced parser for .gene files
             var rt = runtime.Runtime.init(allocator, debug_mode, std.io.getStdOut().writer());
             defer rt.deinit();
-            
-            // Check for --pretty flag
-            var pretty = false;
-            for (args) |arg| {
-                if (std.mem.eql(u8, arg, "--pretty")) {
-                    pretty = true;
-                    break;
-                }
-            }
             
             try rt.parsePackageFileWithFormat(file, pretty);
             return;
         }
 
-        // Parse output format flags
-        const OutputFormat = enum { raw, json, parsed };
-        var output_format = OutputFormat.raw;
-
-        for (args) |arg| {
-            if (std.mem.eql(u8, arg, "--json")) {
-                output_format = .json;
-            } else if (std.mem.eql(u8, arg, "--parsed")) {
-                output_format = .parsed;
-            } else if (std.mem.eql(u8, arg, "--raw")) {
-                output_format = .raw;
-            }
-        }
 
         // Handle stdin
         const stdout = std.io.getStdOut().writer();

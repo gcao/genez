@@ -14,8 +14,8 @@
 # Maps
 {}
 {^name "John"}
-{^a 1 :b 2 :c 3}
+{^a 1 ^b 2 ^c 3}
 
 # Nested maps
 {^outer {^inner "value"}}
-{^data {^user {^name "Alice" :age 30}}}
+{^data {^user {^name "Alice" ^age 30}}}

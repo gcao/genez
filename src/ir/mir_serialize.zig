@@ -66,12 +66,6 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .LoadSymbol => |val| {
             try writer.print("load-symbol '{s}", .{val});
         },
-        .LoadArray => |_| {
-            try writer.writeAll("load-array [...]");
-        },
-        .LoadMap => |_| {
-            try writer.writeAll("load-map {...}");
-        },
         .LoadVariable => |name| {
             try writer.print("load-variable \"{s}\"", .{name});
         },
@@ -124,7 +118,7 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
             try writer.print("define-class \"{s}\"", .{class_def.name});
         },
         .CreateInstance => |inst_creation| {
-            try writer.print("create-instance \"{s}\" {}", .{inst_creation.class_name, inst_creation.arg_count});
+            try writer.print("create-instance \"{s}\" {}", .{ inst_creation.class_name, inst_creation.arg_count });
         },
         .Get => {
             try writer.writeAll("get");
@@ -155,6 +149,12 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         },
         .IsMap => {
             try writer.writeAll("is-map");
+        },
+        .CreateArray => |count| {
+            try writer.print("create-array {d}", .{count});
+        },
+        .CreateMap => |count| {
+            try writer.print("create-map {d}", .{count});
         },
     }
 }
