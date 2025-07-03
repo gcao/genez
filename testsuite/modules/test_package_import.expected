@@ -1,0 +1,5 @@
+Testing package imports...
+math/PI = 3.14159
+math/square 5 = 25
+helpers/helper = test
+basic/add 2 3 = 5

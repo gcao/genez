@@ -1,0 +1,4 @@
+Testing selective imports...
+Direct access to PI: 3.14159
+Direct access to square: 25
+Aliased helper as h: test
