@@ -1,0 +1,12 @@
+#!/usr/bin/env gene run
+
+# Test package imports (non-relative)
+(import "math")        # Should find ./math.gene
+(import "helpers")     # Should find ./helpers.gene
+(import "basic")       # Should find ./math/basic.gene
+
+(println "Testing package imports...")
+(println "math/PI =" math/PI)
+(println "math/square 5 =" (math/square 5))
+(println "helpers/helper =" (helpers/helper "test"))
+(println "basic/add 2 3 =" (basic/add 2 3))

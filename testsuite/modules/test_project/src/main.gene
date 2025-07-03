@@ -12,11 +12,17 @@
 # (import "math" [square cube PI])
 
 # Test 4: Test usage
-(print "Testing imports...")
+(println "Testing imports...")
 
-# These would work once imports are implemented:
-# (print (math/square 5))
-# (print (u/identity "hello"))
-# (print (str/uppercase "test"))
+# Test math module
+(println "math/square 5 =" (math/square 5))
+(println "math/PI =" math/PI)
+(println "math/E =" math/E)
 
-(print "Main module executed")
+# Test utils module
+(println "u/identity 'hello' =" (u/identity "hello"))
+
+# Test string utils
+(println "str/uppercase 'test' =" (str/uppercase "test"))
+
+(println "Main module executed")

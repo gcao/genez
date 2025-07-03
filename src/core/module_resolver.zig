@@ -121,17 +121,86 @@ pub const ModuleResolver = struct {
         const package_path = try std.fs.path.join(self.allocator, &[_][]const u8{ project_root, "package.gene" });
         defer self.allocator.free(package_path);
         
-        // For now, just add default source directories
-        // TODO: Actually parse package.gene and extract src-dirs
-        const default_dirs = [_][]const u8{ "src", "lib" };
-        for (default_dirs) |dir| {
-            const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ project_root, dir });
+        // Try to read and parse package.gene
+        const package_source = std.fs.cwd().readFileAlloc(self.allocator, package_path, std.math.maxInt(usize)) catch {
+            // If package.gene doesn't exist, use default directories
+            debug.log("No package.gene found, using default src dirs", .{});
+            const default_dirs = [_][]const u8{ "src", "lib" };
+            for (default_dirs) |dir| {
+                const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ project_root, dir });
+                
+                // Check if directory exists
+                if (std.fs.cwd().access(full_path, .{})) |_| {
+                    try self.src_dirs.append(full_path);
+                } else |_| {
+                    self.allocator.free(full_path);
+                }
+            }
+            return;
+        };
+        defer self.allocator.free(package_source);
+        
+        // Parse package.gene to extract src-dirs
+        const parser = @import("../frontend/parser.zig");
+        const parse_result = parser.parseGeneSourceWithFilename(self.allocator, package_source, package_path) catch {
+            debug.log("Failed to parse package.gene", .{});
+            return;
+        };
+        defer {
+            parse_result.arena.deinit();
+            self.allocator.destroy(parse_result.arena);
+        }
+        
+        // Look for the properties map (first node should be a map with properties)
+        if (parse_result.nodes.len > 0 and 
+            parse_result.nodes[0] == .Expression and 
+            parse_result.nodes[0].Expression == .MapLiteral) {
             
-            // Check if directory exists
-            if (std.fs.cwd().access(full_path, .{})) |_| {
-                try self.src_dirs.append(full_path);
-            } else |_| {
-                self.allocator.free(full_path);
+            const map_literal = parse_result.nodes[0].Expression.MapLiteral;
+            
+            // Find src-dirs property
+            for (map_literal.entries) |entry| {
+                const key_expr = entry.key.*;
+                if (key_expr == .Literal and key_expr.Literal.value == .String) {
+                    const key = key_expr.Literal.value.String;
+                    if (std.mem.eql(u8, key, "src-dirs")) {
+                        // Extract source directories from the array
+                        if (entry.value.* == .ArrayLiteral) {
+                            const array = entry.value.ArrayLiteral;
+                            for (array.elements) |elem| {
+                                if (elem.* == .Literal and elem.Literal.value == .String) {
+                                    const dir = elem.Literal.value.String;
+                                    const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ project_root, dir });
+                                    
+                                    // Check if directory exists
+                                    if (std.fs.cwd().access(full_path, .{})) |_| {
+                                        try self.src_dirs.append(full_path);
+                                        debug.log("Added source directory: {s}", .{full_path});
+                                    } else |_| {
+                                        self.allocator.free(full_path);
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // If no src-dirs found, use defaults
+        if (self.src_dirs.items.len == 0) {
+            debug.log("No src-dirs found in package.gene, using defaults", .{});
+            const default_dirs = [_][]const u8{ "src", "lib" };
+            for (default_dirs) |dir| {
+                const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ project_root, dir });
+                
+                // Check if directory exists
+                if (std.fs.cwd().access(full_path, .{})) |_| {
+                    try self.src_dirs.append(full_path);
+                } else |_| {
+                    self.allocator.free(full_path);
+                }
             }
         }
     }
@@ -156,7 +225,7 @@ pub const ModuleResolver = struct {
             return try self.resolveAbsolute(import_path);
         } else {
             // Package import
-            return try self.resolvePackage(import_path);
+            return try self.resolvePackage(import_path, current_file);
         }
     }
     
@@ -232,9 +301,58 @@ pub const ModuleResolver = struct {
     }
     
     /// Resolve package import path
-    fn resolvePackage(self: *ModuleResolver, import_path: []const u8) !ResolvedModule {
+    fn resolvePackage(self: *ModuleResolver, import_path: []const u8, current_file: ?[]const u8) !ResolvedModule {
         debug.log("Resolving package import: {s}", .{import_path});
         debug.log("Source directories: {d}", .{self.src_dirs.items.len});
+        
+        // First, try to resolve relative to the current file's directory
+        if (current_file) |file| {
+            const dir = std.fs.path.dirname(file) orelse ".";
+            
+            // Try with .gene extension
+            const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.gene", .{import_path});
+            defer self.allocator.free(with_ext);
+            
+            const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ dir, with_ext });
+            defer self.allocator.free(full_path);
+            
+            debug.log("Checking relative to current file: {s}", .{full_path});
+            
+            if (std.fs.cwd().access(full_path, .{})) |_| {
+                const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{full_path});
+                const module_id = try self.allocator.dupe(u8, import_path);
+                return ResolvedModule{
+                    .absolute_path = resolved_path,
+                    .module_id = module_id,
+                    .is_system = false,
+                };
+            } else |_| {}
+            
+            // Try subdirectories in the current file's directory
+            // For example, if importing "basic", try "math/basic.gene", "utils/basic.gene", etc.
+            var dir_iter = std.fs.cwd().openDir(dir, .{ .iterate = true }) catch null;
+            if (dir_iter) |*iter| {
+                defer iter.close();
+                
+                var it = iter.iterate();
+                while (it.next() catch null) |entry| {
+                    if (entry.kind == .directory) {
+                        const subdir_path = try std.fs.path.join(self.allocator, &[_][]const u8{ dir, entry.name, with_ext });
+                        defer self.allocator.free(subdir_path);
+                        
+                        if (std.fs.cwd().access(subdir_path, .{})) |_| {
+                            const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{subdir_path});
+                            const module_id = try self.allocator.dupe(u8, import_path);
+                            return ResolvedModule{
+                                .absolute_path = resolved_path,
+                                .module_id = module_id,
+                                .is_system = false,
+                            };
+                        } else |_| {}
+                    }
+                }
+            }
+        }
         
         // Search in source directories
         for (self.src_dirs.items) |src_dir| {

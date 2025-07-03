@@ -4,7 +4,7 @@
 (ns utils
   (fn helper [x] (* x 2))
   (fn process [x] (+ x 10))
-  ^VERSION 1.0)
+  (var VERSION 1.0))
 
 # Test selective import of specific items
 # (import "utils" [helper VERSION])

@@ -1947,10 +1947,23 @@ fn parseImport(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Par
                     
                     try import_items.append(.{ .name = old_name, .alias = new_name });
                 } else if (toks[current_pos].kind == .Ident) {
-                    // Simple import item
+                    // Simple import item or item with alias
                     const item_name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
                     current_pos += 1;
-                    try import_items.append(.{ .name = item_name, .alias = null });
+                    
+                    // Check for => alias syntax
+                    var item_alias: ?[]const u8 = null;
+                    if (current_pos < toks.len and toks[current_pos].kind == .Ident and 
+                        std.mem.eql(u8, toks[current_pos].kind.Ident, "=>")) {
+                        current_pos += 1; // Skip =>
+                        if (current_pos >= toks.len or toks[current_pos].kind != .Ident) {
+                            return error.UnexpectedToken;
+                        }
+                        item_alias = try alloc.dupe(u8, toks[current_pos].kind.Ident);
+                        current_pos += 1;
+                    }
+                    
+                    try import_items.append(.{ .name = item_name, .alias = item_alias });
                 } else {
                     return error.UnexpectedToken;
                 }

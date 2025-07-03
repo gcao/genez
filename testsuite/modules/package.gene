@@ -1,0 +1,5 @@
+# Package configuration for module tests
+^name "module-tests"
+^version "1.0.0"
+^description "Test modules for Gene language test suite"
+^src-dirs [".", "utils", "data", "math"]

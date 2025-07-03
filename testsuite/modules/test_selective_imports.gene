@@ -1,0 +1,14 @@
+#!/usr/bin/env gene run
+
+# Test selective imports
+(import "./math.gene" [PI square])
+(import "./helpers.gene" [helper => h])
+
+(println "Testing selective imports...")
+(println "Direct access to PI:" PI)
+(println "Direct access to square:" (square 5))
+(println "Aliased helper as h:" (h "test"))
+
+# These should NOT be accessible (not imported)
+# (println "E:" E)  # Should fail - not imported
+# (println "cube:" (cube 3))  # Should fail - not imported

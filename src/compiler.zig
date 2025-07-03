@@ -258,8 +258,75 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
                     debug.writeMessage("  Module initialization failed: {any}\n", .{err});
                 };
                 
-                // Extract any values that were set and add them to the module namespace
-                // For now, we'll need to handle this differently since the VM doesn't expose its variables
+                // Extract variables from the VM and add exportable ones to the module namespace
+                var var_iter = init_vm.getVariables();
+                while (var_iter.next()) |entry| {
+                    const name = entry.key_ptr.*;
+                    const value = entry.value_ptr.*;
+                    
+                    // Skip built-in operators and functions
+                    if (std.mem.eql(u8, name, "print") or 
+                        std.mem.eql(u8, name, "println") or
+                        std.mem.eql(u8, name, "+") or
+                        std.mem.eql(u8, name, "-") or
+                        std.mem.eql(u8, name, "*") or
+                        std.mem.eql(u8, name, "/") or
+                        std.mem.eql(u8, name, "%") or
+                        std.mem.eql(u8, name, "**") or
+                        std.mem.eql(u8, name, "==") or
+                        std.mem.eql(u8, name, "!=") or
+                        std.mem.eql(u8, name, "<") or
+                        std.mem.eql(u8, name, ">") or
+                        std.mem.eql(u8, name, "<=") or
+                        std.mem.eql(u8, name, ">=") or
+                        std.mem.eql(u8, name, "&&") or
+                        std.mem.eql(u8, name, "||") or
+                        std.mem.eql(u8, name, "!") or
+                        std.mem.startsWith(u8, name, "Class") or
+                        std.mem.startsWith(u8, name, "Any") or
+                        std.mem.startsWith(u8, name, "Number") or
+                        std.mem.startsWith(u8, name, "Int") or
+                        std.mem.startsWith(u8, name, "Float") or
+                        std.mem.startsWith(u8, name, "String") or
+                        std.mem.startsWith(u8, name, "Bool") or
+                        std.mem.startsWith(u8, name, "Nil") or
+                        std.mem.startsWith(u8, name, "Symbol") or
+                        std.mem.startsWith(u8, name, "Fn") or
+                        std.mem.startsWith(u8, name, "BuiltinFn") or
+                        std.mem.startsWith(u8, name, "Macro") or
+                        std.mem.startsWith(u8, name, "Array") or
+                        std.mem.startsWith(u8, name, "Map") or
+                        std.mem.startsWith(u8, name, "gc_") or
+                        std.mem.startsWith(u8, name, "len") or
+                        std.mem.startsWith(u8, name, "type")) {
+                        continue;
+                    }
+                    
+                    // Export based on naming conventions:
+                    // - Variables starting with uppercase are exported
+                    // - All functions are exported
+                    // - All classes are exported
+                    const should_export = blk: {
+                        if (name.len > 0 and std.ascii.isUpper(name[0])) {
+                            // Uppercase variable
+                            break :blk true;
+                        }
+                        
+                        switch (value) {
+                            .Function => break :blk true,
+                            .Class => break :blk true,
+                            else => break :blk false,
+                        }
+                    };
+                    
+                    if (should_export) {
+                        // Clone the value for the module namespace
+                        const cloned_value = try value.clone(ctx.allocator);
+                        try compiled_module.namespace.define(name, cloned_value);
+                        debug.writeMessage("    Exported {s}: {any}\n", .{name, std.meta.activeTag(value)});
+                    }
+                }
+                
                 debug.writeMessage("  Module initialization completed\n", .{});
             }
             

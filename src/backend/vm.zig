@@ -202,7 +202,7 @@ pub const VM = struct {
 
         // Clean up namespace stack (we don't own the namespaces, they're owned by modules)
         self.namespace_stack.deinit();
-        
+
         // Clean up module stack (we don't own the modules either)
         self.module_stack.deinit();
 
@@ -256,6 +256,11 @@ pub const VM = struct {
 
     pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
         try self.variables.put(name, value);
+    }
+
+    /// Get an iterator over all variables in the VM
+    pub fn getVariables(self: *const VM) std.StringArrayHashMap(types.Value).Iterator {
+        return self.variables.iterator();
     }
 
     /// Allocate a GC-managed value if GC is enabled
@@ -468,6 +473,16 @@ pub const VM = struct {
                     }
                 }
 
+                // Check current namespace first if we're inside one
+                if (self.namespace_stack.items.len > 0) {
+                    const current_ns = self.namespace_stack.items[self.namespace_stack.items.len - 1];
+                    if (current_ns.lookup(name)) |value| {
+                        debug.log("Found variable in current namespace: {any}", .{value});
+                        try self.setRegister(dst_reg, try value.clone(self.allocator));
+                        return;
+                    }
+                }
+
                 // Check for built-in operators and global variables
                 if (self.variables.get(name)) |value| {
                     debug.log("Found variable in global scope: {any}", .{value});
@@ -498,7 +513,7 @@ pub const VM = struct {
                                 return;
                             }
                         }
-                        
+
                         debug.log("ERROR: Module member {s}/{s} not found", .{ module_name, member_name });
                         return error.UndefinedVariable;
                     } else {
@@ -516,21 +531,21 @@ pub const VM = struct {
                 // Load module from file: LoadModule Rd, module_path
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const module_path = instruction.var_name orelse return error.InvalidInstruction;
-                
+
                 debug.log("LoadModule: Loading module from {s}", .{module_path});
-                
+
                 // Extract module name from path
                 const module_name = if (std.mem.lastIndexOfScalar(u8, module_path, '/')) |idx|
-                    module_path[idx + 1..]
+                    module_path[idx + 1 ..]
                 else
                     module_path;
-                    
+
                 // Remove .gene extension if present
                 const name = if (std.mem.endsWith(u8, module_name, ".gene"))
-                    module_name[0..module_name.len - 5]
+                    module_name[0 .. module_name.len - 5]
                 else
                     module_name;
-                
+
                 // Check if module is already loaded
                 if (self.module_registry) |registry| {
                     debug.log("Looking for module in registry. Keys available:", .{});
@@ -538,7 +553,7 @@ pub const VM = struct {
                     while (it.next()) |entry| {
                         debug.log("  - {s}", .{entry.key_ptr.*});
                     }
-                    
+
                     // Try with the extracted name first
                     if (registry.getModule(name)) |existing_module| {
                         debug.log("Module {s} found in registry", .{name});
@@ -552,10 +567,10 @@ pub const VM = struct {
                         return;
                     }
                 }
-                
-                // Module not found in registry
-                debug.log("ERROR: Module {s} not found in registry", .{module_path});
-                return error.ModuleNotFound;
+
+                // Module not found in registry - set to Nil instead of error
+                debug.log("WARNING: Module {s} not found in registry, setting to Nil", .{module_path});
+                try self.setRegister(dst_reg, .{ .Nil = {} });
             },
             .LoadParam => {
                 // Register-based LoadParam: LoadParam Rd, #param_index
@@ -583,7 +598,8 @@ pub const VM = struct {
                 debug.log("StoreVar: {s} = R{}", .{ name, src_reg });
 
                 // Get the value from the source register
-                const value = try self.getRegister(src_reg);
+                var value = try self.getRegister(src_reg);
+                defer value.deinit(self.allocator);
 
                 // Check if we're inside a namespace context
                 if (self.namespace_stack.items.len > 0) {
@@ -599,11 +615,11 @@ pub const VM = struct {
                         var old_value_copy = self.variables.values()[idx];
                         old_value_copy.deinit(self.allocator);
 
-                        // Update the value in place
-                        self.variables.values()[idx] = value;
+                        // Update the value in place (clone since we'll defer deinit the original)
+                        self.variables.values()[idx] = try value.clone(self.allocator);
                     } else {
-                        // No existing key, add a new entry
-                        try self.variables.put(name, value);
+                        // No existing key, add a new entry (clone since we'll defer deinit the original)
+                        try self.variables.put(name, try value.clone(self.allocator));
                     }
 
                     debug.log("Stored variable {s} = {any}", .{ name, value });
@@ -617,7 +633,8 @@ pub const VM = struct {
                 debug.log("StoreGlobal: {s} = R{}", .{ name, src_reg });
 
                 // Get the value from the source register
-                const value = try self.getRegister(src_reg);
+                var value = try self.getRegister(src_reg);
+                defer value.deinit(self.allocator);
 
                 // Store the value in the variables map (same as StoreVar)
                 if (self.variables.getIndex(name)) |idx| {
@@ -625,11 +642,11 @@ pub const VM = struct {
                     var old_value_copy = self.variables.values()[idx];
                     old_value_copy.deinit(self.allocator);
 
-                    // Update the value in place
-                    self.variables.values()[idx] = value;
+                    // Update the value in place (clone since we'll defer deinit the original)
+                    self.variables.values()[idx] = try value.clone(self.allocator);
                 } else {
-                    // No existing key, add a new entry
-                    try self.variables.put(name, value);
+                    // No existing key, add a new entry (clone since we'll defer deinit the original)
+                    try self.variables.put(name, try value.clone(self.allocator));
                 }
 
                 debug.log("Stored global variable {s} = {any}", .{ name, value });
@@ -2716,7 +2733,7 @@ pub const VM = struct {
                     for (0..count) |i| {
                         const key_reg = start_reg + @as(u16, @intCast(i * 2));
                         const val_reg = start_reg + @as(u16, @intCast(i * 2 + 1));
-                        
+
                         var key_val = try self.getRegister(key_reg);
                         defer key_val.deinit(self.allocator);
                         const value_val = try self.getRegister(val_reg);
@@ -2749,36 +2766,36 @@ pub const VM = struct {
                 // Create namespace: CreateNamespace Rd, Rs (name)
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
                 const name_reg = instruction.src1 orelse return error.InvalidInstruction;
-                
+
                 var name_val = try self.getRegister(name_reg);
                 defer name_val.deinit(self.allocator);
-                
+
                 if (name_val != .String) {
                     debug.log("CreateNamespace requires a String name, got {}", .{name_val});
                     return error.TypeMismatch;
                 }
-                
+
                 const name = name_val.String;
-                
+
                 // Create a module with namespace
                 const module = try @import("../core/module_registry.zig").CompiledModule.init(self.allocator, name, "<namespace>");
-                
+
                 // Track the allocated module
                 try self.allocated_modules.append(module);
-                
+
                 try self.setRegister(dst_reg, .{ .Module = module });
             },
             .PushNamespace => {
                 // Push namespace onto context stack: PushNamespace Rs
                 const ns_reg = instruction.src1 orelse return error.InvalidInstruction;
-                
+
                 const ns_val = try self.getRegister(ns_reg);
-                
+
                 if (ns_val != .Module) {
                     debug.log("PushNamespace requires a Module, got {}", .{ns_val});
                     return error.TypeMismatch;
                 }
-                
+
                 // Push both the namespace and the module
                 try self.namespace_stack.append(ns_val.Module.namespace);
                 try self.module_stack.append(ns_val.Module);
@@ -2786,17 +2803,17 @@ pub const VM = struct {
             .PopNamespace => {
                 // Pop namespace from context stack: PopNamespace Rd
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
-                
+
                 if (self.namespace_stack.items.len == 0) {
                     debug.log("PopNamespace with empty namespace stack", .{});
                     return error.StackUnderflow;
                 }
-                
+
                 // Pop both stacks
                 _ = self.namespace_stack.pop();
                 const module_opt = self.module_stack.pop();
                 const module = module_opt orelse return error.StackUnderflow;
-                
+
                 // Store the module in the register
                 try self.setRegister(dst_reg, .{ .Module = module });
             },
