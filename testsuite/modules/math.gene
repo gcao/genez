@@ -1,0 +1,18 @@
+# Math module for testing
+^module "math"
+^description "Basic math functions for tests"
+
+(fn square [x] 
+  (* x x))
+
+(fn cube [x] 
+  (* x (* x x)))
+
+(fn add [a b]
+  (+ a b))
+
+(fn multiply [a b]
+  (* a b))
+
+(var PI 3.14159)
+(var E 2.71828)

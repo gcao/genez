@@ -1,0 +1,4 @@
+# Module1
+^module "module1"
+
+(fn func1 [] 1)

@@ -1,0 +1,7 @@
+# Geometry module
+^module "geometry"
+^description "Geometry types and functions"
+
+(class Point [x y])
+(class Line [start end])
+(class Circle [center radius])

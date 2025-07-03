@@ -1,0 +1,5 @@
+# Advanced math
+^module "advanced"
+
+(fn pow [a b] (** a b))
+(fn sqrt [x] x) # placeholder

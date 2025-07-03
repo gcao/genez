@@ -22,7 +22,8 @@ pub const VMError = error{
     InvalidInstruction,
     FieldNotFound,
     MethodNotFound,
-} || std.mem.Allocator.Error || std.fs.File.WriteError;
+    ModuleNotFound,
+} || std.mem.Allocator.Error || std.fs.File.WriteError || std.fs.File.GetSeekPosError || std.fs.File.ReadError;
 
 pub const CallFrame = struct {
     caller_func: ?*const bytecode.Function, // Calling function to restore to
@@ -63,6 +64,9 @@ pub const VM = struct {
     core_classes: ?builtin_classes.CoreClasses, // Core built-in classes
     garbage_collector: ?*gc.GC, // Garbage collector
     module_registry: ?*@import("../core/module_registry.zig").ModuleRegistry, // Module registry for imports
+    namespace_stack: std.ArrayList(*@import("../core/module_registry.zig").Namespace), // Stack of active namespaces
+    module_stack: std.ArrayList(*@import("../core/module_registry.zig").CompiledModule), // Stack of modules for namespaces
+    allocated_modules: std.ArrayList(*@import("../core/module_registry.zig").CompiledModule), // Track allocated modules for cleanup
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
 
@@ -135,6 +139,9 @@ pub const VM = struct {
             .core_classes = null,
             .garbage_collector = null,
             .module_registry = null,
+            .namespace_stack = std.ArrayList(*@import("../core/module_registry.zig").Namespace).init(allocator),
+            .module_stack = std.ArrayList(*@import("../core/module_registry.zig").CompiledModule).init(allocator),
+            .allocated_modules = std.ArrayList(*@import("../core/module_registry.zig").CompiledModule).init(allocator),
         };
 
         // Initialize garbage collector
@@ -192,6 +199,19 @@ pub const VM = struct {
             self.allocator.destroy(class);
         }
         self.allocated_classes.deinit();
+
+        // Clean up namespace stack (we don't own the namespaces, they're owned by modules)
+        self.namespace_stack.deinit();
+        
+        // Clean up module stack (we don't own the modules either)
+        self.module_stack.deinit();
+
+        // Clean up allocated modules
+        for (self.allocated_modules.items) |module| {
+            module.deinit();
+            self.allocator.destroy(module);
+        }
+        self.allocated_modules.deinit();
 
         // Clean up current function if it exists
         // Note: We don't deinit the function itself as it's owned by the caller
@@ -459,19 +479,28 @@ pub const VM = struct {
                         const member_name = name[slash_pos + 1 ..];
                         debug.log("Checking for module member: {s}/{s}", .{ module_name, member_name });
 
-                        // Look up in module registry
+                        // First check if it's a namespace variable
+                        if (self.variables.get(module_name)) |module_val| {
+                            if (module_val == .Module) {
+                                if (module_val.Module.getMember(member_name)) |member| {
+                                    debug.log("Found namespace member: {any}", .{member});
+                                    try self.setRegister(dst_reg, try member.clone(self.allocator));
+                                    return;
+                                }
+                            }
+                        }
+
+                        // Then check module registry
                         if (self.module_registry) |registry| {
                             if (registry.resolveMember(module_name, member_name)) |value| {
                                 debug.log("Found module member: {any}", .{value});
                                 try self.setRegister(dst_reg, try value.clone(self.allocator));
-                            } else {
-                                debug.log("ERROR: Module member {s}/{s} not found", .{ module_name, member_name });
-                                return error.UndefinedVariable;
+                                return;
                             }
-                        } else {
-                            debug.log("ERROR: No module registry available", .{});
-                            return error.UndefinedVariable;
                         }
+                        
+                        debug.log("ERROR: Module member {s}/{s} not found", .{ module_name, member_name });
+                        return error.UndefinedVariable;
                     } else {
                         debug.log("ERROR: Variable {s} not found", .{name});
                         debug.log("Available variables:", .{});
@@ -482,6 +511,51 @@ pub const VM = struct {
                         return error.UndefinedVariable;
                     }
                 }
+            },
+            .LoadModule => {
+                // Load module from file: LoadModule Rd, module_path
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const module_path = instruction.var_name orelse return error.InvalidInstruction;
+                
+                debug.log("LoadModule: Loading module from {s}", .{module_path});
+                
+                // Extract module name from path
+                const module_name = if (std.mem.lastIndexOfScalar(u8, module_path, '/')) |idx|
+                    module_path[idx + 1..]
+                else
+                    module_path;
+                    
+                // Remove .gene extension if present
+                const name = if (std.mem.endsWith(u8, module_name, ".gene"))
+                    module_name[0..module_name.len - 5]
+                else
+                    module_name;
+                
+                // Check if module is already loaded
+                if (self.module_registry) |registry| {
+                    debug.log("Looking for module in registry. Keys available:", .{});
+                    var it = registry.modules.iterator();
+                    while (it.next()) |entry| {
+                        debug.log("  - {s}", .{entry.key_ptr.*});
+                    }
+                    
+                    // Try with the extracted name first
+                    if (registry.getModule(name)) |existing_module| {
+                        debug.log("Module {s} found in registry", .{name});
+                        try self.setRegister(dst_reg, .{ .Module = existing_module });
+                        return;
+                    }
+                    // Also try with the full path
+                    if (registry.getModule(module_path)) |existing_module| {
+                        debug.log("Module {s} found in registry", .{module_path});
+                        try self.setRegister(dst_reg, .{ .Module = existing_module });
+                        return;
+                    }
+                }
+                
+                // Module not found in registry
+                debug.log("ERROR: Module {s} not found in registry", .{module_path});
+                return error.ModuleNotFound;
             },
             .LoadParam => {
                 // Register-based LoadParam: LoadParam Rd, #param_index
@@ -511,21 +585,29 @@ pub const VM = struct {
                 // Get the value from the source register
                 const value = try self.getRegister(src_reg);
 
-                // Store the value in the variables map
-                // Check if the variable already exists
-                if (self.variables.getIndex(name)) |idx| {
-                    // Free the old value
-                    var old_value_copy = self.variables.values()[idx];
-                    old_value_copy.deinit(self.allocator);
-
-                    // Update the value in place
-                    self.variables.values()[idx] = value;
+                // Check if we're inside a namespace context
+                if (self.namespace_stack.items.len > 0) {
+                    // Store in the current namespace
+                    const current_ns = self.namespace_stack.items[self.namespace_stack.items.len - 1];
+                    try current_ns.define(name, value);
+                    debug.log("Stored variable {s} in namespace {s}", .{ name, current_ns.name });
                 } else {
-                    // No existing key, add a new entry
-                    try self.variables.put(name, value);
-                }
+                    // Store in global scope
+                    // Check if the variable already exists
+                    if (self.variables.getIndex(name)) |idx| {
+                        // Free the old value
+                        var old_value_copy = self.variables.values()[idx];
+                        old_value_copy.deinit(self.allocator);
 
-                debug.log("Stored variable {s} = {any}", .{ name, value });
+                        // Update the value in place
+                        self.variables.values()[idx] = value;
+                    } else {
+                        // No existing key, add a new entry
+                        try self.variables.put(name, value);
+                    }
+
+                    debug.log("Stored variable {s} = {any}", .{ name, value });
+                }
             },
             .StoreGlobal => {
                 // Register-based StoreGlobal: StoreGlobal global_name, Rs
@@ -1926,7 +2008,7 @@ pub const VM = struct {
                 // Handle method calls on modules
                 if (obj_val == .Module) {
                     const module = obj_val.Module;
-                    debug.log("Method call on module: {s}.{s}", .{ module.id, method_name });
+                    debug.log("DEBUG: Method call on module: {s}.{s}", .{ module.id, method_name });
 
                     // Special handling for get_member
                     if (std.mem.eql(u8, method_name, "get_member")) {
@@ -2662,6 +2744,61 @@ pub const VM = struct {
                 // Pop is a no-op in register-based VM - handled by register allocation
                 // Note: Our MIR->bytecode handles Pop by not generating any instruction
                 return error.UnsupportedInstruction;
+            },
+            .CreateNamespace => {
+                // Create namespace: CreateNamespace Rd, Rs (name)
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const name_reg = instruction.src1 orelse return error.InvalidInstruction;
+                
+                var name_val = try self.getRegister(name_reg);
+                defer name_val.deinit(self.allocator);
+                
+                if (name_val != .String) {
+                    debug.log("CreateNamespace requires a String name, got {}", .{name_val});
+                    return error.TypeMismatch;
+                }
+                
+                const name = name_val.String;
+                
+                // Create a module with namespace
+                const module = try @import("../core/module_registry.zig").CompiledModule.init(self.allocator, name, "<namespace>");
+                
+                // Track the allocated module
+                try self.allocated_modules.append(module);
+                
+                try self.setRegister(dst_reg, .{ .Module = module });
+            },
+            .PushNamespace => {
+                // Push namespace onto context stack: PushNamespace Rs
+                const ns_reg = instruction.src1 orelse return error.InvalidInstruction;
+                
+                const ns_val = try self.getRegister(ns_reg);
+                
+                if (ns_val != .Module) {
+                    debug.log("PushNamespace requires a Module, got {}", .{ns_val});
+                    return error.TypeMismatch;
+                }
+                
+                // Push both the namespace and the module
+                try self.namespace_stack.append(ns_val.Module.namespace);
+                try self.module_stack.append(ns_val.Module);
+            },
+            .PopNamespace => {
+                // Pop namespace from context stack: PopNamespace Rd
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                
+                if (self.namespace_stack.items.len == 0) {
+                    debug.log("PopNamespace with empty namespace stack", .{});
+                    return error.StackUnderflow;
+                }
+                
+                // Pop both stacks
+                _ = self.namespace_stack.pop();
+                const module_opt = self.module_stack.pop();
+                const module = module_opt orelse return error.StackUnderflow;
+                
+                // Store the module in the register
+                try self.setRegister(dst_reg, .{ .Module = module });
             },
         }
     }

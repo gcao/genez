@@ -1,0 +1,6 @@
+# Data structures module
+^module "data/structures"
+^description "Common data structures"
+
+(class Array [])
+(class Map [])

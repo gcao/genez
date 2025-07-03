@@ -1,0 +1,6 @@
+# Helpers module in utils subdirectory
+^module "utils/helpers"
+^description "Utility helper functions"
+
+(fn helper1 [x] x)
+(fn helper2 [x] (* x 2))

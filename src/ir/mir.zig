@@ -70,6 +70,7 @@ pub const MIR = struct {
                     .LoadString => |str| self.allocator.free(str),
                     .LoadSymbol => |sym| self.allocator.free(sym),
                     .LoadVariable => |name| self.allocator.free(name),
+                    .LoadModule => |path| self.allocator.free(path),
                     .StoreVariable => |name| self.allocator.free(name), // Free the stored name
                     .LoadFunction => |func_ptr| {
                         // Deallocate the function object pointed to
@@ -117,6 +118,7 @@ pub const MIR = struct {
         LoadVariable: []const u8,
         LoadParameter: usize, // Load parameter by index
         LoadFunction: *Function,
+        LoadModule: []const u8, // Load module by path
         StoreVariable: []const u8,
         Add,
         Sub,
@@ -145,6 +147,9 @@ pub const MIR = struct {
         Pop, // Pop and discard top of stack
         IsArray, // Check if value is array
         IsMap, // Check if value is map
+        CreateNamespace, // Create a new namespace with name from stack
+        PushNamespace, // Push namespace onto namespace stack
+        PopNamespace, // Pop namespace from stack and return it
     };
 
     pub const ClassDefinition = struct {

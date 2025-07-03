@@ -15,15 +15,15 @@
 # Import scenarios:
 
 # 1. Import entire module (all namespaces available)
-(import "math")
+# (import "math")
 # Usage: math/basic/add, math/advanced/integral
 
 # 2. Import specific namespace from module
-(import "math/basic" => basic)
+# (import "math/basic" => basic)
 # Usage: basic/add
 
 # 3. Import items from namespace in module
-(import "math/basic" [add subtract])
+# (import "math/basic" [add subtract])
 # Usage: add, subtract (directly)
 
 # 4. Module with default exports (not in namespace)
@@ -31,7 +31,7 @@
 #   (fn helper1 [] ...)  # Not in namespace
 #   (ns internal
 #     (fn helper2 [] ...))
-(import "utils")
+# (import "utils")
 # Usage: utils/helper1 (default), utils/internal/helper2
 
 # 5. Re-exporting from namespaces

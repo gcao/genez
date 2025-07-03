@@ -1,0 +1,5 @@
+# Base module
+^module "base"
+^description "Base functionality"
+
+(fn init [] "initialized")

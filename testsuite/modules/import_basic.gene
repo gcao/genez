@@ -3,21 +3,21 @@
 # Test basic import statements
 
 # Test 1: Simple import
-(import "math")
+(import "./math.gene")
 
 # Test 2: Import with alias
-(import "utils" => u)
-(import "helpers" => h)
+(import "./utils.gene" => u)
+(import "./helpers.gene" => h)
 
 # Test 3: Import specific items
-(import "geometry" [Point Line Circle])
+(import "./geometry.gene" [Point Line Circle])
 
 # Test 4: Import with item aliases
-(import "shapes" [[Rectangle Rect] [Triangle Tri]])
+(import "./shapes.gene" [[Rectangle Rect] [Triangle Tri]])
 
 # Test 5: Mixed import styles
-(import "data/structures" [Array Map])
-(import "algorithms" => algo)
+(import "./data/structures.gene" [Array Map])
+(import "./algorithms.gene" => algo)
 
 # For now, just verify parsing works
 (print "Import statements parsed successfully")

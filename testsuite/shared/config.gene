@@ -1,0 +1,5 @@
+# Config module
+^module "config"
+^description "Configuration"
+
+(var debug true)

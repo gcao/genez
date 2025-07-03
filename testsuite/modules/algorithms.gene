@@ -1,0 +1,6 @@
+# Algorithms module
+^module "algorithms"
+^description "Common algorithms"
+
+(fn sort [list] list)
+(fn search [list item] 0)

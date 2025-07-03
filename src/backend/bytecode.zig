@@ -10,6 +10,7 @@ pub const OpCode = enum {
     LoadConst, // Load constant into register: LoadConst Rd, #constant
     LoadVar, // Load variable into register: LoadVar Rd, var_name
     LoadParam, // Load parameter into register: LoadParam Rd, #param_index
+    LoadModule, // Load module from file: LoadModule Rd, module_path
     StoreVar, // Store register to variable: StoreVar var_name, Rs
     StoreGlobal, // Store register to global: StoreGlobal global_name, Rs
     Move, // Copy register to register: Move Rd, Rs
@@ -65,6 +66,11 @@ pub const OpCode = enum {
     // Stack operations (needed for pattern matching)
     Dup, // Duplicate top of stack: Dup Rs -> push Rs value again
     Pop, // Pop and discard: Pop Rs
+    
+    // Namespace operations
+    CreateNamespace, // Create namespace: CreateNamespace Rd (name in immediate)
+    PushNamespace, // Push namespace onto context stack: PushNamespace Rs
+    PopNamespace, // Pop namespace from context stack: PopNamespace Rd
 };
 
 // Register identifier - u16 allows for 65,536 virtual registers

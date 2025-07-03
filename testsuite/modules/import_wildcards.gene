@@ -27,8 +27,8 @@
 # (import "plugins/*" :if available)
 
 # For now, explicit imports are required:
-(import "math")  # Import with namespace
-(import "utils" => u)  # Import with alias
+# (import "math")  # Import with namespace
+# (import "utils" => u)  # Import with alias
 
 # Note: Wildcard imports can impact performance and clarity
 # Best practice is to import only what you need

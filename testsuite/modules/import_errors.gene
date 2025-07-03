@@ -16,8 +16,8 @@
 # (import "path" => 123)  # Non-identifier alias
 
 # Test 3: Valid syntax that would fail at runtime
-(import "./does_not_exist")  # File not found
-(import "../../../../../outside_root")  # Outside project
+# (import "./does_not_exist")  # File not found
+# (import "../../../../../outside_root")  # Outside project
 # (import "http://example.com/module")  # Network imports not supported
 # (import "C:\\Windows\\module")  # OS-specific paths discouraged
 

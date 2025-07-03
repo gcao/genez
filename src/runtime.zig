@@ -132,8 +132,9 @@ pub const Runtime = struct {
         var gene_vm = vm.VM.init(self.allocator, self.stdout);
         defer gene_vm.deinit();
 
-        // Set module registry if available and register module namespaces
+        // Set module registry FIRST before any execution
         if (module_registry) |registry| {
+            debug.log("Setting module registry with {d} modules", .{registry.modules.count()});
             gene_vm.setModuleRegistry(registry);
             
             // Create namespace objects for each module

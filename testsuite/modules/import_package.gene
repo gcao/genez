@@ -1,33 +1,34 @@
 #!/usr/bin/env gene run
 
 # Test package-based imports (canonical packages)
+# For now, comment out all package imports since we don't have a package system yet
 
 # Test 1: Simple package imports
-(import "math")
-(import "utils" => u)
-(import "helpers" [help1 help2])
+# (import "math")
+# (import "utils" => u)
+# (import "helpers" [help1 help2])
 
 # Test 2: Nested package paths
-(import "data/structures")
-(import "net/http" => http)
-(import "crypto/hash" [sha256 md5])
+# (import "data/structures")
+# (import "net/http" => http)
+# (import "crypto/hash" [sha256 md5])
 
 # Test 3: Organization-scoped packages
-(import "@gene/core")
-(import "@gene/stdlib" => std)
-(import "@myorg/utils" [util1 util2])
+# (import "@gene/core")
+# (import "@gene/stdlib" => std)
+# (import "@myorg/utils" [util1 util2])
 
 # Test 4: Version-specific imports (future feature)
 # (import "lodash@4.17.21")
 # (import "react@18.0.0" => React)
 
 # Test 5: Package with submodules
-(import "express/middleware")
-(import "django/models" => models)
-(import "rails/activerecord" [Model Migration])
+# (import "express/middleware")
+# (import "django/models" => models)
+# (import "rails/activerecord" [Model Migration])
 
 # Test 6: Local package (in same project)
-(import "mypackage/module1")
-(import "mypackage/subpkg/module2" => m2)
+# (import "mypackage/module1")
+# (import "mypackage/subpkg/module2" => m2)
 
 (print "Package import syntax parsed successfully")

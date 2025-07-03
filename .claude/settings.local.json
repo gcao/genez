@@ -46,7 +46,10 @@
       "Bash(../zig-out/bin/gene run:*)",
       "Bash(diff:*)",
       "Bash(/Users/gcao/proj/zig/gene/zig-out/bin/gene run test_import.gene)",
-      "Bash(./test_selective.gene)"
+      "Bash(./test_selective.gene)",
+      "Bash(zig fmt:*)",
+      "Bash(zig repl:*)",
+      "Bash(../../../zig-out/bin/gene run:*)"
     ],
     "deny": []
   },

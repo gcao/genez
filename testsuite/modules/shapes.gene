@@ -1,0 +1,6 @@
+# Shapes module
+^module "shapes"
+^description "Shape classes"
+
+(class Rectangle [width height])
+(class Triangle [a b c])

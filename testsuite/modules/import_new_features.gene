@@ -3,8 +3,8 @@
 # Test new import features from packages_and_modules.md
 
 # Test 1: New => alias syntax (already works)
-(import "math" => m)
-(import "utils/helpers" => h)
+(import "./math.gene" => m)
+(import "./utils/helpers.gene" => h)
 
 # Test 2: Import with array and rename
 # (import "utils/helpers" [helper1 => h1 helper2])

@@ -1425,8 +1425,8 @@ fn parseIf(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
 fn parseVar(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
     // Expects (var name = value)
     // toks[0] is LParen, toks[1] is Var
-    // Minimum valid: (var x = 1) -> LParen, Var, Ident, Equals, Int, RParen (6 tokens)
-    if (toks.len < 6 or toks[0].kind != .LParen or toks[1].kind != .Var) return error.UnexpectedToken;
+    // Minimum valid: (var x 1) -> LParen, Var, Ident, Value, RParen (5 tokens)
+    if (toks.len < 5 or toks[0].kind != .LParen or toks[1].kind != .Var) return error.UnexpectedToken;
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
 
     var current_pos: usize = 2; // Skip LParen and Var

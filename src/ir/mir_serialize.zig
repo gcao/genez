@@ -75,6 +75,9 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .LoadFunction => |_| {
             try writer.writeAll("load-function");
         },
+        .LoadModule => |path| {
+            try writer.print("load-module \"{s}\"", .{path});
+        },
         .StoreVariable => |name| {
             try writer.print("store-variable \"{s}\"", .{name});
         },
@@ -149,6 +152,15 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         },
         .IsMap => {
             try writer.writeAll("is-map");
+        },
+        .CreateNamespace => {
+            try writer.writeAll("create-namespace");
+        },
+        .PushNamespace => {
+            try writer.writeAll("push-namespace");
+        },
+        .PopNamespace => {
+            try writer.writeAll("pop-namespace");
         },
         .CreateArray => |count| {
             try writer.print("create-array {d}", .{count});

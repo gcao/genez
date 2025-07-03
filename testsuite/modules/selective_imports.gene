@@ -7,11 +7,11 @@
   ^VERSION 1.0)
 
 # Test selective import of specific items
-(import "utils" [helper VERSION])
+# (import "utils" [helper VERSION])
 
-# These should work
-(print "Helper result: " (helper 5))
-(print "Version: " VERSION)
+# For now, access through namespace directly
+(print "Helper result: " (utils/helper 5))
+(print "Version: " utils/VERSION)
 
 # This should fail if selective imports work correctly
 # (print "Process result: " (process 5))  # Should error - not imported

@@ -1,0 +1,6 @@
+# Utils module
+^module "utils"
+^description "Utility functions"
+
+(fn identity [x] x)
+(fn constant [x] (fn [] x))

@@ -1,0 +1,5 @@
+# Helper module
+^module "helper"
+^description "Helper functions"
+
+(fn help [] "helping")

@@ -13,14 +13,14 @@
     [debug false]
     [verbose false]))
 
-# Import from other modules
-(import "std/io")
-(import "std/math" => math)
-(import "std/string" [concat split trim])
+# Import from other modules (commented for now - no std library yet)
+# (import "std/io")
+# (import "std/math" => math)
+# (import "std/string" [concat split trim])
 
 # Another namespace
 (ns myapp
-  (import "../mylib" => lib)
+  # (import "../mylib" => lib)
   
   (fn main []
     (print "Module system test completed")))

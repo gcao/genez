@@ -266,7 +266,9 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
             // Register the module
             if (ctx.module_registry) |registry| {
                 try registry.registerModule(compiled_module);
+                debug.writeMessage("DEBUG: Registered module {s} in compiler\n", .{compiled_module.id});
             } else {
+                debug.writeMessage("WARNING: No module registry available, module {s} not registered\n", .{compiled_module.id});
                 // If no registry, we have to clean up the module
                 compiled_module.deinit();
             }

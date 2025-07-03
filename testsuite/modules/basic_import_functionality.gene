@@ -1,10 +1,7 @@
 #!/usr/bin/env gene run
 
 # Test actual module import functionality
-# Create an in-memory module using namespace
-(ns math
-  (fn square [x] (* x x))
-  (fn cube [x] (* x x x)))
+(import "./math.gene")
 
 # Access module members
 (print "Square of 5: " (math/square 5))

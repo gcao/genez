@@ -478,6 +478,19 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             // No need to clear MIR instr if we're duplicating
             // instr.* = .LoadNil; // REMOVED
         },
+        .LoadModule => |path| {
+            // Duplicate the module path for the bytecode operand
+            const path_copy = try func.allocator.dupe(u8, path);
+            errdefer func.allocator.free(path_copy);
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg); // Track this value on the stack
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.LoadModule,
+                .dst = dst_reg,
+                .var_name = path_copy,
+            });
+        },
         .LoadParameter => |param_index| {
             // Load parameter from the stack frame
             const dst_reg = next_reg.*;
@@ -1041,6 +1054,41 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
 
             _ = stack.pop(); // Just discard the value
             // No bytecode instruction needed - register will be reused
+        },
+        .CreateNamespace => {
+            // Pop namespace name from stack
+            const name_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.CreateNamespace,
+                .dst = dst_reg,
+                .src1 = name_reg,
+            });
+            
+            try stack.push(dst_reg);
+        },
+        .PushNamespace => {
+            // Pop namespace from stack and push to namespace context
+            const ns_reg = stack.pop();
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.PushNamespace,
+                .src1 = ns_reg,
+            });
+        },
+        .PopNamespace => {
+            // Pop namespace from context and push to stack
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.PopNamespace,
+                .dst = dst_reg,
+            });
+            
+            try stack.push(dst_reg);
         },
 
         .IsArray => {

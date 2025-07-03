@@ -21,23 +21,27 @@ pub fn convert(allocator: std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
 
                 // Add import binding instructions
                 for (hir_prog.imports.items) |import| {
+                    // Get the module name for storage (use alias if provided, otherwise extract from path)
+                    const module_name = import.alias orelse blk: {
+                        var path = import.module_path;
+                        if (std.mem.startsWith(u8, path, "./")) {
+                            path = path[2..];
+                        }
+                        if (std.mem.endsWith(u8, path, ".gene")) {
+                            path = path[0 .. path.len - 5];
+                        }
+                        break :blk path;
+                    };
+                    
+                    // Load the module using the same ID that was registered
+                    try new_instructions.append(.{ .LoadModule = try allocator.dupe(u8, module_name) });
+                    
+                    // Store the module in a variable
+                    try new_instructions.append(.{ .StoreVariable = try allocator.dupe(u8, module_name) });
+                    
+                    // If there are selective imports, create bindings for them
                     if (import.items) |items| {
-                        // Get the module name
-                        const module_name = import.alias orelse blk: {
-                            var path = import.module_path;
-                            if (std.mem.startsWith(u8, path, "./")) {
-                                path = path[2..];
-                            }
-                            if (std.mem.endsWith(u8, path, ".gene")) {
-                                path = path[0 .. path.len - 5];
-                            }
-                            break :blk path;
-                        };
-
                         // Create bindings for each imported item
-                        // Note: We only create bindings if the module was successfully loaded
-                        // The module loading happens at compile time in compiler.zig
-                        // If the module doesn't exist, we skip creating bindings
                         for (items) |item| {
                             // Load the module
                             try new_instructions.append(.{ .LoadVariable = try allocator.dupe(u8, module_name) });
@@ -769,21 +773,26 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try block.instructions.append(.Return);
         },
         .import_stmt => |import_ptr| {
+            // Get the module name for storage (use alias if provided, otherwise extract from path)
+            const module_name = import_ptr.alias orelse blk: {
+                var path = import_ptr.module_path;
+                if (std.mem.startsWith(u8, path, "./")) {
+                    path = path[2..];
+                }
+                if (std.mem.endsWith(u8, path, ".gene")) {
+                    path = path[0 .. path.len - 5];
+                }
+                break :blk path;
+            };
+            
+            // Load the module using the same ID that was registered
+            try block.instructions.append(.{ .LoadModule = try block.allocator.dupe(u8, module_name) });
+            
+            // Store the module in a variable
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, module_name) });
+            
             // Import statements create runtime bindings for selective imports
             if (import_ptr.items) |items| {
-                // For selective imports, we need to create individual variable bindings
-                // First, get the module name (use alias if provided, otherwise extract from path)
-                const module_name = import_ptr.alias orelse blk: {
-                    var path = import_ptr.module_path;
-                    if (std.mem.startsWith(u8, path, "./")) {
-                        path = path[2..];
-                    }
-                    if (std.mem.endsWith(u8, path, ".gene")) {
-                        path = path[0 .. path.len - 5];
-                    }
-                    break :blk path;
-                };
-
                 // For each imported item, create a binding
                 for (items) |item| {
                     // Load the module
@@ -808,19 +817,34 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try block.instructions.append(.LoadNil);
         },
         .module_access => |mod_access| {
-            // Module access will need runtime support
-            // For now, generate a variable load for the full path
-            const full_path = try std.fmt.allocPrint(block.allocator, "{s}/{s}", .{
-                mod_access.module,
-                mod_access.member,
-            });
-            try block.instructions.append(.{ .LoadVariable = full_path });
+            // Module access: load module, then get member
+            // 1. Load the module
+            try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, mod_access.module) });
+            
+            // 2. Load the member name as a string
+            try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, mod_access.member) });
+            
+            // 3. Call get_member method
+            try block.instructions.append(.{ .CallMethod = .{
+                .method_name = try block.allocator.dupe(u8, "get_member"),
+                .arg_count = 1,
+            } });
         },
         .namespace_decl => |ns_ptr| {
-            // Namespace declarations need runtime support
-            // For now, just evaluate the namespace body
-            // TODO: Create proper namespace at runtime
+            // Create a namespace at runtime
+            // 1. Create namespace
+            try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, ns_ptr.name) });
+            try block.instructions.append(.CreateNamespace);
+            
+            // 2. Make it the current namespace for body evaluation
+            try block.instructions.append(.PushNamespace);
+            
+            // 3. Evaluate the namespace body (defines members in the namespace)
             try convertExpressionWithContext(block, ns_ptr.body.*, context);
+            
+            // 4. Pop namespace and store it in a variable with the namespace name
+            try block.instructions.append(.PopNamespace);
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, ns_ptr.name) });
         },
     }
 }
