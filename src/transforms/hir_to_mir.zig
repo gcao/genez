@@ -810,6 +810,38 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Clean up temp variables by loading nil
             try block.instructions.append(.LoadNil);
         },
+        .while_loop => |while_ptr| {
+            // While loop implementation:
+            // loop_start:
+            //   evaluate condition
+            //   jump_if_false to loop_end
+            //   execute body
+            //   jump to loop_start
+            // loop_end:
+
+            // Start of loop - record position for jump back
+            const loop_start = block.instructions.items.len;
+
+            // Evaluate condition
+            try convertExpressionWithContext(block, while_ptr.condition.*, context);
+
+            // Jump to end if condition is false
+            const jump_if_false_index = block.instructions.items.len;
+            try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will patch later
+
+            // Execute loop body
+            try convertExpressionWithContext(block, while_ptr.body.*, context);
+
+            // Jump back to start
+            try block.instructions.append(.{ .Jump = @intCast(loop_start) });
+
+            // Patch the jump_if_false to jump here (after the loop)
+            const loop_end = block.instructions.items.len;
+            block.instructions.items[jump_if_false_index] = .{ .JumpIfFalse = @intCast(loop_end) };
+
+            // Leave nil on stack as result
+            try block.instructions.append(.LoadNil);
+        },
         .return_expr => |ret_ptr| {
             // Handle return statement
             if (ret_ptr.value) |val| {

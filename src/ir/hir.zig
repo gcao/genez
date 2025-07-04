@@ -132,6 +132,7 @@ pub const HIR = struct {
         macro_def: *MacroDef, // Macro definition
         macro_call: MacroCall, // Macro call
         for_loop: *ForLoop, // For-in loop
+        while_loop: *WhileLoop, // While loop
         return_expr: *ReturnExpr, // Return statement
         import_stmt: *ImportStmt, // Import statement
         module_access: ModuleAccess, // Access to module member
@@ -177,6 +178,10 @@ pub const HIR = struct {
                 .for_loop => |for_ptr| {
                     for_ptr.deinit(allocator);
                     allocator.destroy(for_ptr);
+                },
+                .while_loop => |while_ptr| {
+                    while_ptr.deinit(allocator);
+                    allocator.destroy(while_ptr);
                 },
                 .return_expr => |ret_ptr| {
                     ret_ptr.deinit(allocator);
@@ -800,6 +805,18 @@ pub const HIR = struct {
             allocator.free(self.iterator);
             self.iterable.deinit(allocator);
             allocator.destroy(self.iterable);
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+        }
+    };
+    
+    pub const WhileLoop = struct {
+        condition: *Expression, // Loop condition
+        body: *Expression, // Loop body
+        
+        pub fn deinit(self: *WhileLoop, allocator: std.mem.Allocator) void {
+            self.condition.deinit(allocator);
+            allocator.destroy(self.condition);
             self.body.deinit(allocator);
             allocator.destroy(self.body);
         }

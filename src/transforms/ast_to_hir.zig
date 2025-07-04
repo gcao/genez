@@ -1063,6 +1063,23 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             
             return .{ .for_loop = for_ptr };
         },
+        .WhileLoop => |while_loop| {
+            const while_ptr = try allocator.create(hir.HIR.WhileLoop);
+            errdefer allocator.destroy(while_ptr);
+            
+            while_ptr.* = .{
+                .condition = try allocator.create(hir.HIR.Expression),
+                .body = try allocator.create(hir.HIR.Expression),
+            };
+            
+            // Convert condition expression
+            while_ptr.condition.* = try lowerExpression(allocator, while_loop.condition.*);
+            
+            // Convert body expression
+            while_ptr.body.* = try lowerExpression(allocator, while_loop.body.*);
+            
+            return .{ .while_loop = while_ptr };
+        },
         .Return => |ret| {
             const ret_ptr = try allocator.create(hir.HIR.ReturnExpr);
             errdefer allocator.destroy(ret_ptr);

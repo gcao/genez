@@ -77,6 +77,7 @@ pub const TokenKind = union(enum) {
     Import, // New: for import statements
     For, // New: for for-in loops
     In, // New: for for-in loops
+    While, // New: for while loops
     Return, // New: for return statements
     Nil, // New: for nil literal
     Try, // New: for try/catch/finally
@@ -359,6 +360,7 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             }
             else if (std.mem.eql(u8, word, "for")) token_kind = .For // New keyword
             else if (std.mem.eql(u8, word, "in")) token_kind = .In // New keyword
+            else if (std.mem.eql(u8, word, "while")) token_kind = .While // New keyword
             else if (std.mem.eql(u8, word, "return")) token_kind = .Return // New keyword
             else if (std.mem.eql(u8, word, "try")) {
                 debug.log("Tokenizing 'try' as Try keyword", .{});
@@ -988,6 +990,7 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .Ns => return parseNamespace(alloc, toks, depth + 1),
                 .Import => return parseImport(alloc, toks, depth + 1),
                 .For => return parseFor(alloc, toks, depth + 1),
+                .While => return parseWhile(alloc, toks, depth + 1),
                 .Return => return parseReturn(alloc, toks, depth + 1),
                 .Try => return parseTry(alloc, toks, depth + 1),
                 .Throw => return parseThrow(alloc, toks, depth + 1),
@@ -2280,6 +2283,59 @@ fn parseFor(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
         .node = .{ .Expression = .{ .ForLoop = .{
             .iterator = iterator_name,
             .iterable = iterable_ptr,
+            .body = body_ptr,
+        }}},
+        .consumed = current_pos,
+    };
+}
+
+/// Parse a while loop.
+///
+/// Expects (while condition body...)
+fn parseWhile(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Minimum: (while condition body) -> at least 4 tokens
+    if (toks.len < 4 or toks[0].kind != .LParen or toks[1].kind != .While) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and While
+
+    // Parse condition expression
+    if (current_pos >= toks.len) return error.UnexpectedEOF;
+    const condition_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    current_pos += condition_result.consumed;
+
+    // Parse body - collect all remaining expressions until RParen
+    var body_exprs = std.ArrayList(*ast.Expression).init(alloc);
+    errdefer body_exprs.deinit();
+    
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        const expr_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += expr_result.consumed;
+        
+        const expr_ptr = try alloc.create(ast.Expression);
+        expr_ptr.* = expr_result.node.Expression;
+        try body_exprs.append(expr_ptr);
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1; // Consume RParen
+
+    // Create body expression - wrap multiple expressions in DoBlock
+    const body_ptr = try alloc.create(ast.Expression);
+    if (body_exprs.items.len == 1) {
+        body_ptr.* = body_exprs.items[0].*;
+        alloc.destroy(body_exprs.items[0]);
+    } else {
+        body_ptr.* = .{ .DoBlock = .{ .statements = try body_exprs.toOwnedSlice() } };
+    }
+
+    // Create condition expression pointer
+    const condition_ptr = try alloc.create(ast.Expression);
+    condition_ptr.* = condition_result.node.Expression;
+
+    return ParseResult{
+        .node = .{ .Expression = .{ .WhileLoop = .{
+            .condition = condition_ptr,
             .body = body_ptr,
         }}},
         .consumed = current_pos,

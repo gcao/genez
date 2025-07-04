@@ -368,6 +368,13 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try serializeExpression(writer, for_loop.body.*, indent + 1);
             try writer.writeAll(")");
         },
+        .WhileLoop => |while_loop| {
+            try writer.writeAll("(while ");
+            try serializeExpression(writer, while_loop.condition.*, indent);
+            try writer.writeAll(" ");
+            try serializeExpression(writer, while_loop.body.*, indent + 1);
+            try writer.writeAll(")");
+        },
         .CExternDecl => |extern_decl| {
             try writer.print("(c-extern {s} (", .{extern_decl.name});
             for (extern_decl.params, 0..) |param, i| {

@@ -407,6 +407,13 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             try serializeExpression(writer, for_ptr.body.*, indent + 1);
             try writer.writeAll(")");
         },
+        .while_loop => |while_ptr| {
+            try writer.writeAll("(while ");
+            try serializeExpression(writer, while_ptr.condition.*, indent);
+            try writer.writeAll(" ");
+            try serializeExpression(writer, while_ptr.body.*, indent + 1);
+            try writer.writeAll(")");
+        },
         .return_expr => |ret_ptr| {
             try writer.writeAll("(return");
             if (ret_ptr.value) |val| {

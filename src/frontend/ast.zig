@@ -1333,6 +1333,31 @@ pub const ForLoop = struct {
     }
 };
 
+pub const WhileLoop = struct {
+    condition: *Expression, // Loop condition
+    body: *Expression, // Loop body
+    
+    pub fn deinit(self: *WhileLoop, allocator: std.mem.Allocator) void {
+        self.condition.deinit(allocator);
+        allocator.destroy(self.condition);
+        self.body.deinit(allocator);
+        allocator.destroy(self.body);
+    }
+    
+    pub fn clone(self: WhileLoop, allocator: std.mem.Allocator) !WhileLoop {
+        const new_condition = try allocator.create(Expression);
+        new_condition.* = try self.condition.clone(allocator);
+        
+        const new_body = try allocator.create(Expression);
+        new_body.* = try self.body.clone(allocator);
+        
+        return WhileLoop{
+            .condition = new_condition,
+            .body = new_body,
+        };
+    }
+};
+
 pub const PathAccess = struct {
     object: *Expression, // The object being accessed
     path: *Expression,   // The path or key used for access
@@ -1503,6 +1528,7 @@ pub const Expression = union(enum) {
     CCallback: CCallback, // New - FFI callback wrapper
     NamespaceDecl: NamespaceDecl, // New - Namespace declaration
     ForLoop: ForLoop, // New - For-in loops
+    WhileLoop: WhileLoop, // New - While loops
     Return: Return, // New - Return statement
     TryExpr: TryExpr, // New - Try/catch/finally expression
     ThrowExpr: ThrowExpr, // New - Throw expression
@@ -1537,6 +1563,7 @@ pub const Expression = union(enum) {
             .CCallback => |*callback| callback.deinit(allocator), // New
             .NamespaceDecl => |*ns_decl| ns_decl.deinit(allocator), // New
             .ForLoop => |*for_loop| for_loop.deinit(allocator), // New
+            .WhileLoop => |*while_loop| while_loop.deinit(allocator), // New
             .Return => |*ret| ret.deinit(allocator), // New
             .TryExpr => |*try_expr| try_expr.deinit(allocator), // New
             .ThrowExpr => |*throw_expr| throw_expr.deinit(allocator), // New
@@ -1573,6 +1600,7 @@ pub const Expression = union(enum) {
             .CCallback => |callback| Expression{ .CCallback = try callback.clone(allocator) }, // New
             .NamespaceDecl => |ns_decl| Expression{ .NamespaceDecl = try ns_decl.clone(allocator) }, // New
             .ForLoop => |for_loop| Expression{ .ForLoop = try for_loop.clone(allocator) }, // New
+            .WhileLoop => |while_loop| Expression{ .WhileLoop = try while_loop.clone(allocator) }, // New
             .Return => |ret| Expression{ .Return = try ret.clone(allocator) }, // New
             .TryExpr => |try_expr| Expression{ .TryExpr = try try_expr.clone(allocator) }, // New
             .ThrowExpr => |throw_expr| Expression{ .ThrowExpr = try throw_expr.clone(allocator) }, // New
