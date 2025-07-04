@@ -206,18 +206,31 @@ pub const If = struct {
 pub const FuncParam = struct {
     name: []const u8,
     param_type: ?[]const u8,
+    default_value: ?*Expression = null,
 
     pub fn deinit(self: *FuncParam, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         if (self.param_type) |param_type| {
             allocator.free(param_type);
         }
+        if (self.default_value) |default_val| {
+            default_val.deinit(allocator);
+            allocator.destroy(default_val);
+        }
     }
 
     pub fn clone(self: FuncParam, allocator: std.mem.Allocator) error{OutOfMemory}!FuncParam {
+        var default_val_clone: ?*Expression = null;
+        if (self.default_value) |default_val| {
+            default_val_clone = try allocator.create(Expression);
+            errdefer allocator.destroy(default_val_clone.?);
+            default_val_clone.?.* = try default_val.clone(allocator);
+        }
+        
         return FuncParam{
             .name = try allocator.dupe(u8, self.name),
             .param_type = if (self.param_type) |pt| try allocator.dupe(u8, pt) else null,
+            .default_value = default_val_clone,
         };
     }
 };

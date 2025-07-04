@@ -6,10 +6,19 @@ const types = @import("../core/types.zig");
 pub fn convert(allocator: std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
     var mir_prog = mir.MIR.init(allocator);
     errdefer mir_prog.deinit();
+    
+    // Create a function registry for looking up default parameters
+    var function_registry = std.StringHashMap(*hir.HIR.Function).init(allocator);
+    defer function_registry.deinit();
+    
+    // Populate the registry
+    for (hir_prog.functions.items) |*func| {
+        try function_registry.put(func.name, func);
+    }
 
     // Convert each HIR function to MIR function
     for (hir_prog.functions.items, 0..) |func, i| {
-        var mir_func = try convertFunction(allocator, func);
+        var mir_func = try convertFunction(allocator, func, &function_registry);
 
         // If this is the main function and we have imports with selective items,
         // add instructions to create bindings for those items
@@ -85,7 +94,7 @@ pub fn convert(allocator: std.mem.Allocator, hir_prog: hir.HIR) !mir.MIR {
     return mir_prog;
 }
 
-fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MIR.Function {
+fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function, function_registry: *std.StringHashMap(*hir.HIR.Function)) !mir.MIR.Function {
     var mir_func = mir.MIR.Function.init(allocator);
     // Free the default name before overwriting it to avoid memory leak
     allocator.free(mir_func.name);
@@ -102,7 +111,12 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function) !mir.MI
     var entry_block = mir.MIR.Block.init(allocator);
 
     // Create context for the function body with parameter names
-    var func_context = ConversionContext{ .param_names = mir_func.param_names.items, .allocator = allocator, .next_temp_id = 0 };
+    var func_context = ConversionContext{ 
+        .param_names = mir_func.param_names.items, 
+        .allocator = allocator, 
+        .next_temp_id = 0,
+        .function_registry = function_registry,
+    };
 
     // Convert HIR statements to MIR instructions
     for (func.body.items) |stmt| {
@@ -154,6 +168,7 @@ const ConversionContext = struct {
     param_names: ?[][]const u8,
     allocator: std.mem.Allocator,
     next_temp_id: u32,
+    function_registry: ?*std.StringHashMap(*hir.HIR.Function) = null,
 
     fn isParameter(self: ConversionContext, name: []const u8) ?usize {
         if (self.param_names) |params| {
@@ -309,11 +324,36 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Fallback to generic function call
             try convertExpressionWithContext(block, func_call.func.*, context);
 
+            // Process provided arguments
             for (func_call.args.items) |arg| {
                 try convertExpressionWithContext(block, arg.*, context);
             }
+            
+            var total_args = func_call.args.items.len;
+            
+            // Check if we need to add default parameters
+            if (func_call.func.* == .variable) {
+                const func_name = func_call.func.*.variable.name;
+                if (context.function_registry) |registry| {
+                    if (registry.get(func_name)) |func_def| {
+                        // Check if we have fewer arguments than parameters
+                        if (func_call.args.items.len < func_def.params.len) {
+                            // Add default values for missing parameters
+                            for (func_def.params[func_call.args.items.len..]) |param| {
+                                if (param.default_value) |default_val| {
+                                    try convertExpressionWithContext(block, default_val.*, context);
+                                } else {
+                                    // No default value, use nil
+                                    try block.instructions.append(.LoadNil);
+                                }
+                                total_args += 1;
+                            }
+                        }
+                    }
+                }
+            }
 
-            try block.instructions.append(.{ .Call = func_call.args.items.len });
+            try block.instructions.append(.{ .Call = total_args });
         },
         .func_def => |func_def| {
             // Create a new function
@@ -375,7 +415,7 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
         .function => |hir_func_ptr| {
             // When a function is encountered as an expression, it needs to be converted to MIR
             // and then loaded as a function object.
-            var mir_func = convertFunction(block.allocator, hir_func_ptr.*) catch |err| {
+            var mir_func = convertFunction(block.allocator, hir_func_ptr.*, context.function_registry orelse unreachable) catch |err| {
                 std.debug.print("Error converting function: {}\n", .{err});
                 return err;
             };

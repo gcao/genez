@@ -19,9 +19,16 @@ fn extractFunctionsFromExpression(allocator: std.mem.Allocator, hir_prog: *hir.H
                         // Convert parameters
                         hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
                         for (func_def.params, 0..) |param, i| {
+                            var default_val: ?*hir.HIR.Expression = null;
+                            if (param.default_value) |dv| {
+                                default_val = try allocator.create(hir.HIR.Expression);
+                                default_val.?.* = try lowerExpression(allocator, dv.*);
+                            }
+                            
                             hir_func.params[i] = .{
                                 .name = try allocator.dupe(u8, param.name),
                                 .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
+                                .default_value = default_val,
                             };
                         }
 
@@ -49,9 +56,16 @@ fn extractFunctionsFromExpression(allocator: std.mem.Allocator, hir_prog: *hir.H
             // Convert parameters
             hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
             for (func_def.params, 0..) |param, i| {
+                var default_val: ?*hir.HIR.Expression = null;
+                if (param.default_value) |dv| {
+                    default_val = try allocator.create(hir.HIR.Expression);
+                    default_val.?.* = try lowerExpression(allocator, dv.*);
+                }
+                
                 hir_func.params[i] = .{
                     .name = try allocator.dupe(u8, param.name),
                     .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
+                    .default_value = default_val,
                 };
             }
 
@@ -90,9 +104,16 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
                         // Convert parameters
                         hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
                         for (func_def.params, 0..) |param, i| {
+                            var default_val: ?*hir.HIR.Expression = null;
+                            if (param.default_value) |dv| {
+                                default_val = try allocator.create(hir.HIR.Expression);
+                                default_val.?.* = try lowerExpression(allocator, dv.*);
+                            }
+                            
                             hir_func.params[i] = .{
                                 .name = try allocator.dupe(u8, param.name),
                                 .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
+                                .default_value = default_val,
                             };
                         }
 
@@ -481,9 +502,16 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             // Convert parameters
             hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
             for (func_def.params, 0..) |param, i| {
+                var default_val: ?*hir.HIR.Expression = null;
+                if (param.default_value) |dv| {
+                    default_val = try allocator.create(hir.HIR.Expression);
+                    default_val.?.* = try lowerExpression(allocator, dv.*);
+                }
+                
                 hir_func.params[i] = .{
                     .name = try allocator.dupe(u8, param.name),
                     .param_type = if (param.param_type) |pt| try allocator.dupe(u8, pt) else null,
+                    .default_value = default_val,
                 };
             }
 

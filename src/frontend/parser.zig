@@ -1706,8 +1706,22 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
                     current_pos += 1; // Skip the type annotation
                 }
             }
+            
+            // Check for default value
+            var default_value: ?*ast.Expression = null;
+            if (current_pos < toks.len and toks[current_pos].kind == .Equals) {
+                current_pos += 1; // Skip '='
+                if (current_pos >= toks.len) return error.UnexpectedEOF;
+                
+                // Parse the default value expression
+                const default_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                current_pos += default_result.consumed;
+                
+                default_value = try alloc.create(ast.Expression);
+                default_value.?.* = default_result.node.Expression;
+            }
 
-            try params_list.append(.{ .name = param_name_copy, .param_type = param_type });
+            try params_list.append(.{ .name = param_name_copy, .param_type = param_type, .default_value = default_value });
         }
         if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
         current_pos += 1; // Skip ']'
@@ -1816,8 +1830,22 @@ fn parseFnx(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
                     current_pos += 1; // Skip the type annotation
                 }
             }
+            
+            // Check for default value
+            var default_value: ?*ast.Expression = null;
+            if (current_pos < toks.len and toks[current_pos].kind == .Equals) {
+                current_pos += 1; // Skip '='
+                if (current_pos >= toks.len) return error.UnexpectedEOF;
+                
+                // Parse the default value expression
+                const default_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                current_pos += default_result.consumed;
+                
+                default_value = try alloc.create(ast.Expression);
+                default_value.?.* = default_result.node.Expression;
+            }
 
-            try params_list.append(.{ .name = param_name_copy, .param_type = param_type });
+            try params_list.append(.{ .name = param_name_copy, .param_type = param_type, .default_value = default_value });
         }
         if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
         current_pos += 1; // Skip ']'

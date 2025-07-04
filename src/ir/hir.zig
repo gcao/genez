@@ -352,10 +352,15 @@ pub const HIR = struct {
     pub const FuncParam = struct {
         name: []const u8,
         param_type: ?[]const u8,
+        default_value: ?*Expression = null,
 
         pub fn deinit(self: *FuncParam, allocator: std.mem.Allocator) void {
             allocator.free(self.name);
             if (self.param_type) |pt| allocator.free(pt);
+            if (self.default_value) |dv| {
+                dv.deinit(allocator);
+                allocator.destroy(dv);
+            }
         }
     };
 

@@ -1,0 +1,25 @@
+(fn greet [name = "World"] 
+    (println #"Hello, #{name}!"))
+
+(greet)
+(greet "Gene")
+
+(fn add [x y = 10]
+    (println (+ x y)))
+
+(add 5)
+(add 5 3)
+
+(fn connect [host = "localhost" port = 8080]
+    (println #"#{host}:#{port}"))
+
+(connect)
+(connect "example.com")
+(connect "example.com" 443)
+
+(fn format [content prefix = "[" suffix = "]"]
+    (println #"#{prefix}#{content}#{suffix}"))
+
+(format "INFO")
+(format "ERROR" "{")
+(format "DEBUG" "<" ">")
