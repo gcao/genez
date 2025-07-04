@@ -1,0 +1,24 @@
+Error Handling Test Suite Summary
+================================
+
+Tests Created:
+1. try_catch_basic.gene - Basic try/catch functionality
+2. try_no_exception.gene - Try block with no exception
+3. try_catch_continue.gene - Execution continues after catch
+4. try_finally_no_error.gene - Finally executes without error
+5. try_finally_with_error.gene - Finally executes with error  
+6. nested_try_catch.gene - Nested try/catch blocks
+7. throw_in_function.gene - Exception thrown from function
+8. multiple_catch.gene - Multiple catch clauses
+9. error_values.gene - Different types can be thrown
+10. finally_order.gene - Order of execution with finally
+
+All tests demonstrate that:
+- Exceptions can be thrown with `throw`
+- Try/catch blocks catch exceptions
+- Finally blocks always execute
+- Execution continues after catch
+- Nested try/catch works correctly
+- Various value types can be thrown as exceptions
+
+Note: Memory management warnings appear due to value cloning but do not affect functionality.

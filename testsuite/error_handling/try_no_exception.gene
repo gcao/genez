@@ -1,0 +1,5 @@
+# Test try block with no exception thrown
+(try
+  (println "No exception")
+  (catch e
+    (println "Should not print")))

@@ -49,7 +49,12 @@
       "Bash(./test_selective.gene)",
       "Bash(zig fmt:*)",
       "Bash(zig repl:*)",
-      "Bash(../../../zig-out/bin/gene run:*)"
+      "Bash(../../../zig-out/bin/gene run:*)",
+      "Bash(./testsuite/run_test.sh:*)",
+      "Bash(do echo \"=== Testing $f ===\")",
+      "Bash(do echo \"=== Testing $test ===\")",
+      "Bash(do echo -n \"$f: \")",
+      "Bash(/dev/null)"
     ],
     "deny": []
   },

@@ -150,6 +150,13 @@ pub const MIR = struct {
         CreateNamespace, // Create a new namespace with name from stack
         PushNamespace, // Push namespace onto namespace stack
         PopNamespace, // Pop namespace from stack and return it
+        
+        // Exception handling instructions
+        TryStart: usize, // Start of try block (jump to catch on exception)
+        TryEnd, // End of try/catch/finally block
+        Throw, // Throw exception from stack
+        LoadException, // Load current exception onto stack
+        ClearException, // Clear current exception
     };
 
     pub const ClassDefinition = struct {

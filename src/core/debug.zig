@@ -34,6 +34,9 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .CStruct => |ptr| log("CStruct: {*}", .{ptr}),
         .CArray => |arr| log("CArray[{} x {}]", .{ arr.len, arr.element_size }),
         .Module => |module| log("Module: {s}", .{module.id}),
+        .StdlibFunction => |func| log("StdlibFunction: {s}", .{@tagName(func)}),
+        .FileHandle => |handle| log("FileHandle: {s}", .{handle.path}),
+        .Error => |err| log("Error: {s}: {s}", .{ err.type, err.message }),
     }
 }
 

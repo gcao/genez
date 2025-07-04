@@ -1,0 +1,14 @@
+# Test nested try/catch blocks
+(try
+  (do
+    (println "Outer try")
+    (try
+      (do
+        (println "Inner try")
+        (throw "Inner error"))
+      (catch e
+        (do
+          (println "Inner caught:" e)
+          (throw "Rethrow")))))
+  (catch e
+    (println "Outer caught:" e)))

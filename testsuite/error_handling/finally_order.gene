@@ -1,0 +1,9 @@
+# Test order of execution with finally
+(try
+  (do
+    (println "try")
+    (throw "error"))
+  (catch e
+    (println "catch"))
+  (finally
+    (println "finally")))

@@ -341,6 +341,33 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             try serializeExpression(writer, ns_ptr.body.*, indent + 1);
             try writer.writeAll(")");
         },
+        .try_expr => |try_ptr| {
+            try writer.writeAll("(try ");
+            try serializeExpression(writer, try_ptr.body.*, indent + 1);
+            
+            for (try_ptr.catch_clauses) |catch_clause| {
+                try writer.writeAll(" (catch");
+                if (catch_clause.error_var) |var_name| {
+                    try writer.print(" {s}", .{var_name});
+                }
+                try writer.writeAll(" ");
+                try serializeExpression(writer, catch_clause.body.*, indent + 1);
+                try writer.writeAll(")");
+            }
+            
+            if (try_ptr.finally_block) |finally| {
+                try writer.writeAll(" (finally ");
+                try serializeExpression(writer, finally.*, indent + 1);
+                try writer.writeAll(")");
+            }
+            
+            try writer.writeAll(")");
+        },
+        .throw_expr => |throw_ptr| {
+            try writer.writeAll("(throw ");
+            try serializeExpression(writer, throw_ptr.value.*, indent);
+            try writer.writeAll(")");
+        },
     }
 }
 

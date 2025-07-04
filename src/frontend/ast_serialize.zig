@@ -317,6 +317,50 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try serializeExpression(writer, ns_decl.body.*, indent + 1);
             try writer.writeAll(")");
         },
+        .Return => |ret| {
+            try writer.writeAll("(return");
+            if (ret.value) |value| {
+                try writer.writeAll(" ");
+                try serializeExpression(writer, value.*, indent);
+            }
+            try writer.writeAll(")");
+        },
+        .TryExpr => |try_expr| {
+            try writer.writeAll("(try ");
+            try serializeExpression(writer, try_expr.body.*, indent + 1);
+            
+            if (try_expr.catch_clauses.len > 0) {
+                for (try_expr.catch_clauses) |catch_clause| {
+                    try writer.writeAll(" (catch");
+                    if (catch_clause.error_var) |error_var| {
+                        try writer.print(" {s}", .{error_var});
+                    }
+                    try writer.writeAll(" ");
+                    try serializeExpression(writer, catch_clause.body.*, indent + 1);
+                    try writer.writeAll(")");
+                }
+            }
+            
+            if (try_expr.finally_block) |finally_block| {
+                try writer.writeAll(" (finally ");
+                try serializeExpression(writer, finally_block.*, indent + 1);
+                try writer.writeAll(")");
+            }
+            
+            try writer.writeAll(")");
+        },
+        .ThrowExpr => |throw_expr| {
+            try writer.writeAll("(throw ");
+            try serializeExpression(writer, throw_expr.value.*, indent);
+            try writer.writeAll(")");
+        },
+        .ForLoop => |for_loop| {
+            try writer.print("(for {s} in ", .{for_loop.iterator});
+            try serializeExpression(writer, for_loop.iterable.*, indent);
+            try writer.writeAll(" ");
+            try serializeExpression(writer, for_loop.body.*, indent + 1);
+            try writer.writeAll(")");
+        },
         else => |tag| {
             try writer.print("(; unsupported: {s} ;)", .{@tagName(tag)});
         },

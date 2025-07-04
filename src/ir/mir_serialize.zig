@@ -162,6 +162,21 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .PopNamespace => {
             try writer.writeAll("pop-namespace");
         },
+        .TryStart => |catch_target| {
+            try writer.print("try-start {d}", .{catch_target});
+        },
+        .TryEnd => {
+            try writer.writeAll("try-end");
+        },
+        .Throw => {
+            try writer.writeAll("throw");
+        },
+        .LoadException => {
+            try writer.writeAll("load-exception");
+        },
+        .ClearException => {
+            try writer.writeAll("clear-exception");
+        },
         .CreateArray => |count| {
             try writer.print("create-array {d}", .{count});
         },

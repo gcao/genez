@@ -71,6 +71,13 @@ pub const OpCode = enum {
     CreateNamespace, // Create namespace: CreateNamespace Rd (name in immediate)
     PushNamespace, // Push namespace onto context stack: PushNamespace Rs
     PopNamespace, // Pop namespace from context stack: PopNamespace Rd
+    
+    // Exception handling operations
+    TryStart, // Start try block: TryStart catch_target
+    TryEnd, // End try/catch/finally block: TryEnd
+    Throw, // Throw exception: Throw Rs
+    LoadException, // Load current exception: LoadException Rd
+    ClearException, // Clear current exception: ClearException
 };
 
 // Register identifier - u16 allows for 65,536 virtual registers
@@ -87,6 +94,8 @@ pub const Instruction = struct {
     immediate: ?Value = null,
     // Variable name (for LoadVar/StoreVar)
     var_name: ?[]const u8 = null,
+    // Jump target (for control flow instructions)
+    jump_target: ?usize = null,
 
     pub fn deinit(self: *Instruction, allocator: std.mem.Allocator) void {
         if (self.immediate) |*imm| {
@@ -417,8 +426,8 @@ pub const Module = struct {
                 std.mem.writeInt(usize, &usize_buf, addr.arg_count, .little);
                 try writer.writeAll(&usize_buf);
             },
-            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray => {
-                // For now, we don't support serializing complex types like arrays, maps, classes, objects, modules, and FFI types
+            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray, .StdlibFunction, .FileHandle, .Error => {
+                // For now, we don't support serializing complex types like arrays, maps, classes, objects, modules, FFI types, stdlib types, and errors
                 // This would require more sophisticated serialization
                 return error.UnsupportedComplexType;
             },

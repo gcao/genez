@@ -1,0 +1,5 @@
+# Test basic try/catch
+(try
+  (throw "Error message")
+  (catch e
+    (println "Caught:" e)))

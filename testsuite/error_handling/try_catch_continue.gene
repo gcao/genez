@@ -1,0 +1,12 @@
+# Test execution continues after catch
+(println "Before try")
+
+(try
+  (do
+    (println "In try")
+    (throw "Error!")
+    (println "Should not print"))
+  (catch e
+    (println "Caught:" e)))
+
+(println "After try/catch")

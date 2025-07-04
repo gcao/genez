@@ -1,0 +1,7 @@
+# Test finally block executes without error
+(try
+  (println "In try")
+  (catch e
+    (println "Should not print"))
+  (finally
+    (println "Finally executes")))

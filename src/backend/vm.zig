@@ -4,6 +4,13 @@ const debug = @import("../core/debug.zig");
 const bytecode = @import("bytecode.zig");
 const builtin_classes = @import("../core/builtin_classes.zig");
 const gc = @import("../core/gc.zig");
+const stdlib = @import("../core/stdlib.zig");
+
+const ExceptionHandler = struct {
+    catch_addr: usize,
+    finally_addr: ?usize,
+    frame_ptr: usize,
+};
 
 pub const VMError = error{
     StackOverflow,
@@ -23,6 +30,8 @@ pub const VMError = error{
     FieldNotFound,
     MethodNotFound,
     ModuleNotFound,
+    UserException,  // For user-thrown errors
+    NoExceptionHandler,
 } || std.mem.Allocator.Error || std.fs.File.WriteError || std.fs.File.GetSeekPosError || std.fs.File.ReadError;
 
 pub const CallFrame = struct {
@@ -67,6 +76,8 @@ pub const VM = struct {
     namespace_stack: std.ArrayList(*@import("../core/module_registry.zig").Namespace), // Stack of active namespaces
     module_stack: std.ArrayList(*@import("../core/module_registry.zig").CompiledModule), // Stack of modules for namespaces
     allocated_modules: std.ArrayList(*@import("../core/module_registry.zig").CompiledModule), // Track allocated modules for cleanup
+    current_exception: ?types.Value, // Current thrown exception
+    exception_handlers: std.ArrayList(ExceptionHandler), // Stack of exception handlers
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
 
@@ -119,6 +130,28 @@ pub const VM = struct {
         variables.put("gc_disable", .{ .BuiltinOperator = .GCDisable }) catch unreachable;
         variables.put("gc_enable", .{ .BuiltinOperator = .GCEnable }) catch unreachable;
         variables.put("gc_stats", .{ .BuiltinOperator = .GCStats }) catch unreachable;
+        
+        // Register standard library functions
+        // File I/O
+        variables.put("file_open", .{ .StdlibFunction = .FileOpen }) catch unreachable;
+        variables.put("file_close", .{ .StdlibFunction = .FileClose }) catch unreachable;
+        variables.put("file_read_all", .{ .StdlibFunction = .FileReadAll }) catch unreachable;
+        variables.put("file_write_all", .{ .StdlibFunction = .FileWriteAll }) catch unreachable;
+        variables.put("file_exists", .{ .StdlibFunction = .FileExists }) catch unreachable;
+        
+        // System operations
+        variables.put("exit", .{ .StdlibFunction = .Exit }) catch unreachable;
+        
+        // Math operations
+        variables.put("math_sqrt", .{ .StdlibFunction = .MathSqrt }) catch unreachable;
+        
+        // Error handling
+        variables.put("throw", .{ .StdlibFunction = .Throw }) catch unreachable;
+        variables.put("error_new", .{ .StdlibFunction = .ErrorNew }) catch unreachable;
+        variables.put("error_type", .{ .StdlibFunction = .ErrorType }) catch unreachable;
+        variables.put("error_message", .{ .StdlibFunction = .ErrorMessage }) catch unreachable;
+        
+        debug.log("Registered {} variables in VM", .{variables.count()});
 
         var vm = VM{
             .allocator = allocator,
@@ -142,6 +175,8 @@ pub const VM = struct {
             .namespace_stack = std.ArrayList(*@import("../core/module_registry.zig").Namespace).init(allocator),
             .module_stack = std.ArrayList(*@import("../core/module_registry.zig").CompiledModule).init(allocator),
             .allocated_modules = std.ArrayList(*@import("../core/module_registry.zig").CompiledModule).init(allocator),
+            .current_exception = null,
+            .exception_handlers = std.ArrayList(ExceptionHandler).init(allocator),
         };
 
         // Initialize garbage collector
@@ -164,6 +199,14 @@ pub const VM = struct {
         if (self.garbage_collector) |gc_ptr| {
             gc_ptr.deinit();
         }
+        
+        // Clean up current exception if any
+        if (self.current_exception) |*exc| {
+            exc.deinit(self.allocator);
+        }
+        
+        // Clean up exception handlers
+        self.exception_handlers.deinit();
 
         self.call_frames.deinit();
 
@@ -335,6 +378,9 @@ pub const VM = struct {
 
             // Execute the current instruction
             const instruction = executing_func.instructions.items[self.pc];
+            if (instruction.op == .Throw or instruction.op == .TryStart or instruction.op == .TryEnd or instruction.op == .ClearException or instruction.op == .Jump) {
+                // std.debug.print("DEBUG VM: pc={}, executing {s}, handlers={}\n", .{self.pc, @tagName(instruction.op), self.exception_handlers.items.len});
+            }
             self.function_called = false; // Reset the flag
             // constructor_called is reset in Return instruction handler
             try self.executeInstruction(instruction);
@@ -963,6 +1009,9 @@ pub const VM = struct {
                     .CStruct => |ptr| try self.stdout.print("CStruct: {*}\n", .{ptr}),
                     .CArray => |arr| try self.stdout.print("CArray: ptr={*}, len={}, element_size={}\n", .{ arr.ptr, arr.len, arr.element_size }),
                     .Module => |module| try self.stdout.print("Module: {s}\n", .{module.id}),
+                    .StdlibFunction => |func| try self.stdout.print("StdlibFunction: {s}\n", .{@tagName(func)}),
+                    .FileHandle => |handle| try self.stdout.print("FileHandle: {s}\n", .{handle.path}),
+                    .Error => |err| try self.stdout.print("Error({s}): {s}\n", .{ err.type, err.message }),
                 }
             },
             .Call => {
@@ -1022,6 +1071,8 @@ pub const VM = struct {
                                     }
                                 },
                                 .Module => |module| try self.stdout.print("Module: {s}", .{module.id}),
+                                .StdlibFunction => |func| try self.stdout.print("StdlibFunction: {s}", .{@tagName(func)}),
+                                .FileHandle => |handle| try self.stdout.print("FileHandle: {s}", .{handle.path}),
                                 .CPtr => |ptr| {
                                     if (ptr) |p| {
                                         try self.stdout.print("CPtr: {*}", .{p});
@@ -1032,6 +1083,7 @@ pub const VM = struct {
                                 .CFunction => |func| try self.stdout.print("CFunction: {*}", .{func}),
                                 .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
+                                .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
                             }
 
                             // Add space between arguments except for the last one
@@ -1084,6 +1136,8 @@ pub const VM = struct {
                                     }
                                 },
                                 .Module => |module| try self.stdout.print("Module: {s}", .{module.id}),
+                                .StdlibFunction => |func| try self.stdout.print("StdlibFunction: {s}", .{@tagName(func)}),
+                                .FileHandle => |handle| try self.stdout.print("FileHandle: {s}", .{handle.path}),
                                 .CPtr => |ptr| {
                                     if (ptr) |p| {
                                         try self.stdout.print("CPtr: {*}", .{p});
@@ -1094,6 +1148,7 @@ pub const VM = struct {
                                 .CFunction => |func| try self.stdout.print("CFunction: {*}", .{func}),
                                 .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
+                                .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
                             }
 
                             // Add space between arguments except for the last one
@@ -1583,6 +1638,12 @@ pub const VM = struct {
                     debug.log("Unsupported built-in operator: {any}", .{builtin_op});
                     return error.UnsupportedFunction;
                 }
+                
+                // Handle standard library functions
+                if (func_val == .StdlibFunction) {
+                    try self.executeStdlibFunction(func_val.StdlibFunction, dst_reg, func_reg, arg_count);
+                    return;
+                }
 
                 if (func_val == .Variable) {
                     const func_name = func_val.Variable.name;
@@ -1618,6 +1679,8 @@ pub const VM = struct {
                                     }
                                 },
                                 .Module => |module| try self.stdout.print("Module: {s}", .{module.id}),
+                                .StdlibFunction => |func| try self.stdout.print("StdlibFunction: {s}", .{@tagName(func)}),
+                                .FileHandle => |handle| try self.stdout.print("FileHandle: {s}", .{handle.path}),
                                 .CPtr => |ptr| {
                                     if (ptr) |p| {
                                         try self.stdout.print("CPtr: {*}", .{p});
@@ -1628,6 +1691,7 @@ pub const VM = struct {
                                 .CFunction => |func| try self.stdout.print("CFunction: {*}", .{func}),
                                 .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
+                                .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
                             }
 
                             // Add space between arguments except for the last one
@@ -2817,6 +2881,107 @@ pub const VM = struct {
                 // Store the module in the register
                 try self.setRegister(dst_reg, .{ .Module = module });
             },
+            .TryStart => {
+                // Start of try block with catch target
+                // Push the current exception handler onto a stack
+                const catch_target = instruction.jump_target orelse return error.InvalidInstruction;
+                try self.exception_handlers.append(.{
+                    .catch_addr = catch_target,
+                    .finally_addr = null,
+                    .frame_ptr = self.call_frames.items.len,
+                });
+            },
+            .TryEnd => {
+                // End of try/catch/finally block
+                // Only pop the exception handler if it belongs to the current frame
+                // (it might have been popped already by a throw)
+                if (self.exception_handlers.items.len > 0) {
+                    const handler = self.exception_handlers.items[self.exception_handlers.items.len - 1];
+                    if (handler.frame_ptr == self.call_frames.items.len) {
+                        _ = self.exception_handlers.pop();
+                        debug.log("TryEnd: Popped exception handler, remaining handlers: {}", .{self.exception_handlers.items.len});
+                    }
+                }
+            },
+            .Throw => {
+                // Throw exception from register
+                const error_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const error_val = try self.getRegister(error_reg);
+                
+                // Store the exception (getRegister already clones, so we can use it directly)
+                if (self.current_exception) |*exc| {
+                    exc.deinit(self.allocator);
+                }
+                self.current_exception = error_val;
+                
+                debug.log("Throw: Stored exception: {}", .{error_val});
+                
+                // Find the nearest exception handler
+                if (self.exception_handlers.items.len > 0) {
+                    // Find the appropriate handler for the current call stack depth
+                    var handler_index: ?usize = null;
+                    var i = self.exception_handlers.items.len;
+                    while (i > 0) {
+                        i -= 1;
+                        // Always use the first handler we find - it will handle unwinding if needed
+                        handler_index = i;
+                        break;
+                    }
+                    
+                    if (handler_index) |idx| {
+                        const handler = self.exception_handlers.items[idx];
+                        const target_pc = handler.catch_addr;
+                        
+                        // Pop this handler and any handlers below it on the stack
+                        while (self.exception_handlers.items.len > idx) {
+                            _ = self.exception_handlers.pop();
+                        }
+                        
+                        // If we're jumping to a handler in a parent frame, we need to unwind the call stack
+                        // std.debug.print("DEBUG: Unwinding from {} frames to {} frames\n", .{self.call_frames.items.len, handler.frame_ptr});
+                        while (self.call_frames.items.len > handler.frame_ptr) {
+                            const popped_frame = self.call_frames.items[self.call_frames.items.len - 1];
+                            _ = self.call_frames.pop();
+                            // When we pop a frame, restore to the caller's context
+                            self.current_func = popped_frame.caller_func;
+                            self.current_register_base = popped_frame.prev_register_base;
+                            // std.debug.print("DEBUG: Popped frame, restored to function: {s}\n", .{if (popped_frame.caller_func) |f| f.name else "null"});
+                        }
+                        
+                        debug.log("Throw: Jumping to catch block at pc={}, remaining handlers={}", .{target_pc, self.exception_handlers.items.len});
+                        // if (self.current_func) |func| {
+                        //     std.debug.print("DEBUG: Current function after unwind: {s}\n", .{func.name});
+                        // } else {
+                        //     std.debug.print("DEBUG: Current function is null after unwind\n", .{});
+                        // }
+                        self.pc = target_pc - 1;
+                    } else {
+                        // No handler found
+                        return error.UserException;
+                    }
+                } else {
+                    // No handler, propagate error
+                    return error.UserException;
+                }
+            },
+            .LoadException => {
+                // Load current exception onto register
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                if (self.current_exception) |exc| {
+                    // Clone the exception to avoid double-free when ClearException is called
+                    const cloned_exc = try exc.clone(self.allocator);
+                    try self.setRegister(dst_reg, cloned_exc);
+                } else {
+                    try self.setRegister(dst_reg, .Nil);
+                }
+            },
+            .ClearException => {
+                // Clear current exception
+                if (self.current_exception) |*exc| {
+                    exc.deinit(self.allocator);
+                    self.current_exception = null;
+                }
+            },
         }
     }
 
@@ -2892,5 +3057,289 @@ pub const VM = struct {
                 return error.TypeMismatch;
             },
         };
+    }
+    
+    fn executeStdlibFunction(self: *VM, func: stdlib.StdlibFunction, dst_reg: u16, func_reg: u16, arg_count: usize) !void {
+        switch (func) {
+            .FileOpen => {
+                // file_open(path, mode) -> FileHandle
+                if (arg_count != 2) {
+                    debug.log("file_open requires 2 arguments, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var path_val = try self.getRegister(func_reg + 1);
+                defer path_val.deinit(self.allocator);
+                var mode_val = try self.getRegister(func_reg + 2);
+                defer mode_val.deinit(self.allocator);
+                
+                if (path_val != .String or mode_val != .String) {
+                    debug.log("file_open requires string arguments", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const path = path_val.String;
+                const mode = mode_val.String;
+                
+                // Parse mode string
+                const file = if (std.mem.eql(u8, mode, "r")) blk: {
+                    break :blk std.fs.cwd().openFile(path, .{}) catch |err| {
+                        debug.log("Failed to open file for reading: {}", .{err});
+                        try self.setRegister(dst_reg, .Nil);
+                        return;
+                    };
+                } else if (std.mem.eql(u8, mode, "w")) blk: {
+                    break :blk std.fs.cwd().createFile(path, .{}) catch |err| {
+                        debug.log("Failed to open file for writing: {}", .{err});
+                        try self.setRegister(dst_reg, .Nil);
+                        return;
+                    };
+                } else if (std.mem.eql(u8, mode, "a")) blk: {
+                    break :blk std.fs.cwd().createFile(path, .{ .truncate = false }) catch |err| {
+                        debug.log("Failed to open file for appending: {}", .{err});
+                        try self.setRegister(dst_reg, .Nil);
+                        return;
+                    };
+                } else {
+                    debug.log("Invalid file mode: {s}", .{mode});
+                    try self.setRegister(dst_reg, .Nil);
+                    return;
+                };
+                
+                // Create file handle
+                const handle = try self.allocator.create(stdlib.FileHandle);
+                handle.* = try stdlib.FileHandle.init(file, self.allocator, path);
+                
+                try self.setRegister(dst_reg, .{ .FileHandle = handle });
+            },
+            
+            .FileClose => {
+                // file_close(handle) -> Bool
+                if (arg_count != 1) {
+                    debug.log("file_close requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var handle_val = try self.getRegister(func_reg + 1);
+                defer handle_val.deinit(self.allocator);
+                
+                if (handle_val != .FileHandle) {
+                    debug.log("file_close requires FileHandle argument", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const handle = handle_val.FileHandle;
+                handle.deinit();
+                self.allocator.destroy(handle);
+                
+                try self.setRegister(dst_reg, .{ .Bool = true });
+            },
+            
+            .FileReadAll => {
+                // file_read_all(handle) -> String
+                if (arg_count != 1) {
+                    debug.log("file_read_all requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var handle_val = try self.getRegister(func_reg + 1);
+                defer handle_val.deinit(self.allocator);
+                
+                if (handle_val != .FileHandle) {
+                    debug.log("file_read_all requires FileHandle argument", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const handle = handle_val.FileHandle;
+                const content = handle.file.readToEndAlloc(self.allocator, std.math.maxInt(usize)) catch |err| {
+                    debug.log("Failed to read file: {}", .{err});
+                    try self.setRegister(dst_reg, .Nil);
+                    return;
+                };
+                
+                try self.setRegister(dst_reg, .{ .String = content });
+            },
+            
+            .FileWriteAll => {
+                // file_write_all(handle, content) -> Bool
+                if (arg_count != 2) {
+                    debug.log("file_write_all requires 2 arguments, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var handle_val = try self.getRegister(func_reg + 1);
+                defer handle_val.deinit(self.allocator);
+                var content_val = try self.getRegister(func_reg + 2);
+                defer content_val.deinit(self.allocator);
+                
+                if (handle_val != .FileHandle or content_val != .String) {
+                    debug.log("file_write_all requires FileHandle and String arguments", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const handle = handle_val.FileHandle;
+                const content = content_val.String;
+                
+                handle.file.writeAll(content) catch |err| {
+                    debug.log("Failed to write to file: {}", .{err});
+                    try self.setRegister(dst_reg, .{ .Bool = false });
+                    return;
+                };
+                
+                try self.setRegister(dst_reg, .{ .Bool = true });
+            },
+            
+            .FileExists => {
+                // file_exists(path) -> Bool
+                if (arg_count != 1) {
+                    debug.log("file_exists requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var path_val = try self.getRegister(func_reg + 1);
+                defer path_val.deinit(self.allocator);
+                
+                if (path_val != .String) {
+                    debug.log("file_exists requires String argument", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const path = path_val.String;
+                const exists = if (std.fs.cwd().access(path, .{})) |_| true else |_| false;
+                
+                try self.setRegister(dst_reg, .{ .Bool = exists });
+            },
+            
+            .Exit => {
+                // exit(code) -> Never
+                if (arg_count != 1) {
+                    debug.log("exit requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var code_val = try self.getRegister(func_reg + 1);
+                defer code_val.deinit(self.allocator);
+                
+                if (code_val != .Int) {
+                    debug.log("exit requires Int argument", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const code = code_val.Int;
+                std.process.exit(@intCast(code));
+            },
+            
+            .MathSqrt => {
+                // math_sqrt(x) -> Float
+                if (arg_count != 1) {
+                    debug.log("math_sqrt requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var x_val = try self.getRegister(func_reg + 1);
+                defer x_val.deinit(self.allocator);
+                
+                const x = switch (x_val) {
+                    .Int => |i| @as(f64, @floatFromInt(i)),
+                    .Float => |f| f,
+                    else => {
+                        debug.log("math_sqrt requires numeric argument", .{});
+                        return error.TypeMismatch;
+                    },
+                };
+                
+                try self.setRegister(dst_reg, .{ .Float = @sqrt(x) });
+            },
+            
+            .Throw => {
+                // throw(error) -> Never
+                if (arg_count != 1) {
+                    debug.log("throw requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                const error_val = try self.getRegister(func_reg + 1);
+                // Don't defer deinit - we're storing this value
+                
+                // Store the exception
+                if (self.current_exception) |*exc| {
+                    exc.deinit(self.allocator);
+                }
+                self.current_exception = error_val;
+                
+                // Return the UserException error to unwind the stack
+                return error.UserException;
+            },
+            
+            .ErrorNew => {
+                // error_new(type, message) -> Error
+                if (arg_count != 2) {
+                    debug.log("error_new requires 2 arguments, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var type_val = try self.getRegister(func_reg + 1);
+                defer type_val.deinit(self.allocator);
+                var msg_val = try self.getRegister(func_reg + 2);
+                defer msg_val.deinit(self.allocator);
+                
+                if (type_val != .String or msg_val != .String) {
+                    debug.log("error_new requires string arguments", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const err_type = try self.allocator.dupe(u8, type_val.String);
+                const err_msg = try self.allocator.dupe(u8, msg_val.String);
+                
+                try self.setRegister(dst_reg, .{ .Error = .{
+                    .type = err_type,
+                    .message = err_msg,
+                    .stack_trace = null,
+                }});
+            },
+            
+            .ErrorType => {
+                // error_type(error) -> String
+                if (arg_count != 1) {
+                    debug.log("error_type requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var error_val = try self.getRegister(func_reg + 1);
+                defer error_val.deinit(self.allocator);
+                
+                if (error_val != .Error) {
+                    debug.log("error_type requires Error argument", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const err_type = try self.allocator.dupe(u8, error_val.Error.type);
+                try self.setRegister(dst_reg, .{ .String = err_type });
+            },
+            
+            .ErrorMessage => {
+                // error_message(error) -> String
+                if (arg_count != 1) {
+                    debug.log("error_message requires 1 argument, got {}", .{arg_count});
+                    return error.ArgumentCountMismatch;
+                }
+                
+                var error_val = try self.getRegister(func_reg + 1);
+                defer error_val.deinit(self.allocator);
+                
+                if (error_val != .Error) {
+                    debug.log("error_message requires Error argument", .{});
+                    return error.TypeMismatch;
+                }
+                
+                const err_msg = try self.allocator.dupe(u8, error_val.Error.message);
+                try self.setRegister(dst_reg, .{ .String = err_msg });
+            },
+            
+            else => {
+                debug.log("Stdlib function not yet implemented: {}", .{func});
+                return error.NotImplemented;
+            },
+        }
     }
 };

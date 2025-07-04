@@ -152,6 +152,17 @@ pub const Value = union(enum) {
     Object: u32, // Object ID instead of pointer for reference semantics
     Module: *@import("module_registry.zig").CompiledModule, // Module namespace
     
+    // Standard library types
+    StdlibFunction: @import("stdlib.zig").StdlibFunction,
+    FileHandle: *@import("stdlib.zig").FileHandle,
+    
+    // Error handling
+    Error: struct {
+        type: []const u8,    // Error type/class name
+        message: []const u8, // Error message
+        stack_trace: ?[]const u8 = null, // Optional stack trace
+    },
+    
     // FFI types
     CPtr: ?*anyopaque, // C pointer (nullable)
     CFunction: *const fn() callconv(.C) void, // C function pointer
@@ -198,6 +209,18 @@ pub const Value = union(enum) {
             },
             .Module => {
                 // Modules are managed by the module registry, not freed here
+            },
+            .StdlibFunction => {}, // Enum value, nothing to free
+            .FileHandle => |handle| {
+                // File handles are managed by the VM, not freed here
+                _ = handle;
+            },
+            .Error => |*err| {
+                allocator.free(err.type);
+                allocator.free(err.message);
+                if (err.stack_trace) |trace| {
+                    allocator.free(trace);
+                }
             },
             .CPtr => {}, // C pointers are not owned by Gene, don't free
             .CFunction => {}, // Function pointers are not owned by Gene
@@ -260,6 +283,13 @@ pub const Value = union(enum) {
             .Class => |class| Value{ .Class = class }, // Classes are immutable, shallow copy
             .Object => |id| Value{ .Object = id }, // Just copy the object ID
             .Module => |module| Value{ .Module = module }, // Modules are shared references
+            .StdlibFunction => |func| Value{ .StdlibFunction = func }, // Enum value, simple copy
+            .FileHandle => |handle| Value{ .FileHandle = handle }, // File handles are shared references
+            .Error => |err| Value{ .Error = .{
+                .type = try allocator.dupe(u8, err.type),
+                .message = try allocator.dupe(u8, err.message),
+                .stack_trace = if (err.stack_trace) |trace| try allocator.dupe(u8, trace) else null,
+            }},
             .CPtr => |ptr| Value{ .CPtr = ptr }, // Just copy the pointer
             .CFunction => |func| Value{ .CFunction = func }, // Just copy the function pointer
             .CStruct => |ptr| Value{ .CStruct = ptr }, // Just copy the struct pointer

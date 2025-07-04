@@ -101,6 +101,8 @@ pub const HIR = struct {
         import_stmt: *ImportStmt, // Import statement
         module_access: ModuleAccess, // Access to module member
         namespace_decl: *NamespaceDecl, // Namespace declaration
+        try_expr: *TryExpr, // Try/catch/finally expression
+        throw_expr: *ThrowExpr, // Throw expression
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -152,6 +154,14 @@ pub const HIR = struct {
                 .namespace_decl => |ns_ptr| {
                     ns_ptr.deinit(allocator);
                     allocator.destroy(ns_ptr);
+                },
+                .try_expr => |try_ptr| {
+                    try_ptr.deinit(allocator);
+                    allocator.destroy(try_ptr);
+                },
+                .throw_expr => |throw_ptr| {
+                    throw_ptr.deinit(allocator);
+                    allocator.destroy(throw_ptr);
                 },
             }
         }
@@ -797,6 +807,49 @@ pub const HIR = struct {
             allocator.free(self.name);
             self.body.deinit(allocator);
             allocator.destroy(self.body);
+        }
+    };
+    
+    pub const TryExpr = struct {
+        body: *Expression, // The body to try
+        catch_clauses: []CatchClause, // Catch clauses
+        finally_block: ?*Expression, // Optional finally block
+        
+        pub const CatchClause = struct {
+            error_var: ?[]const u8, // Optional variable to bind caught error
+            error_type: ?[]const u8, // Optional error type to catch
+            body: *Expression, // Code to execute when error is caught
+            
+            pub fn deinit(self: *CatchClause, allocator: std.mem.Allocator) void {
+                if (self.error_var) |var_name| allocator.free(var_name);
+                if (self.error_type) |type_name| allocator.free(type_name);
+                self.body.deinit(allocator);
+                allocator.destroy(self.body);
+            }
+        };
+        
+        pub fn deinit(self: *TryExpr, allocator: std.mem.Allocator) void {
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
+            
+            for (self.catch_clauses) |*clause| {
+                clause.deinit(allocator);
+            }
+            allocator.free(self.catch_clauses);
+            
+            if (self.finally_block) |finally| {
+                finally.deinit(allocator);
+                allocator.destroy(finally);
+            }
+        }
+    };
+    
+    pub const ThrowExpr = struct {
+        value: *Expression, // The error value to throw
+        
+        pub fn deinit(self: *ThrowExpr, allocator: std.mem.Allocator) void {
+            self.value.deinit(allocator);
+            allocator.destroy(self.value);
         }
     };
 };

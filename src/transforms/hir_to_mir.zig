@@ -846,6 +846,65 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             try block.instructions.append(.PopNamespace);
             try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, ns_ptr.name) });
         },
+        .try_expr => |try_ptr| {
+            // Try/catch/finally implementation
+            // This needs special handling for exception control flow
+            
+            // Mark the beginning of try block
+            const try_start = block.instructions.items.len;
+            try block.instructions.append(.{ .TryStart = 0 }); // Will be patched with catch location
+            
+            // Execute the try body
+            try convertExpressionWithContext(block, try_ptr.body.*, context);
+            
+            // Jump to finally block (or end if no finally)
+            const try_end_jump = block.instructions.items.len;
+            try block.instructions.append(.{ .Jump = 0 }); // Will be patched
+            
+            // Patch try start with catch location
+            const catch_start = block.instructions.items.len;
+            block.instructions.items[try_start].TryStart = catch_start;
+            
+            // Handle catch clauses
+            if (try_ptr.catch_clauses.len > 0) {
+                // For now, handle only the first catch clause
+                // Full implementation would need to check error types
+                const catch_clause = try_ptr.catch_clauses[0];
+                
+                // Bind the exception to variable if specified
+                if (catch_clause.error_var) |var_name| {
+                    try block.instructions.append(.LoadException);
+                    try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, var_name) });
+                }
+                
+                // Execute catch body
+                try convertExpressionWithContext(block, catch_clause.body.*, context);
+                
+                // Clear the exception
+                try block.instructions.append(.ClearException);
+            }
+            
+            // Finally block location
+            const finally_start = block.instructions.items.len;
+            
+            // Patch the try end jump
+            block.instructions.items[try_end_jump].Jump = finally_start;
+            
+            // Execute finally block if present
+            if (try_ptr.finally_block) |finally| {
+                try convertExpressionWithContext(block, finally.*, context);
+            }
+            
+            // Mark end of try/catch/finally
+            try block.instructions.append(.TryEnd);
+        },
+        .throw_expr => |throw_ptr| {
+            // Evaluate the error expression
+            try convertExpressionWithContext(block, throw_ptr.value.*, context);
+            
+            // Throw the exception
+            try block.instructions.append(.Throw);
+        },
     }
 }
 

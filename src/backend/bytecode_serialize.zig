@@ -49,6 +49,9 @@ fn serializeInstruction(writer: anytype, instr: bytecode.Instruction) !void {
     if (instr.var_name) |var_name| {
         try writer.print(" var:{s}", .{var_name});
     }
+    if (instr.jump_target) |target| {
+        try writer.print(" target:{d}", .{target});
+    }
 }
 
 /// Serialize a Gene value to Gene format

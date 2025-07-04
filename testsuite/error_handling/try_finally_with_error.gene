@@ -1,0 +1,9 @@
+# Test finally block executes with error
+(try
+  (do
+    (println "In try")
+    (throw "Error!"))
+  (catch e
+    (println "Caught:" e))
+  (finally
+    (println "Finally executes")))

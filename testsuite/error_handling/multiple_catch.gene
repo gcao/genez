@@ -1,0 +1,7 @@
+# Test multiple catch blocks (only first is used currently)
+(try
+  (throw "Test error")
+  (catch e1
+    (println "First catch:" e1))
+  (catch e2
+    (println "Second catch:" e2)))

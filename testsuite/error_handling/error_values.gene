@@ -1,0 +1,15 @@
+# Test different types of values can be thrown
+(try
+  (throw 42)
+  (catch e
+    (println "Caught number:" e)))
+
+(try  
+  (throw true)
+  (catch e
+    (println "Caught bool:" e)))
+
+(try
+  (throw [1 2 3])
+  (catch e
+    (println "Caught array:" e)))

@@ -221,6 +221,9 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .CStruct => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CStruct
             .CArray => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CArray
             .Module => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Module
+            .StdlibFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for StdlibFunction
+            .FileHandle => |_| .{ .literal = .{ .nil = {} } }, // Fallback for FileHandle
+            .Error => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Error
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -957,16 +960,55 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             return .{ .return_expr = ret_ptr };
         },
         .TryExpr => |try_expr| {
-            // For now, we'll lower try/catch/finally to a simple do block
-            // Later we'll need proper HIR representation for error handling
-            const body_expr = try lowerExpression(allocator, try_expr.body.*);
-            return body_expr;
+            const try_ptr = try allocator.create(hir.HIR.TryExpr);
+            errdefer allocator.destroy(try_ptr);
+            
+            // Convert the try body
+            const body_ptr = try allocator.create(hir.HIR.Expression);
+            body_ptr.* = try lowerExpression(allocator, try_expr.body.*);
+            
+            // Convert catch clauses
+            var catch_clauses = try allocator.alloc(hir.HIR.TryExpr.CatchClause, try_expr.catch_clauses.len);
+            for (try_expr.catch_clauses, 0..) |catch_clause, i| {
+                const catch_body_ptr = try allocator.create(hir.HIR.Expression);
+                catch_body_ptr.* = try lowerExpression(allocator, catch_clause.body.*);
+                
+                catch_clauses[i] = .{
+                    .error_var = if (catch_clause.error_var) |var_name| 
+                        try allocator.dupe(u8, var_name) 
+                    else null,
+                    .error_type = null, // TODO: Add error type support later
+                    .body = catch_body_ptr,
+                };
+            }
+            
+            // Convert optional finally block
+            var finally_block: ?*hir.HIR.Expression = null;
+            if (try_expr.finally_block) |finally| {
+                finally_block = try allocator.create(hir.HIR.Expression);
+                finally_block.?.* = try lowerExpression(allocator, finally.*);
+            }
+            
+            try_ptr.* = .{
+                .body = body_ptr,
+                .catch_clauses = catch_clauses,
+                .finally_block = finally_block,
+            };
+            
+            return .{ .try_expr = try_ptr };
         },
         .ThrowExpr => |throw_expr| {
-            // For now, we'll lower throw to a simple expression
-            // Later we'll need proper HIR representation for error handling
-            const value_expr = try lowerExpression(allocator, throw_expr.value.*);
-            return value_expr;
+            const throw_ptr = try allocator.create(hir.HIR.ThrowExpr);
+            errdefer allocator.destroy(throw_ptr);
+            
+            const value_ptr = try allocator.create(hir.HIR.Expression);
+            value_ptr.* = try lowerExpression(allocator, throw_expr.value.*);
+            
+            throw_ptr.* = .{
+                .value = value_ptr,
+            };
+            
+            return .{ .throw_expr = throw_ptr };
         },
     };
 }

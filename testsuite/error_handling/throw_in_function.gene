@@ -1,0 +1,9 @@
+# Test throw inside function
+(fn may_fail []
+  (println "Function called")
+  (throw "Function error"))
+
+(try
+  (may_fail)
+  (catch e
+    (println "Caught from function:" e)))

@@ -120,7 +120,7 @@ pub const Runtime = struct {
     }
 
     fn executeWithFunctions(self: *Runtime, func: *bytecode.Function, created_functions: []*bytecode.Function) !void {
-        self.executeWithFunctionsAndRegistry(func, created_functions, null) catch |err| return err;
+        try self.executeWithFunctionsAndRegistry(func, created_functions, null);
     }
     
     fn executeWithFunctionsAndRegistry(self: *Runtime, func: *bytecode.Function, created_functions: []*bytecode.Function, module_registry: ?*@import("core/module_registry.zig").ModuleRegistry) !void {
@@ -174,7 +174,20 @@ pub const Runtime = struct {
             try gene_vm.setVariable(user_func.name, func_value);
         }
 
-        try gene_vm.execute(func);
+        gene_vm.execute(func) catch |err| {
+            if (err == error.UserException) {
+                if (gene_vm.current_exception) |exc| {
+                    std.debug.print("\nUncaught exception: ", .{});
+                    switch (exc) {
+                        .Error => |e| std.debug.print("{s}: {s}\n", .{ e.type, e.message }),
+                        .String => |s| std.debug.print("{s}\n", .{s}),
+                        else => std.debug.print("{any}\n", .{exc}),
+                    }
+                    return error.UserException;
+                }
+            }
+            return err;
+        };
     }
 
     pub fn compileFile(self: *Runtime, file_path: []const u8) !void {

@@ -99,6 +99,13 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
                     }
                 }
             },
+            .TryStart => {
+                if (bytecode_instr.jump_target) |mir_target| {
+                    if (mir_to_bytecode_addr.get(mir_target)) |bytecode_target| {
+                        bytecode_instr.jump_target = bytecode_target;
+                    }
+                }
+            },
             else => {},
         }
     }
@@ -189,6 +196,13 @@ fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function)
                         if (mir_to_bytecode_addr.get(mir_target)) |bytecode_target| {
                             imm.Int = @as(i64, @intCast(bytecode_target));
                         }
+                    }
+                }
+            },
+            .TryStart => {
+                if (bytecode_instr.jump_target) |mir_target| {
+                    if (mir_to_bytecode_addr.get(mir_target)) |bytecode_target| {
+                        bytecode_instr.jump_target = bytecode_target;
                     }
                 }
             },
@@ -1089,6 +1103,50 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             });
             
             try stack.push(dst_reg);
+        },
+        .TryStart => |catch_target| {
+            // Start of try block with catch target
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.TryStart,
+                .jump_target = @intCast(catch_target),
+            });
+        },
+        .TryEnd => {
+            // End of try/catch/finally block
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.TryEnd,
+            });
+        },
+        .Throw => {
+            // Throw exception from stack
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: Throw needs 1 operand but stack is empty\n", .{});
+                return error.StackUnderflow;
+            }
+            
+            const error_reg = stack.pop();
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Throw,
+                .src1 = error_reg,
+            });
+        },
+        .LoadException => {
+            // Load current exception onto stack
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.LoadException,
+                .dst = dst_reg,
+            });
+            
+            try stack.push(dst_reg);
+        },
+        .ClearException => {
+            // Clear current exception
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.ClearException,
+            });
         },
 
         .IsArray => {
