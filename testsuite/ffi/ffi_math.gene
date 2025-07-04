@@ -1,0 +1,15 @@
+# Test math FFI functions
+
+# Declare sin from libm
+(c-extern sin ([x "double"]) "double" "libm")
+
+# Test sin with known values
+(var pi_over_2 1.5707963267948966)
+(var result (sin pi_over_2))
+
+# sin(π/2) should be 1.0
+(print "sin(pi/2) = " result)
+
+# Test sin(0) = 0
+(var zero_result (sin 0))
+(print "sin(0) = " zero_result)

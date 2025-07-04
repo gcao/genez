@@ -18,6 +18,8 @@ pub const CompiledResult = struct {
     allocator: std.mem.Allocator,
     /// Module registry containing all loaded modules
     module_registry: ?*@import("core/module_registry.zig").ModuleRegistry,
+    /// FFI functions from HIR
+    ffi_functions: std.ArrayList(*@import("ir/hir.zig").HIR.FFIFunction),
 
     pub fn deinit(self: *CompiledResult) void {
         // Clean up created functions
@@ -35,6 +37,13 @@ pub const CompiledResult = struct {
             registry.deinit();
             // Note: registry itself is allocated in the arena, so don't destroy it
         }
+        
+        // Clean up FFI functions (we own these copies)
+        for (self.ffi_functions.items) |ffi_func| {
+            ffi_func.deinit(self.allocator);
+            self.allocator.destroy(ffi_func);
+        }
+        self.ffi_functions.deinit();
         
         // Clean up parse arena - this will free all arena-allocated memory
         self.parse_arena.deinit();
@@ -63,6 +72,49 @@ pub fn compileSourceWithFilename(allocator: std.mem.Allocator, source: []const u
     // Transfer ownership of module_registry
     const registry = ctx.module_registry;
     ctx.module_registry = null; // Prevent double-free
+    
+    // Deep copy FFI functions to the main allocator before arena is freed
+    var ffi_functions_copy = std.ArrayList(*@import("ir/hir.zig").HIR.FFIFunction).init(allocator);
+    errdefer {
+        for (ffi_functions_copy.items) |ffi_func| {
+            ffi_func.deinit(allocator);
+            allocator.destroy(ffi_func);
+        }
+        ffi_functions_copy.deinit();
+    }
+    
+    for (conversion_result.ffi_functions.items) |ffi_func| {
+        // Debug: Check if ffi_func is valid
+        if (ffi_func.name.len == 0 or ffi_func.name.len > 1000) {
+            std.debug.print("WARNING: Invalid FFI function name length: {}\n", .{ffi_func.name.len});
+            continue;
+        }
+        
+        const copy = try allocator.create(@import("ir/hir.zig").HIR.FFIFunction);
+        errdefer allocator.destroy(copy);
+        
+        // Deep copy all fields
+        copy.* = .{
+            .name = try allocator.dupe(u8, ffi_func.name),
+            .params = try allocator.alloc(@import("ir/hir.zig").HIR.FFIFunction.FFIParam, ffi_func.params.len),
+            .return_type = if (ffi_func.return_type) |rt| try allocator.dupe(u8, rt) else null,
+            .lib = try allocator.dupe(u8, ffi_func.lib),
+            .symbol = if (ffi_func.symbol) |sym| try allocator.dupe(u8, sym) else null,
+            .calling_convention = if (ffi_func.calling_convention) |cc| try allocator.dupe(u8, cc) else null,
+            .is_variadic = ffi_func.is_variadic,
+        };
+        
+        // Copy parameters
+        for (ffi_func.params, 0..) |param, i| {
+            copy.params[i] = .{
+                .name = try allocator.dupe(u8, param.name),
+                .c_type = try allocator.dupe(u8, param.c_type),
+            };
+        }
+        
+        try ffi_functions_copy.append(copy);
+    }
+    
     ctx.deinit();
 
     return CompiledResult{
@@ -71,6 +123,7 @@ pub fn compileSourceWithFilename(allocator: std.mem.Allocator, source: []const u
         .parse_arena = parse_result.arena,
         .allocator = allocator,
         .module_registry = registry,
+        .ffi_functions = ffi_functions_copy,
     };
 }
 

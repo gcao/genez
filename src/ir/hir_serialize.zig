@@ -15,6 +15,107 @@ pub fn serializeModule(writer: anytype, module: hir.HIR, indent: usize) !void {
     try writeIndent(writer, indent);
     try writer.writeAll("(hir-module\n");
 
+    // Serialize imports
+    if (module.imports.items.len > 0) {
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll("(imports\n");
+        for (module.imports.items) |import| {
+            try writeIndent(writer, indent + 2);
+            try writer.print("(import \"{s}\"", .{import.module_path});
+            if (import.alias) |alias| {
+                try writer.print(" :as \"{s}\"", .{alias});
+            }
+            if (import.items) |items| {
+                try writer.writeAll(" :items (");
+                for (items, 0..) |item, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("\"{s}\"", .{item.name});
+                    if (item.alias) |alias| {
+                        try writer.print(" :as \"{s}\"", .{alias});
+                    }
+                }
+                try writer.writeAll(")");
+            }
+            try writer.writeAll(")\n");
+        }
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll(")\n");
+    }
+
+    // Serialize FFI functions
+    if (module.ffi_functions.items.len > 0) {
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll("(ffi-functions\n");
+        for (module.ffi_functions.items) |ffi_func| {
+            try writeIndent(writer, indent + 2);
+            try writer.print("(c-extern {s} (", .{ffi_func.name});
+            for (ffi_func.params, 0..) |param, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.print("[{s} \"{s}\"]", .{param.name, param.c_type});
+            }
+            try writer.writeAll(") ");
+            if (ffi_func.return_type) |ret| {
+                try writer.print("\"{s}\"", .{ret});
+            } else {
+                try writer.writeAll("nil");
+            }
+            try writer.print(" \"{s}\"", .{ffi_func.lib});
+            if (ffi_func.symbol) |sym| {
+                try writer.print(" :symbol \"{s}\"", .{sym});
+            }
+            if (ffi_func.calling_convention) |cc| {
+                try writer.print(" :convention \"{s}\"", .{cc});
+            }
+            if (ffi_func.is_variadic) {
+                try writer.writeAll(" :variadic true");
+            }
+            try writer.writeAll(")\n");
+        }
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll(")\n");
+    }
+
+    // Serialize FFI structs
+    if (module.ffi_structs.items.len > 0) {
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll("(ffi-structs\n");
+        for (module.ffi_structs.items) |ffi_struct| {
+            try writeIndent(writer, indent + 2);
+            try writer.print("(c-struct {s} (", .{ffi_struct.name});
+            for (ffi_struct.fields, 0..) |field, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.print("[{s} \"{s}\"", .{field.name, field.c_type});
+                if (field.bit_size) |size| {
+                    try writer.print(" {d}", .{size});
+                }
+                try writer.writeAll("]");
+            }
+            try writer.writeAll(")");
+            if (ffi_struct.is_packed) {
+                try writer.writeAll(" :packed true");
+            }
+            if (ffi_struct.alignment) |alignment| {
+                try writer.print(" :align {d}", .{alignment});
+            }
+            try writer.writeAll(")\n");
+        }
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll(")\n");
+    }
+
+    // Serialize FFI types
+    if (module.ffi_types.items.len > 0) {
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll("(ffi-types\n");
+        for (module.ffi_types.items) |ffi_type| {
+            try writeIndent(writer, indent + 2);
+            try writer.print("(c-type {s} \"{s}\")\n", .{ffi_type.name, ffi_type.c_type});
+        }
+        try writeIndent(writer, indent + 1);
+        try writer.writeAll(")\n");
+    }
+
+    // Serialize functions
     for (module.functions.items, 0..) |func, i| {
         try writeIndent(writer, indent + 1);
         try writer.print("(function {d}\n", .{i});

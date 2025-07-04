@@ -166,6 +166,77 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
                         // Add import to HIR program imports
                         try hir_prog.imports.append(hir_import);
                     },
+                    .CExternDecl => |extern_decl| {
+                        // Extract FFI function declarations to the program level
+                        const hir_ffi_func = try allocator.create(hir.HIR.FFIFunction);
+                        errdefer allocator.destroy(hir_ffi_func);
+                        
+                        // Convert parameters
+                        var params = try allocator.alloc(hir.HIR.FFIFunction.FFIParam, extern_decl.params.len);
+                        for (extern_decl.params, 0..) |param, i| {
+                            params[i] = .{
+                                .name = try allocator.dupe(u8, param.name),
+                                .c_type = try allocator.dupe(u8, param.c_type),
+                            };
+                        }
+                        
+                        hir_ffi_func.* = hir.HIR.FFIFunction{
+                            .name = try allocator.dupe(u8, extern_decl.name),
+                            .params = params,
+                            .return_type = if (extern_decl.return_type) |ret| 
+                                try allocator.dupe(u8, ret) 
+                            else null,
+                            .lib = try allocator.dupe(u8, extern_decl.lib),
+                            .symbol = if (extern_decl.symbol) |sym| 
+                                try allocator.dupe(u8, sym) 
+                            else null,
+                            .calling_convention = if (extern_decl.calling_convention) |cc| 
+                                try allocator.dupe(u8, cc) 
+                            else null,
+                            .is_variadic = extern_decl.is_variadic,
+                        };
+                        
+                        // Add FFI function to HIR program
+                        try hir_prog.ffi_functions.append(hir_ffi_func);
+                    },
+                    .CStructDecl => |struct_decl| {
+                        // Extract FFI struct declarations to the program level
+                        const hir_ffi_struct = try allocator.create(hir.HIR.FFIStruct);
+                        errdefer allocator.destroy(hir_ffi_struct);
+                        
+                        // Convert fields
+                        var fields = try allocator.alloc(hir.HIR.FFIStruct.FFIField, struct_decl.fields.len);
+                        for (struct_decl.fields, 0..) |field, i| {
+                            fields[i] = .{
+                                .name = try allocator.dupe(u8, field.name),
+                                .c_type = try allocator.dupe(u8, field.c_type),
+                                .bit_size = field.bit_size,
+                            };
+                        }
+                        
+                        hir_ffi_struct.* = hir.HIR.FFIStruct{
+                            .name = try allocator.dupe(u8, struct_decl.name),
+                            .fields = fields,
+                            .is_packed = struct_decl.is_packed,
+                            .alignment = struct_decl.alignment,
+                        };
+                        
+                        // Add FFI struct to HIR program
+                        try hir_prog.ffi_structs.append(hir_ffi_struct);
+                    },
+                    .CTypeDecl => |type_decl| {
+                        // Extract FFI type declarations to the program level
+                        const hir_ffi_type = try allocator.create(hir.HIR.FFIType);
+                        errdefer allocator.destroy(hir_ffi_type);
+                        
+                        hir_ffi_type.* = hir.HIR.FFIType{
+                            .name = try allocator.dupe(u8, type_decl.name),
+                            .c_type = try allocator.dupe(u8, type_decl.c_type),
+                        };
+                        
+                        // Add FFI type to HIR program
+                        try hir_prog.ffi_types.append(hir_ffi_type);
+                    },
                     else => {
                         // Keep other expressions for main function
                         try main_nodes.append(node);
@@ -216,14 +287,15 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .Object => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Object
             .Array => |_| unreachable, // Should be handled by ast.Expression.ArrayLiteral
             .Map => |_| unreachable, // Should be handled by ast.Expression.MapLiteral
-            .CPtr => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CPtr
-            .CFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CFunction
-            .CStruct => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CStruct
-            .CArray => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CArray
             .Module => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Module
             .StdlibFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for StdlibFunction
             .FileHandle => |_| .{ .literal = .{ .nil = {} } }, // Fallback for FileHandle
             .Error => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Error
+            .CPtr => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CPtr
+            .CFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CFunction
+            .CStruct => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CStruct
+            .CArray => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CArray
+            .FFIFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for FFIFunction
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -892,22 +964,19 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             } };
         },
         .CExternDecl => {
-            // TODO: Implement proper HIR C external declaration support
-            // For now, return an error as this feature is not yet implemented
-            std.debug.print("CExternDecl not yet implemented in HIR\n", .{});
-            return error.NotImplemented;
+            // FFI declarations are handled at the top level in convert()
+            // They shouldn't appear as expressions inside functions
+            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
         },
         .CStructDecl => {
-            // TODO: Implement proper HIR C struct declaration support
-            // For now, return an error as this feature is not yet implemented
-            std.debug.print("CStructDecl not yet implemented in HIR\n", .{});
-            return error.NotImplemented;
+            // FFI declarations are handled at the top level in convert()
+            // They shouldn't appear as expressions inside functions
+            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
         },
         .CTypeDecl => {
-            // TODO: Implement proper HIR C type declaration support
-            // For now, return an error as this feature is not yet implemented
-            std.debug.print("CTypeDecl not yet implemented in HIR\n", .{});
-            return error.NotImplemented;
+            // FFI declarations are handled at the top level in convert()
+            // They shouldn't appear as expressions inside functions
+            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
         },
         .NamespaceDecl => |ns_decl| {
             // Create a proper namespace declaration in HIR

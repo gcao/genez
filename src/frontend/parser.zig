@@ -23,6 +23,11 @@ pub const ParserError = error{
     InvalidExpression,
     OutOfMemory,
     ExpectedClassName,
+    ExpectedBool,
+    ExpectedInt,
+    InvalidBitSize,
+    ExpectedIdentifier,
+    ExpectedString,
     ExpectedPropertyName,
     ExpectedProperty,
     ExpectedMethodName,
@@ -76,6 +81,9 @@ pub const TokenKind = union(enum) {
     Catch, // New: for error handling
     Finally, // New: for cleanup code
     Throw, // New: for throwing errors
+    CExtern, // New: for FFI external function declarations
+    CStruct, // New: for FFI struct declarations
+    CType, // New: for FFI type declarations
 };
 
 /// Tokenize a Gene source string.
@@ -310,6 +318,18 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             else if (std.mem.eql(u8, word, "throw")) {
                 debug.log("Tokenizing 'throw' as Throw keyword", .{});
                 token_kind = .Throw; // New keyword
+            }
+            else if (std.mem.eql(u8, word, "c-extern")) {
+                debug.log("Tokenizing 'c-extern' as CExtern keyword", .{});
+                token_kind = .CExtern; // New keyword
+            }
+            else if (std.mem.eql(u8, word, "c-struct")) {
+                debug.log("Tokenizing 'c-struct' as CStruct keyword", .{});
+                token_kind = .CStruct; // New keyword
+            }
+            else if (std.mem.eql(u8, word, "c-type")) {
+                debug.log("Tokenizing 'c-type' as CType keyword", .{});
+                token_kind = .CType; // New keyword
             }
             else if (std.mem.eql(u8, word, "true")) token_kind = .{ .Bool = true } else if (std.mem.eql(u8, word, "false")) token_kind = .{ .Bool = false } else if (std.mem.eql(u8, word, "nil")) token_kind = .Nil else {
                 // Store the slice directly, parser will dupe if needed
@@ -816,6 +836,9 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .Return => return parseReturn(alloc, toks, depth + 1),
                 .Try => return parseTry(alloc, toks, depth + 1),
                 .Throw => return parseThrow(alloc, toks, depth + 1),
+                .CExtern => return parseCExtern(alloc, toks, depth + 1),
+                .CStruct => return parseCStruct(alloc, toks, depth + 1),
+                .CType => return parseCType(alloc, toks, depth + 1),
                 .Dot => {
                     // Implicit self method call: (.method args...)
                     return parseImplicitSelfMethodCall(alloc, toks, depth + 1);
@@ -3301,4 +3324,276 @@ fn parsePattern(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pa
             return error.InvalidExpression;
         },
     }
+}
+
+/// Parse c-extern declaration
+/// Format: (c-extern function-name ([param-name c-type]...) return-type library-name [options])
+/// Example: (c-extern printf ([format "char*"]) "int" "libc")
+/// Example: (c-extern sin ([x "double"]) "double" "libm" :symbol "sin")
+fn parseCExtern(alloc: std.mem.Allocator, toks: []const Token, depth: usize) ParserError!ParseResult {
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    if (toks.len < 6) return error.UnexpectedEOF; // At least (c-extern name () ret lib)
+    
+    var pos: usize = 0;
+    
+    // Expect (
+    if (toks[pos].kind != .LParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Expect c-extern
+    if (toks[pos].kind != .CExtern) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Expect function name
+    if (toks[pos].kind != .Ident) return error.ExpectedIdentifier;
+    const func_name = try alloc.dupe(u8, toks[pos].kind.Ident);
+    pos += 1;
+    
+    // Parse parameters (
+    if (toks[pos].kind != .LParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    var params = std.ArrayList(ast.CExternDecl.CParam).init(alloc);
+    defer params.deinit();
+    
+    // Parse each parameter [name type]
+    while (pos < toks.len and toks[pos].kind != .RParen) {
+        if (toks[pos].kind != .LBracket) return error.UnexpectedToken;
+        pos += 1;
+        
+        // Parameter name
+        if (toks[pos].kind != .Ident) return error.ExpectedIdentifier;
+        const param_name = try alloc.dupe(u8, toks[pos].kind.Ident);
+        pos += 1;
+        
+        // C type
+        if (toks[pos].kind != .String) return error.ExpectedString;
+        const c_type = try alloc.dupe(u8, toks[pos].kind.String);
+        pos += 1;
+        
+        // Expect ]
+        if (toks[pos].kind != .RBracket) return error.UnexpectedToken;
+        pos += 1;
+        
+        try params.append(.{
+            .name = param_name,
+            .c_type = c_type,
+        });
+    }
+    
+    if (toks[pos].kind != .RParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Return type (string or nil for void)
+    var return_type: ?[]const u8 = null;
+    if (toks[pos].kind == .String) {
+        return_type = try alloc.dupe(u8, toks[pos].kind.String);
+        pos += 1;
+    } else if (toks[pos].kind == .Nil) {
+        pos += 1;
+    } else {
+        return error.ExpectedString;
+    }
+    
+    // Library name
+    if (toks[pos].kind != .String) return error.ExpectedString;
+    const lib_name = try alloc.dupe(u8, toks[pos].kind.String);
+    pos += 1;
+    
+    // Optional parameters
+    var symbol: ?[]const u8 = null;
+    var calling_convention: ?[]const u8 = null;
+    var is_variadic = false;
+    
+    // Parse options like :symbol "actual_name" :convention "stdcall" :variadic true
+    while (pos < toks.len and toks[pos].kind != .RParen) {
+        if (toks[pos].kind == .Ident) {
+            const option = toks[pos].kind.Ident;
+            pos += 1;
+            
+            if (std.mem.eql(u8, option, ":symbol")) {
+                if (pos >= toks.len or toks[pos].kind != .String) return error.ExpectedString;
+                symbol = try alloc.dupe(u8, toks[pos].kind.String);
+                pos += 1;
+            } else if (std.mem.eql(u8, option, ":convention")) {
+                if (pos >= toks.len or toks[pos].kind != .String) return error.ExpectedString;
+                calling_convention = try alloc.dupe(u8, toks[pos].kind.String);
+                pos += 1;
+            } else if (std.mem.eql(u8, option, ":variadic")) {
+                if (pos >= toks.len or toks[pos].kind != .Bool) return error.ExpectedBool;
+                is_variadic = toks[pos].kind.Bool;
+                pos += 1;
+            }
+        } else {
+            return error.UnexpectedToken;
+        }
+    }
+    
+    // Expect closing )
+    if (pos >= toks.len or toks[pos].kind != .RParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    const params_slice = try params.toOwnedSlice();
+    
+    return .{
+        .node = .{ .Expression = .{ .CExternDecl = .{
+            .name = func_name,
+            .params = params_slice,
+            .return_type = return_type,
+            .lib = lib_name,
+            .symbol = symbol,
+            .calling_convention = calling_convention,
+            .is_variadic = is_variadic,
+        }}},
+        .consumed = pos,
+    };
+}
+
+/// Parse c-struct declaration
+/// Format: (c-struct name ([field-name c-type]...) [options])
+/// Example: (c-struct Point ([x "double"] [y "double"]))
+/// Example: (c-struct Flags ([a "int" 1] [b "int" 1]) :packed true)
+fn parseCStruct(alloc: std.mem.Allocator, toks: []const Token, depth: usize) ParserError!ParseResult {
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    if (toks.len < 5) return error.UnexpectedEOF; // At least (c-struct name ())
+    
+    var pos: usize = 0;
+    
+    // Expect (
+    if (toks[pos].kind != .LParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Expect c-struct
+    if (toks[pos].kind != .CStruct) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Expect struct name
+    if (toks[pos].kind != .Ident) return error.ExpectedIdentifier;
+    const struct_name = try alloc.dupe(u8, toks[pos].kind.Ident);
+    pos += 1;
+    
+    // Parse fields (
+    if (toks[pos].kind != .LParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    var fields = std.ArrayList(ast.CStructDecl.CField).init(alloc);
+    defer fields.deinit();
+    
+    // Parse each field [name type bit-size?]
+    while (pos < toks.len and toks[pos].kind != .RParen) {
+        if (toks[pos].kind != .LBracket) return error.UnexpectedToken;
+        pos += 1;
+        
+        // Field name
+        if (toks[pos].kind != .Ident) return error.ExpectedIdentifier;
+        const field_name = try alloc.dupe(u8, toks[pos].kind.Ident);
+        pos += 1;
+        
+        // C type
+        if (toks[pos].kind != .String) return error.ExpectedString;
+        const c_type = try alloc.dupe(u8, toks[pos].kind.String);
+        pos += 1;
+        
+        // Optional bit size
+        var bit_size: ?u8 = null;
+        if (pos < toks.len and toks[pos].kind == .Int) {
+            if (toks[pos].kind.Int < 0 or toks[pos].kind.Int > 64) return error.InvalidBitSize;
+            bit_size = @intCast(toks[pos].kind.Int);
+            pos += 1;
+        }
+        
+        // Expect ]
+        if (toks[pos].kind != .RBracket) return error.UnexpectedToken;
+        pos += 1;
+        
+        try fields.append(.{
+            .name = field_name,
+            .c_type = c_type,
+            .bit_size = bit_size,
+        });
+    }
+    
+    if (toks[pos].kind != .RParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Optional parameters
+    var is_packed = false;
+    var alignment: ?usize = null;
+    
+    // Parse options like :packed true :align 16
+    while (pos < toks.len and toks[pos].kind != .RParen) {
+        if (toks[pos].kind == .Ident) {
+            const option = toks[pos].kind.Ident;
+            pos += 1;
+            
+            if (std.mem.eql(u8, option, ":packed")) {
+                if (pos >= toks.len or toks[pos].kind != .Bool) return error.ExpectedBool;
+                is_packed = toks[pos].kind.Bool;
+                pos += 1;
+            } else if (std.mem.eql(u8, option, ":align")) {
+                if (pos >= toks.len or toks[pos].kind != .Int) return error.ExpectedInt;
+                alignment = @intCast(toks[pos].kind.Int);
+                pos += 1;
+            }
+        } else {
+            return error.UnexpectedToken;
+        }
+    }
+    
+    // Expect closing )
+    if (pos >= toks.len or toks[pos].kind != .RParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    const fields_slice = try fields.toOwnedSlice();
+    
+    return .{
+        .node = .{ .Expression = .{ .CStructDecl = .{
+            .name = struct_name,
+            .fields = fields_slice,
+            .is_packed = is_packed,
+            .alignment = alignment,
+        }}},
+        .consumed = pos,
+    };
+}
+
+/// Parse c-type declaration
+/// Format: (c-type name c-type-string)
+/// Example: (c-type FILE "struct _IO_FILE")
+/// Example: (c-type size_t "unsigned long")
+fn parseCType(alloc: std.mem.Allocator, toks: []const Token, depth: usize) ParserError!ParseResult {
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    if (toks.len < 5) return error.UnexpectedEOF; // At least (c-type name "type")
+    
+    var pos: usize = 0;
+    
+    // Expect (
+    if (toks[pos].kind != .LParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Expect c-type
+    if (toks[pos].kind != .CType) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Expect type alias name
+    if (toks[pos].kind != .Ident) return error.ExpectedIdentifier;
+    const type_name = try alloc.dupe(u8, toks[pos].kind.Ident);
+    pos += 1;
+    
+    // Expect C type string
+    if (toks[pos].kind != .String) return error.ExpectedString;
+    const c_type = try alloc.dupe(u8, toks[pos].kind.String);
+    pos += 1;
+    
+    // Expect closing )
+    if (pos >= toks.len or toks[pos].kind != .RParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    return .{
+        .node = .{ .Expression = .{ .CTypeDecl = .{
+            .name = type_name,
+            .c_type = c_type,
+        }}},
+        .consumed = pos,
+    };
 }

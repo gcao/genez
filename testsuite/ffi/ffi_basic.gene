@@ -1,0 +1,22 @@
+# Test basic FFI declarations and calls
+
+# Declare printf from libc
+(c-extern printf ([format "char*"]) "int" "libc" :variadic true)
+
+# Test printf call
+(printf "Hello from FFI!")
+(print "")  # Add newline using print
+
+# Declare sin from libm
+(c-extern sin ([x "double"]) "double" "libm")
+
+# Test sin call
+(var angle 1.5708)
+(var result (sin angle))
+(print "sin(" angle ") = " result)
+
+# Test c-struct declaration
+(c-struct Point ([x "double"] [y "double"]))
+
+# Test c-type declaration
+(c-type size_t "unsigned long")

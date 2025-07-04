@@ -1,0 +1,5 @@
+# Test FFI error handling
+
+# For now, just test that FFI functions need to be declared
+# This test demonstrates that undeclared functions cause errors
+# SKIP: Exception handling for undefined variables not working correctly

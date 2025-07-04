@@ -5,6 +5,7 @@ const bytecode = @import("bytecode.zig");
 const builtin_classes = @import("../core/builtin_classes.zig");
 const gc = @import("../core/gc.zig");
 const stdlib = @import("../core/stdlib.zig");
+const ffi = @import("../core/ffi.zig");
 
 const ExceptionHandler = struct {
     catch_addr: usize,
@@ -32,6 +33,8 @@ pub const VMError = error{
     ModuleNotFound,
     UserException,  // For user-thrown errors
     NoExceptionHandler,
+    FunctionNotResolved, // For unresolved FFI functions
+    LibraryNotFound, // For missing FFI libraries
 } || std.mem.Allocator.Error || std.fs.File.WriteError || std.fs.File.GetSeekPosError || std.fs.File.ReadError;
 
 pub const CallFrame = struct {
@@ -78,6 +81,8 @@ pub const VM = struct {
     allocated_modules: std.ArrayList(*@import("../core/module_registry.zig").CompiledModule), // Track allocated modules for cleanup
     current_exception: ?types.Value, // Current thrown exception
     exception_handlers: std.ArrayList(ExceptionHandler), // Stack of exception handlers
+    ffi_runtime: ?*ffi.FFIRuntime, // FFI runtime for C function calls
+    ffi_function_names: std.ArrayList([]const u8), // Track FFI function names for cleanup
 
     pub fn init(allocator: std.mem.Allocator, stdout: std.fs.File.Writer) VM {
 
@@ -177,6 +182,8 @@ pub const VM = struct {
             .allocated_modules = std.ArrayList(*@import("../core/module_registry.zig").CompiledModule).init(allocator),
             .current_exception = null,
             .exception_handlers = std.ArrayList(ExceptionHandler).init(allocator),
+            .ffi_runtime = null,
+            .ffi_function_names = std.ArrayList([]const u8).init(allocator),
         };
 
         // Initialize garbage collector
@@ -184,6 +191,13 @@ pub const VM = struct {
 
         // Initialize core classes
         vm.initCoreClasses() catch unreachable;
+
+        // Initialize FFI runtime
+        const ffi_runtime_ptr = allocator.create(ffi.FFIRuntime) catch null;
+        if (ffi_runtime_ptr) |ptr| {
+            ptr.* = ffi.FFIRuntime.init(allocator);
+            vm.ffi_runtime = ptr;
+        }
 
         return vm;
     }
@@ -193,9 +207,37 @@ pub const VM = struct {
     pub fn cloneValue(self: *VM, value: types.Value) !types.Value {
         return try value.clone(self.allocator);
     }
+    
+    /// Register FFI functions from HIR
+    pub fn registerFFIFunctions(self: *VM, ffi_functions: []const *@import("../ir/hir.zig").HIR.FFIFunction) !void {
+        debug.log("Registering {} FFI functions", .{ffi_functions.len});
+        if (self.ffi_runtime) |ffi_runtime_ptr| {
+            try ffi_runtime_ptr.registerFunctions(ffi_functions);
+            
+            // Also register FFI functions as variables in the VM for lookup
+            for (ffi_functions) |ffi_func| {
+                debug.log("Registering FFI function: {s}", .{ffi_func.name});
+                // Create copies of the name for key and value separately
+                const key_copy = try self.allocator.dupe(u8, ffi_func.name);
+                const value_copy = try self.allocator.dupe(u8, ffi_func.name);
+                // Track the key for cleanup
+                try self.ffi_function_names.append(key_copy);
+                // Use FFIFunction value type to indicate this is an unresolved FFI function
+                try self.variables.put(key_copy, .{ .FFIFunction = value_copy });
+            }
+        } else {
+            debug.log("No FFI runtime available", .{});
+        }
+    }
 
     pub fn deinit(self: *VM) void {
-        // Clean up garbage collector first
+        // Clean up FFI runtime
+        if (self.ffi_runtime) |ffi_ptr| {
+            ffi_ptr.deinit();
+            self.allocator.destroy(ffi_ptr);
+        }
+        
+        // Clean up garbage collector
         if (self.garbage_collector) |gc_ptr| {
             gc_ptr.deinit();
         }
@@ -228,6 +270,12 @@ pub const VM = struct {
             // self.allocator.free(entry.key_ptr.*);
         }
         self.variables.deinit();
+        
+        // Clean up FFI function names (these are the keys in variables map)
+        for (self.ffi_function_names.items) |name| {
+            self.allocator.free(name);
+        }
+        self.ffi_function_names.deinit();
 
         // Clean up object pool
         for (self.object_pool.items) |obj| {
@@ -1012,6 +1060,7 @@ pub const VM = struct {
                     .StdlibFunction => |func| try self.stdout.print("StdlibFunction: {s}\n", .{@tagName(func)}),
                     .FileHandle => |handle| try self.stdout.print("FileHandle: {s}\n", .{handle.path}),
                     .Error => |err| try self.stdout.print("Error({s}): {s}\n", .{ err.type, err.message }),
+                    .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}\n", .{name}),
                 }
             },
             .Call => {
@@ -1084,6 +1133,7 @@ pub const VM = struct {
                                 .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                                 .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
+                                .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
                             }
 
                             // Add space between arguments except for the last one
@@ -1149,6 +1199,7 @@ pub const VM = struct {
                                 .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                                 .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
+                                .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
                             }
 
                             // Add space between arguments except for the last one
@@ -1692,6 +1743,7 @@ pub const VM = struct {
                                 .CStruct => |ptr| try self.stdout.print("CStruct: {*}", .{ptr}),
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                                 .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
+                                .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
                             }
 
                             // Add space between arguments except for the last one
@@ -1708,11 +1760,63 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Check if this is an FFI function
+                    if (self.ffi_runtime) |ffi_runtime_ptr| {
+                        if (ffi_runtime_ptr.functions.contains(func_name)) {
+                            // Collect arguments
+                            var args = std.ArrayList(types.Value).init(self.allocator);
+                            defer args.deinit();
+                            
+                            for (0..arg_count) |i| {
+                                const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
+                                const arg = try self.getRegister(arg_reg);
+                                try args.append(arg);
+                            }
+                            
+                            // Call FFI function
+                            const result = try ffi_runtime_ptr.callFunction(func_name, args.items);
+                            try self.setRegister(dst_reg, result);
+                            return;
+                        }
+                    }
+                    
                     // Handle other built-in functions here...
                     debug.log("Unsupported built-in function: {s}", .{func_name});
                     return error.UnsupportedFunction;
                 }
 
+                // Handle FFI functions
+                if (func_val == .FFIFunction) {
+                    const ffi_name = func_val.FFIFunction;
+                    debug.log("Calling FFI function: {s}", .{ffi_name});
+                    
+                    if (self.ffi_runtime) |ffi_runtime_ptr| {
+                        // Collect arguments
+                        var args = try self.allocator.alloc(types.Value, arg_count);
+                        defer self.allocator.free(args);
+                        
+                        for (0..arg_count) |i| {
+                            const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
+                            args[i] = try self.getRegister(arg_reg);
+                        }
+                        
+                        // Call the FFI function
+                        const result = try ffi_runtime_ptr.callFunction(ffi_name, args);
+                        
+                        // Clean up arguments
+                        for (args) |*arg| {
+                            arg.deinit(self.allocator);
+                        }
+                        
+                        // Store result
+                        try self.setRegister(dst_reg, result);
+                        return;
+                    } else {
+                        debug.log("No FFI runtime available", .{});
+                        return error.FunctionNotResolved;
+                    }
+                }
+                
                 // Handle user-defined functions
                 if (func_val == .Function) {
                     const user_func = func_val.Function;

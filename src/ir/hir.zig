@@ -16,12 +16,18 @@ pub const HIR = struct {
     allocator: std.mem.Allocator,
     functions: std.ArrayList(Function),
     imports: std.ArrayList(*ImportStmt),
+    ffi_functions: std.ArrayList(*FFIFunction),
+    ffi_structs: std.ArrayList(*FFIStruct),
+    ffi_types: std.ArrayList(*FFIType),
 
     pub fn init(allocator: std.mem.Allocator) HIR {
         return HIR{
             .allocator = allocator,
             .functions = std.ArrayList(Function).init(allocator),
             .imports = std.ArrayList(*ImportStmt).init(allocator),
+            .ffi_functions = std.ArrayList(*FFIFunction).init(allocator),
+            .ffi_structs = std.ArrayList(*FFIStruct).init(allocator),
+            .ffi_types = std.ArrayList(*FFIType).init(allocator),
         };
     }
 
@@ -36,6 +42,24 @@ pub const HIR = struct {
             self.allocator.destroy(import);
         }
         self.imports.deinit();
+        
+        for (self.ffi_functions.items) |ffi_func| {
+            ffi_func.deinit(self.allocator);
+            self.allocator.destroy(ffi_func);
+        }
+        self.ffi_functions.deinit();
+        
+        for (self.ffi_structs.items) |ffi_struct| {
+            ffi_struct.deinit(self.allocator);
+            self.allocator.destroy(ffi_struct);
+        }
+        self.ffi_structs.deinit();
+        
+        for (self.ffi_types.items) |ffi_type| {
+            ffi_type.deinit(self.allocator);
+            self.allocator.destroy(ffi_type);
+        }
+        self.ffi_types.deinit();
     }
 
     pub const Function = struct {
@@ -850,6 +874,75 @@ pub const HIR = struct {
         pub fn deinit(self: *ThrowExpr, allocator: std.mem.Allocator) void {
             self.value.deinit(allocator);
             allocator.destroy(self.value);
+        }
+    };
+    
+    // FFI declarations
+    pub const FFIFunction = struct {
+        name: []const u8,
+        params: []FFIParam,
+        return_type: ?[]const u8,
+        lib: []const u8,
+        symbol: ?[]const u8,
+        calling_convention: ?[]const u8,
+        is_variadic: bool,
+        
+        pub const FFIParam = struct {
+            name: []const u8,
+            c_type: []const u8,
+            
+            pub fn deinit(self: *FFIParam, allocator: std.mem.Allocator) void {
+                allocator.free(self.name);
+                allocator.free(self.c_type);
+            }
+        };
+        
+        pub fn deinit(self: *FFIFunction, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            for (self.params) |*param| {
+                param.deinit(allocator);
+            }
+            allocator.free(self.params);
+            if (self.return_type) |ret| allocator.free(ret);
+            allocator.free(self.lib);
+            if (self.symbol) |sym| allocator.free(sym);
+            if (self.calling_convention) |cc| allocator.free(cc);
+        }
+    };
+    
+    pub const FFIStruct = struct {
+        name: []const u8,
+        fields: []FFIField,
+        is_packed: bool,
+        alignment: ?usize,
+        
+        pub const FFIField = struct {
+            name: []const u8,
+            c_type: []const u8,
+            bit_size: ?u8,
+            
+            pub fn deinit(self: *FFIField, allocator: std.mem.Allocator) void {
+                allocator.free(self.name);
+                allocator.free(self.c_type);
+            }
+        };
+        
+        pub fn deinit(self: *FFIStruct, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            for (self.fields) |*field| {
+                field.deinit(allocator);
+            }
+            allocator.free(self.fields);
+        }
+    };
+    
+    pub const FFIType = struct {
+        name: []const u8,
+        c_type: []const u8,
+        
+        pub fn deinit(self: *FFIType, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            allocator.free(self.c_type);
         }
     };
 };

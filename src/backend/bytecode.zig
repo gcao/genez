@@ -426,7 +426,7 @@ pub const Module = struct {
                 std.mem.writeInt(usize, &usize_buf, addr.arg_count, .little);
                 try writer.writeAll(&usize_buf);
             },
-            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray, .StdlibFunction, .FileHandle, .Error => {
+            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray, .StdlibFunction, .FileHandle, .Error, .FFIFunction => {
                 // For now, we don't support serializing complex types like arrays, maps, classes, objects, modules, FFI types, stdlib types, and errors
                 // This would require more sophisticated serialization
                 return error.UnsupportedComplexType;

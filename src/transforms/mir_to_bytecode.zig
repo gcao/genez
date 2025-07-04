@@ -6,6 +6,7 @@ const types = @import("../core/types.zig");
 pub const ConversionResult = struct {
     main_func: bytecode.Function,
     created_functions: std.ArrayList(*bytecode.Function),
+    ffi_functions: std.ArrayList(*@import("../ir/hir.zig").HIR.FFIFunction),
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *ConversionResult) void {
@@ -18,10 +19,13 @@ pub const ConversionResult = struct {
 
         // Clean up main function
         self.main_func.deinit();
+        
+        // FFI functions are not owned by this result
+        self.ffi_functions.deinit();
     }
 };
 
-pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResult {
+pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR, ffi_functions: []const *@import("../ir/hir.zig").HIR.FFIFunction) !ConversionResult {
     var main_func = bytecode.Function.init(allocator);
     errdefer main_func.deinit();
 
@@ -39,9 +43,16 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
 
     const num_functions = mir_prog.functions.items.len;
     if (num_functions == 0) {
+        // Copy FFI function pointers to a new list
+        var ffi_funcs = std.ArrayList(*@import("../ir/hir.zig").HIR.FFIFunction).init(allocator);
+        for (ffi_functions) |ffi_func| {
+            try ffi_funcs.append(ffi_func);
+        }
+        
         return ConversionResult{
             .main_func = main_func,
             .created_functions = created_functions,
+            .ffi_functions = ffi_funcs,
             .allocator = allocator,
         };
     }
@@ -132,9 +143,16 @@ pub fn convert(allocator: std.mem.Allocator, mir_prog: *mir.MIR) !ConversionResu
     // Record register usage for the main function
     main_func.register_count = next_reg;
 
+    // Copy FFI function pointers to a new list
+    var ffi_funcs = std.ArrayList(*@import("../ir/hir.zig").HIR.FFIFunction).init(allocator);
+    for (ffi_functions) |ffi_func| {
+        try ffi_funcs.append(ffi_func);
+    }
+    
     return ConversionResult{
         .main_func = main_func,
         .created_functions = created_functions,
+        .ffi_functions = ffi_funcs,
         .allocator = allocator,
     };
 }

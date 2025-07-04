@@ -1,0 +1,20 @@
+# Test FFI declarations without calling
+
+# Declare various C functions
+(c-extern printf ([format "char*"]) "int" "libc" :variadic true)
+(c-extern sin ([x "double"]) "double" "libm")
+(c-extern cos ([x "double"]) "double" "libm")
+(c-extern malloc ([size "size_t"]) "void*" "libc")
+(c-extern free ([ptr "void*"]) "void" "libc")
+
+# Declare C structs
+(c-struct Point ([x "double"] [y "double"]))
+(c-struct Rectangle ([x "int"] [y "int"] [width "int"] [height "int"]))
+
+# Declare C type aliases
+(c-type size_t "unsigned long")
+(c-type int32_t "int")
+(c-type uint64_t "unsigned long long")
+
+# Should compile without errors
+(print "FFI declarations OK")

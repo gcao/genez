@@ -172,6 +172,7 @@ pub const Value = union(enum) {
         len: usize, // Number of elements
         element_size: usize, // Size of each element
     },
+    FFIFunction: []const u8, // Name of an FFI function to be resolved at call time
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -226,6 +227,7 @@ pub const Value = union(enum) {
             .CFunction => {}, // Function pointers are not owned by Gene
             .CStruct => {}, // C structs are not owned by Gene
             .CArray => {}, // C arrays are not owned by Gene
+            .FFIFunction => |name| allocator.free(name),
             else => {},
         }
     }
@@ -294,6 +296,7 @@ pub const Value = union(enum) {
             .CFunction => |func| Value{ .CFunction = func }, // Just copy the function pointer
             .CStruct => |ptr| Value{ .CStruct = ptr }, // Just copy the struct pointer
             .CArray => |arr| Value{ .CArray = arr }, // Copy the array descriptor
+            .FFIFunction => |name| Value{ .FFIFunction = try allocator.dupe(u8, name) },
         };
     }
 };

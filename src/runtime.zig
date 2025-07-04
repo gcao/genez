@@ -54,7 +54,7 @@ pub const Runtime = struct {
 
         // Execute bytecode
         debug.log("Starting execution...", .{});
-        try self.execute(@constCast(&result.main_func));
+        try self.executeWithFunctionsRegistryAndFFI(@constCast(&result.main_func), result.created_functions.items, result.module_registry, result.ffi_functions.items);
         debug.log("Execution completed successfully", .{});
     }
 
@@ -92,7 +92,7 @@ pub const Runtime = struct {
 
         debug.log("Compilation completed, starting execution...", .{});
 
-        try self.executeWithFunctionsAndRegistry(@constCast(&result.main_func), result.created_functions.items, result.module_registry);
+        try self.executeWithFunctionsRegistryAndFFI(@constCast(&result.main_func), result.created_functions.items, result.module_registry, result.ffi_functions.items);
 
         debug.log("File execution completed successfully!", .{});
     }
@@ -110,7 +110,7 @@ pub const Runtime = struct {
 
         debug.log("Compilation completed, starting execution...", .{});
 
-        try self.executeWithFunctions(@constCast(&result.main_func), result.created_functions.items);
+        try self.executeWithFunctionsRegistryAndFFI(@constCast(&result.main_func), result.created_functions.items, null, result.ffi_functions.items);
 
         debug.log("Source execution completed successfully!", .{});
     }
@@ -124,6 +124,10 @@ pub const Runtime = struct {
     }
     
     fn executeWithFunctionsAndRegistry(self: *Runtime, func: *bytecode.Function, created_functions: []*bytecode.Function, module_registry: ?*@import("core/module_registry.zig").ModuleRegistry) !void {
+        try self.executeWithFunctionsRegistryAndFFI(func, created_functions, module_registry, &[_]*@import("ir/hir.zig").HIR.FFIFunction{});
+    }
+    
+    fn executeWithFunctionsRegistryAndFFI(self: *Runtime, func: *bytecode.Function, created_functions: []*bytecode.Function, module_registry: ?*@import("core/module_registry.zig").ModuleRegistry, ffi_functions: []const *@import("ir/hir.zig").HIR.FFIFunction) !void {
         // Use debug output for bytecode display
         const debug_out = debug_output.DebugOutput.init(self.stdout, self.debug_mode);
         debug_out.writeBytecodeInstructions(func);
@@ -131,6 +135,15 @@ pub const Runtime = struct {
         // Create VM and execute bytecode
         var gene_vm = vm.VM.init(self.allocator, self.stdout);
         defer gene_vm.deinit();
+        
+        // Register FFI functions if any
+        if (ffi_functions.len > 0) {
+            debug.log("Runtime: Registering {} FFI functions", .{ffi_functions.len});
+            for (ffi_functions) |ffi_func| {
+                debug.log("Runtime: FFI function name: {s}", .{ffi_func.name});
+            }
+            try gene_vm.registerFFIFunctions(ffi_functions);
+        }
 
         // Set module registry FIRST before any execution
         if (module_registry) |registry| {

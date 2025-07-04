@@ -25,5 +25,6 @@ benchmark-results/
 .vscode/
 callgrind.out*
 scratch*
+gene-nim/
 gene.wasm
 *.gbc

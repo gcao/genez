@@ -414,7 +414,7 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
 
     // MIR -> Bytecode (bypassing LIR for now until function handling is fixed)
     debug.writeMessage("\n=== MIR to Bytecode ===\n", .{});
-    const conversion_result = try mir_to_bytecode.convert(ctx.allocator, &mir_prog);
+    const conversion_result = try mir_to_bytecode.convert(ctx.allocator, &mir_prog, hir_prog.ffi_functions.items);
 
     // Display Bytecode
     try debug.writeBytecode(conversion_result.main_func, "Bytecode");

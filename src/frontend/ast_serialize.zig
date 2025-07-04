@@ -361,6 +361,52 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
             try serializeExpression(writer, for_loop.body.*, indent + 1);
             try writer.writeAll(")");
         },
+        .CExternDecl => |extern_decl| {
+            try writer.print("(c-extern {s} (", .{extern_decl.name});
+            for (extern_decl.params, 0..) |param, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.print("[{s} \"{s}\"]", .{param.name, param.c_type});
+            }
+            try writer.writeAll(") ");
+            if (extern_decl.return_type) |ret_type| {
+                try writer.print("\"{s}\"", .{ret_type});
+            } else {
+                try writer.writeAll("nil");
+            }
+            try writer.print(" \"{s}\"", .{extern_decl.lib});
+            if (extern_decl.symbol) |symbol| {
+                try writer.print(" :symbol \"{s}\"", .{symbol});
+            }
+            if (extern_decl.calling_convention) |cc| {
+                try writer.print(" :convention \"{s}\"", .{cc});
+            }
+            if (extern_decl.is_variadic) {
+                try writer.writeAll(" :variadic true");
+            }
+            try writer.writeAll(")");
+        },
+        .CStructDecl => |struct_decl| {
+            try writer.print("(c-struct {s} (", .{struct_decl.name});
+            for (struct_decl.fields, 0..) |field, i| {
+                if (i > 0) try writer.writeAll(" ");
+                try writer.print("[{s} \"{s}\"", .{field.name, field.c_type});
+                if (field.bit_size) |size| {
+                    try writer.print(" {d}", .{size});
+                }
+                try writer.writeAll("]");
+            }
+            try writer.writeAll(")");
+            if (struct_decl.is_packed) {
+                try writer.writeAll(" :packed true");
+            }
+            if (struct_decl.alignment) |alignment| {
+                try writer.print(" :align {d}", .{alignment});
+            }
+            try writer.writeAll(")");
+        },
+        .CTypeDecl => |type_decl| {
+            try writer.print("(c-type {s} \"{s}\")", .{type_decl.name, type_decl.c_type});
+        },
         else => |tag| {
             try writer.print("(; unsupported: {s} ;)", .{@tagName(tag)});
         },
