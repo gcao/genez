@@ -25,6 +25,12 @@ pub const OpCode = enum {
     Lt, // Lt Rs1, Rs2 -> Rd (result: boolean)
     Gt, // Gt Rs1, Rs2 -> Rd
     Eq, // Eq Rs1, Rs2 -> Rd
+    Ne, // Ne Rs1, Rs2 -> Rd (not equal)
+    Le, // Le Rs1, Rs2 -> Rd (less than or equal)
+    Ge, // Ge Rs1, Rs2 -> Rd (greater than or equal)
+    
+    // Logical operations
+    Not, // Not Rs -> Rd (logical not)
 
     // I/O operations
     Print, // Print Rs
@@ -138,6 +144,7 @@ pub const Function = struct {
     allocator: std.mem.Allocator,
     name: []const u8,
     param_count: usize,
+    rest_param: ?[]const u8 = null, // Name of rest parameter if any
     // Register allocation info
     register_count: u16, // Total number of registers needed for this function
     local_count: u16, // Number of local variable registers
@@ -174,12 +181,18 @@ pub const Function = struct {
         if (self.name.len > 0) {
             self.allocator.free(self.name);
         }
+        
+        // Free rest parameter name if present
+        if (self.rest_param) |rp| {
+            self.allocator.free(rp);
+        }
     }
     
     pub fn clone(self: *const Function, allocator: std.mem.Allocator) !Function {
         var new_func = Function.init(allocator);
         new_func.name = try allocator.dupe(u8, self.name);
         new_func.param_count = self.param_count;
+        new_func.rest_param = if (self.rest_param) |rp| try allocator.dupe(u8, rp) else null;
         new_func.register_count = self.register_count;
         new_func.local_count = self.local_count;
         new_func.temp_count = self.temp_count;

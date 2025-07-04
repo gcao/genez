@@ -1095,6 +1095,148 @@ pub const VM = struct {
 
                 try self.setRegister(dst_reg, .{ .Bool = result });
             },
+            .Ne => {
+                // Register-based not equal: Ne Rs1, Rs2 -> Rd
+                const src1_reg = instruction.src1 orelse return error.UnsupportedInstruction;
+                const src2_reg = instruction.src2 orelse return error.UnsupportedInstruction;
+                const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
+
+                debug.log("Ne instruction: R{} = R{} != R{}", .{ dst_reg, src1_reg, src2_reg });
+
+                var left = try self.getRegister(src1_reg);
+                defer left.deinit(self.allocator);
+                var right = try self.getRegister(src2_reg);
+                defer right.deinit(self.allocator);
+
+                // Ne is just the opposite of Eq
+                const eq_result = switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| left_val == right_val,
+                        .Float => |right_val| @as(f64, @floatFromInt(left_val)) == right_val,
+                        else => false,
+                    },
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| left_val == @as(f64, @floatFromInt(right_val)),
+                        .Float => |right_val| left_val == right_val,
+                        else => false,
+                    },
+                    .String => |left_val| switch (right) {
+                        .String => |right_val| std.mem.eql(u8, left_val, right_val),
+                        else => false,
+                    },
+                    .Bool => |left_val| switch (right) {
+                        .Bool => |right_val| left_val == right_val,
+                        else => false,
+                    },
+                    .Nil => switch (right) {
+                        .Nil => true,
+                        else => false,
+                    },
+                    else => false,
+                };
+
+                try self.setRegister(dst_reg, .{ .Bool = !eq_result });
+            },
+            .Le => {
+                // Register-based less than or equal: Le Rs1, Rs2 -> Rd
+                const src1_reg = instruction.src1 orelse return error.UnsupportedInstruction;
+                const src2_reg = instruction.src2 orelse return error.UnsupportedInstruction;
+                const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
+
+                debug.log("Le instruction: R{} = R{} <= R{}", .{ dst_reg, src1_reg, src2_reg });
+
+                var left = try self.getRegister(src1_reg);
+                defer left.deinit(self.allocator);
+                var right = try self.getRegister(src2_reg);
+                defer right.deinit(self.allocator);
+
+                const result = switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| left_val <= right_val,
+                        .Float => |right_val| @as(f64, @floatFromInt(left_val)) <= right_val,
+                        else => {
+                            debug.log("TypeMismatch in Le: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| left_val <= @as(f64, @floatFromInt(right_val)),
+                        .Float => |right_val| left_val <= right_val,
+                        else => {
+                            debug.log("TypeMismatch in Le: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    else => {
+                        debug.log("TypeMismatch in Le: left={}, right={}", .{ left, right });
+                        return error.TypeMismatch;
+                    },
+                };
+
+                try self.setRegister(dst_reg, .{ .Bool = result });
+            },
+            .Ge => {
+                // Register-based greater than or equal: Ge Rs1, Rs2 -> Rd
+                const src1_reg = instruction.src1 orelse return error.UnsupportedInstruction;
+                const src2_reg = instruction.src2 orelse return error.UnsupportedInstruction;
+                const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
+
+                debug.log("Ge instruction: R{} = R{} >= R{}", .{ dst_reg, src1_reg, src2_reg });
+
+                var left = try self.getRegister(src1_reg);
+                defer left.deinit(self.allocator);
+                var right = try self.getRegister(src2_reg);
+                defer right.deinit(self.allocator);
+
+                const result = switch (left) {
+                    .Int => |left_val| switch (right) {
+                        .Int => |right_val| left_val >= right_val,
+                        .Float => |right_val| @as(f64, @floatFromInt(left_val)) >= right_val,
+                        else => {
+                            debug.log("TypeMismatch in Ge: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    .Float => |left_val| switch (right) {
+                        .Int => |right_val| left_val >= @as(f64, @floatFromInt(right_val)),
+                        .Float => |right_val| left_val >= right_val,
+                        else => {
+                            debug.log("TypeMismatch in Ge: left={}, right={}", .{ left, right });
+                            return error.TypeMismatch;
+                        },
+                    },
+                    else => {
+                        debug.log("TypeMismatch in Ge: left={}, right={}", .{ left, right });
+                        return error.TypeMismatch;
+                    },
+                };
+
+                try self.setRegister(dst_reg, .{ .Bool = result });
+            },
+            .Not => {
+                // Register-based logical not: Not Rs -> Rd
+                const src_reg = instruction.src1 orelse return error.UnsupportedInstruction;
+                const dst_reg = instruction.dst orelse return error.UnsupportedInstruction;
+
+                debug.log("Not instruction: R{} = !R{}", .{ dst_reg, src_reg });
+
+                var value = try self.getRegister(src_reg);
+                defer value.deinit(self.allocator);
+
+                // Determine truthiness of the value
+                const is_truthy = switch (value) {
+                    .Nil => false,
+                    .Bool => |b| b,
+                    .Int => |i| i != 0,
+                    .Float => |f| f != 0.0,
+                    .String => |s| s.len > 0,
+                    .Array => |a| a.len > 0,
+                    .Map => |m| m.count() > 0,
+                    else => true, // Other values are considered truthy
+                };
+
+                try self.setRegister(dst_reg, .{ .Bool = !is_truthy });
+            },
             .Print => {
                 // Register-based print: Print Rs
                 const src_reg = instruction.src1 orelse return error.UnsupportedInstruction;
@@ -1838,6 +1980,32 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Handle logical NOT operator
+                    if (builtin_op == .Not) {
+                        if (arg_count != 1) {
+                            debug.log("Not operator requires exactly 1 argument, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the argument and check if it's truthy
+                        var value = try self.getRegister(func_reg + 1);
+                        defer value.deinit(self.allocator);
+                        
+                        const is_truthy = switch (value) {
+                            .Nil => false,
+                            .Bool => |b| b,
+                            .Int => |i| i != 0,
+                            .Float => |f| f != 0.0,
+                            .String => |s| s.len > 0,
+                            .Array => |a| a.len > 0,
+                            .Map => |m| m.count() > 0,
+                            else => true,
+                        };
+                        
+                        try self.setRegister(dst_reg, .{ .Bool = !is_truthy });
+                        return;
+                    }
+
                     // Handle GC operations
                     if (builtin_op == .GCCollect) {
                         if (self.garbage_collector) |gc_ptr| {
@@ -1881,6 +2049,127 @@ pub const VM = struct {
                         } else {
                             try self.setRegister(dst_reg, .Nil);
                         }
+                        return;
+                    }
+
+                    // Handle less than or equal operator
+                    if (builtin_op == .LessEqual) {
+                        if (arg_count != 2) {
+                            debug.log("LessEqual operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val <= right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) <= right_val,
+                                else => {
+                                    debug.log("TypeMismatch in <=: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val <= @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val <= right_val,
+                                else => {
+                                    debug.log("TypeMismatch in <=: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in <=: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
+                    // Handle greater than or equal operator
+                    if (builtin_op == .GreaterEqual) {
+                        if (arg_count != 2) {
+                            debug.log("GreaterEqual operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        const result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val >= right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) >= right_val,
+                                else => {
+                                    debug.log("TypeMismatch in >=: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val >= @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val >= right_val,
+                                else => {
+                                    debug.log("TypeMismatch in >=: left={}, right={}", .{ left, right });
+                                    return error.TypeMismatch;
+                                },
+                            },
+                            else => {
+                                debug.log("TypeMismatch in >=: left={}, right={}", .{ left, right });
+                                return error.TypeMismatch;
+                            },
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = result });
+                        return;
+                    }
+
+                    // Handle not equal operator
+                    if (builtin_op == .Ne) {
+                        if (arg_count != 2) {
+                            debug.log("NotEqual operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+
+                        // Use the same equality logic as Equal but negate the result
+                        const eq_result = switch (left) {
+                            .Int => |left_val| switch (right) {
+                                .Int => |right_val| left_val == right_val,
+                                .Float => |right_val| @as(f64, @floatFromInt(left_val)) == right_val,
+                                else => false,
+                            },
+                            .Float => |left_val| switch (right) {
+                                .Int => |right_val| left_val == @as(f64, @floatFromInt(right_val)),
+                                .Float => |right_val| left_val == right_val,
+                                else => false,
+                            },
+                            .String => |left_val| switch (right) {
+                                .String => |right_val| std.mem.eql(u8, left_val, right_val),
+                                else => false,
+                            },
+                            .Bool => |left_val| switch (right) {
+                                .Bool => |right_val| left_val == right_val,
+                                else => false,
+                            },
+                            .Nil => switch (right) {
+                                .Nil => true,
+                                else => false,
+                            },
+                            else => false,
+                        };
+
+                        try self.setRegister(dst_reg, .{ .Bool = !eq_result });
                         return;
                     }
 
@@ -2047,7 +2336,13 @@ pub const VM = struct {
                     const allocated_base = try self.allocateRegisters(needed_regs);
 
                     // Copy arguments to parameter registers
-                    for (0..arg_count) |i| {
+                    const expected_params = user_func.param_count;
+                    const has_rest_param = user_func.rest_param != null;
+                    
+                    // Copy regular parameters
+                    // If there's a rest parameter, the last parameter slot is for the rest array
+                    const regular_params = if (has_rest_param) expected_params - 1 else @min(expected_params, arg_count);
+                    for (0..regular_params) |i| {
                         // Arguments should be in registers following the function register
                         const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
                         const arg = try self.getRegister(arg_reg);
@@ -2062,6 +2357,43 @@ pub const VM = struct {
                         self.registers.items[dest_reg] = arg;
 
                         debug.log("Stored argument {} in R{} (base + {})", .{ i, dest_reg, i });
+                    }
+                    
+                    // Handle rest parameter - collect extra arguments into an array
+                    if (has_rest_param) {
+                        var rest_args = std.ArrayList(types.Value).init(self.allocator);
+                        errdefer rest_args.deinit();
+                        
+                        // Collect extra arguments beyond regular parameters
+                        if (arg_count > regular_params) {
+                            for (regular_params..arg_count) |i| {
+                                const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
+                                const arg = try self.getRegister(arg_reg);
+                                try rest_args.append(arg);
+                            }
+                        }
+                        
+                        // Store rest array in the last parameter position
+                        const rest_array = types.Value{ .Array = try rest_args.toOwnedSlice() };
+                        const dest_reg = allocated_base + @as(u16, @intCast(regular_params));
+                        while (dest_reg >= self.registers.items.len) {
+                            try self.registers.append(.{ .Nil = {} });
+                        }
+                        self.registers.items[dest_reg].deinit(self.allocator);
+                        self.registers.items[dest_reg] = rest_array;
+                        
+                        debug.log("Stored rest array with {} elements in R{}", .{ if (arg_count > regular_params) arg_count - regular_params else 0, dest_reg });
+                    } else {
+                        // No rest parameter - fill missing parameters with nil
+                        for (arg_count..expected_params) |i| {
+                            const dest_reg = allocated_base + @as(u16, @intCast(i));
+                            while (dest_reg >= self.registers.items.len) {
+                                try self.registers.append(.{ .Nil = {} });
+                            }
+                            self.registers.items[dest_reg].deinit(self.allocator);
+                            self.registers.items[dest_reg] = .{ .Nil = {} };
+                            debug.log("Filled missing parameter {} with nil in R{}", .{ i, dest_reg });
+                        }
                     }
 
                     // Switch to the new function

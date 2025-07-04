@@ -72,6 +72,7 @@ pub const HIR = struct {
     pub const Function = struct {
         name: []const u8,
         params: []FuncParam, // Added params field
+        rest_param: ?[]const u8 = null,
         body: std.ArrayList(Statement),
         allocator: std.mem.Allocator,
 
@@ -90,6 +91,9 @@ pub const HIR = struct {
                 param.deinit(self.allocator);
             }
             self.allocator.free(self.params); // Free the slice itself
+            if (self.rest_param) |rp| {
+                self.allocator.free(rp);
+            }
             for (self.body.items) |*stmt| {
                 stmt.deinit(self.allocator);
             }
@@ -367,6 +371,7 @@ pub const HIR = struct {
     pub const FuncDef = struct {
         name: []const u8,
         params: []FuncParam,
+        rest_param: ?[]const u8 = null,
         body: *Expression,
 
         pub fn deinit(self: *FuncDef, allocator: std.mem.Allocator) void {
@@ -376,6 +381,10 @@ pub const HIR = struct {
                 param.deinit(allocator);
             }
             allocator.free(self.params);
+            
+            if (self.rest_param) |rp| {
+                allocator.free(rp);
+            }
 
             self.body.deinit(allocator);
             allocator.destroy(self.body);

@@ -15,6 +15,7 @@ fn extractFunctionsFromExpression(allocator: std.mem.Allocator, hir_prog: *hir.H
                         errdefer hir_func.deinit();
 
                         hir_func.name = try allocator.dupe(u8, func_def.name);
+                        hir_func.rest_param = if (func_def.rest_param) |rp| try allocator.dupe(u8, rp) else null;
 
                         // Convert parameters
                         hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
@@ -52,6 +53,7 @@ fn extractFunctionsFromExpression(allocator: std.mem.Allocator, hir_prog: *hir.H
             errdefer hir_func.deinit();
 
             hir_func.name = try allocator.dupe(u8, func_def.name);
+            hir_func.rest_param = if (func_def.rest_param) |rp| try allocator.dupe(u8, rp) else null;
 
             // Convert parameters
             hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
@@ -100,6 +102,7 @@ pub fn convert(allocator: std.mem.Allocator, nodes: []const ast.AstNode) !hir.HI
                         errdefer hir_func.deinit();
 
                         hir_func.name = try allocator.dupe(u8, func_def.name);
+                        hir_func.rest_param = if (func_def.rest_param) |rp| try allocator.dupe(u8, rp) else null;
 
                         // Convert parameters
                         hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);
@@ -498,6 +501,7 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             errdefer hir_func.deinit();
 
             hir_func.name = try allocator.dupe(u8, func_def.name);
+            hir_func.rest_param = if (func_def.rest_param) |rp| try allocator.dupe(u8, rp) else null;
 
             // Convert parameters
             hir_func.params = try allocator.alloc(hir.HIR.FuncParam, func_def.params.len);

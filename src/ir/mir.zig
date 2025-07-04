@@ -26,6 +26,7 @@ pub const MIR = struct {
         blocks: std.ArrayList(Block),
         param_count: usize = 0,
         param_names: std.ArrayList([]const u8),
+        rest_param: ?[]const u8 = null,
 
         pub fn init(allocator: std.mem.Allocator) Function {
             // Allocate the default name properly to avoid freeing string literals
@@ -50,6 +51,11 @@ pub const MIR = struct {
                 self.allocator.free(name);
             }
             self.param_names.deinit();
+            
+            // Free rest parameter name if present
+            if (self.rest_param) |rp| {
+                self.allocator.free(rp);
+            }
         }
     };
 

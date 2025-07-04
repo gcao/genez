@@ -69,7 +69,14 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
                 }
             }
 
-            try writer.writeAll("] ");
+            try writer.writeAll("]");
+            
+            // Add rest parameter if present
+            if (func_def.rest_param) |rp| {
+                try writer.print(" rest:\"{s}\"", .{rp});
+            }
+            
+            try writer.writeAll(" ");
             try serializeExpression(writer, func_def.body.*, indent + 1);
             try writer.writeAll(")");
         },

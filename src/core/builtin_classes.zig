@@ -211,8 +211,7 @@ fn createEqualsMethod(allocator: std.mem.Allocator) !*bytecode.Function {
 fn createNotEqualsMethod(allocator: std.mem.Allocator) !*bytecode.Function {
     const func = try createFunction(allocator, "!=", 2, 3);
     // Compare two values for inequality
-    try func.instructions.append(.{ .op = .Eq, .src1 = 0, .src2 = 1, .dst = 2 });
-    // TODO: Need a Not instruction
+    try func.instructions.append(.{ .op = .Ne, .src1 = 0, .src2 = 1, .dst = 2 });
     try func.instructions.append(.{ .op = .Return, .src1 = 2 });
     return func;
 }
@@ -262,16 +261,16 @@ fn createGreaterThanMethod(allocator: std.mem.Allocator) !*bytecode.Function {
 }
 
 fn createLessEqualMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "<=", 2, 1);
-    // TODO: Need Le instruction
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    const func = try createFunction(allocator, "<=", 2, 3);
+    try func.instructions.append(.{ .op = .Le, .src1 = 0, .src2 = 1, .dst = 2 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
     return func;
 }
 
 fn createGreaterEqualMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, ">=", 2, 1);
-    // TODO: Need Ge instruction
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    const func = try createFunction(allocator, ">=", 2, 3);
+    try func.instructions.append(.{ .op = .Ge, .src1 = 0, .src2 = 1, .dst = 2 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
     return func;
 }
 

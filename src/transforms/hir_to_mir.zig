@@ -106,6 +106,16 @@ fn convertFunction(allocator: std.mem.Allocator, func: hir.HIR.Function, functio
         const param_name = try allocator.dupe(u8, param.name);
         try mir_func.param_names.append(param_name);
     }
+    
+    // Set rest parameter if present
+    mir_func.rest_param = if (func.rest_param) |rp| try allocator.dupe(u8, rp) else null;
+    
+    // If there's a rest parameter, add it to the param names so it can be accessed
+    if (func.rest_param) |rp| {
+        const rest_param_name = try allocator.dupe(u8, rp);
+        try mir_func.param_names.append(rest_param_name);
+        mir_func.param_count += 1; // Increase param count to include rest parameter
+    }
 
     // Create entry block
     var entry_block = mir.MIR.Block.init(allocator);

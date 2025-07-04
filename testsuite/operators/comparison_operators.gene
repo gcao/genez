@@ -1,0 +1,35 @@
+# Test comparison operators
+
+# != operator
+(println (== 5 5))
+(println (!= 5 5))
+(println (!= 5 6))
+(println (!= "hello" "hello"))
+(println (!= "hello" "world"))
+(println (!= nil nil))
+(println (!= nil 5))
+
+# <= operator
+(println (<= 5 10))
+(println (<= 10 10))
+(println (<= 15 10))
+(println (<= 3.14 3.14))
+(println (<= 2.5 3.0))
+
+# >= operator
+(println (>= 10 5))
+(println (>= 10 10))
+(println (>= 5 10))
+(println (>= 3.14 3.14))
+(println (>= 3.0 2.5))
+
+# ! operator (logical NOT)
+(println (! true))
+(println (! false))
+(println (! nil))
+(println (! 0))
+(println (! 1))
+(println (! ""))
+(println (! "hello"))
+(println (! []))
+(println (! [1 2 3]))

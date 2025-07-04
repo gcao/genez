@@ -1671,8 +1671,9 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
 
     var params_list = std.ArrayList(ast.FuncParam).init(alloc);
     errdefer params_list.deinit(); // Cleanup if error before transfer
+    var rest_param: ?[]const u8 = null;
 
-    // Check for special _ parameter (without brackets)
+    // Check for special _ parameter or rest parameter (without brackets)
     if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
         const ident = toks[current_pos].kind.Ident;
         if (std.mem.eql(u8, ident, "_")) {
@@ -1682,8 +1683,9 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
             try params_list.append(.{ .name = underscore_param, .param_type = null });
             current_pos += 1; // Skip _
         } else {
-            // This is not a valid parameter syntax - parameters must be in brackets
-            // Continue to body parsing
+            // This is a rest parameter - it collects all remaining arguments
+            rest_param = try alloc.dupe(u8, ident);
+            current_pos += 1; // Skip the identifier
         }
     } else if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1; // Skip '['
@@ -1725,6 +1727,17 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
         }
         if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
         current_pos += 1; // Skip ']'
+        
+        // After bracketed parameters, check for rest parameter
+        if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+            const next_pos = current_pos + 1;
+            // Only treat it as rest parameter if there's more tokens after it (the body)
+            if (next_pos < toks.len) {
+                const ident = toks[current_pos].kind.Ident;
+                rest_param = try alloc.dupe(u8, ident);
+                current_pos += 1; // Skip the identifier
+            }
+        }
     }
 
     if (current_pos >= toks.len) return error.UnexpectedEOF; // Expected body
@@ -1768,7 +1781,7 @@ fn parseFn(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
     
     const fn_node: ast.AstNode = .{
         .Expression = .{
-            .FuncDef = .{ .name = name_copy, .params = params_slice, .body = body_ptr },
+            .FuncDef = .{ .name = name_copy, .params = params_slice, .rest_param = rest_param, .body = body_ptr },
         },
     };
 
@@ -1795,8 +1808,9 @@ fn parseFnx(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
 
     var params_list = std.ArrayList(ast.FuncParam).init(alloc);
     errdefer params_list.deinit(); // Cleanup if error before transfer
+    var rest_param: ?[]const u8 = null;
 
-    // Check for special _ parameter (without brackets)
+    // Check for special _ parameter or rest parameter (without brackets)
     if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
         const ident = toks[current_pos].kind.Ident;
         if (std.mem.eql(u8, ident, "_")) {
@@ -1806,8 +1820,9 @@ fn parseFnx(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
             try params_list.append(.{ .name = underscore_param, .param_type = null });
             current_pos += 1; // Skip _
         } else {
-            // This is not a valid parameter syntax - parameters must be in brackets
-            // Continue to body parsing
+            // This is a rest parameter - it collects all remaining arguments
+            rest_param = try alloc.dupe(u8, ident);
+            current_pos += 1; // Skip the identifier
         }
     } else if (current_pos < toks.len and toks[current_pos].kind == .LBracket) {
         current_pos += 1; // Skip '['
@@ -1849,6 +1864,17 @@ fn parseFnx(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
         }
         if (current_pos >= toks.len or toks[current_pos].kind != .RBracket) return error.ExpectedRBracket;
         current_pos += 1; // Skip ']'
+        
+        // After bracketed parameters, check for rest parameter
+        if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
+            const next_pos = current_pos + 1;
+            // Only treat it as rest parameter if there's more tokens after it (the body)
+            if (next_pos < toks.len) {
+                const ident = toks[current_pos].kind.Ident;
+                rest_param = try alloc.dupe(u8, ident);
+                current_pos += 1; // Skip the identifier
+            }
+        }
     }
 
     if (current_pos >= toks.len) return error.UnexpectedEOF;
@@ -1892,7 +1918,7 @@ fn parseFnx(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseR
     
     const fn_node: ast.AstNode = .{
         .Expression = .{
-            .FuncDef = .{ .name = name_copy, .params = params_slice, .body = body_ptr },
+            .FuncDef = .{ .name = name_copy, .params = params_slice, .rest_param = rest_param, .body = body_ptr },
         },
     };
 

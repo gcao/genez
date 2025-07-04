@@ -164,6 +164,7 @@ fn convertMirFunction(allocator: std.mem.Allocator, mir_func: *mir.MIR.Function)
     // Copy function metadata
     bytecode_func.name = try allocator.dupe(u8, mir_func.name);
     bytecode_func.param_count = mir_func.param_count;
+    bytecode_func.rest_param = if (mir_func.rest_param) |rp| try allocator.dupe(u8, rp) else null;
     // We'll compute the actual register usage during conversion
     bytecode_func.register_count = 0;
 

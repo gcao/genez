@@ -54,7 +54,11 @@
       "Bash(do echo \"=== Testing $f ===\")",
       "Bash(do echo \"=== Testing $test ===\")",
       "Bash(do echo -n \"$f: \")",
-      "Bash(/dev/null)"
+      "Bash(/dev/null)",
+      "Bash(git commit:*)",
+      "Bash(GENE_DEBUG=1 ./zig-out/bin/gene run tmp/test_tokenize.gene)",
+      "Bash(lldb:*)",
+      "Bash(./run_single_test.sh:*)"
     ],
     "deny": []
   },

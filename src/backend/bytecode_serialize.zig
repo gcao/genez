@@ -22,6 +22,12 @@ pub fn serializeFunction(writer: anytype, func: bytecode.Function, indent: usize
     try writeIndent(writer, indent + 1);
     try writer.print("(param-count {d})\n", .{func.param_count});
     
+    // Serialize rest parameter if present
+    if (func.rest_param) |rp| {
+        try writeIndent(writer, indent + 1);
+        try writer.print("(rest-param \"{s}\")\n", .{rp});
+    }
+    
     // Serialize instructions
     try writeIndent(writer, indent + 1);
     try writer.writeAll("(instructions\n");

@@ -238,6 +238,7 @@ pub const FuncParam = struct {
 pub const FuncDef = struct {
     name: []const u8,
     params: []FuncParam,
+    rest_param: ?[]const u8 = null,  // Name of rest parameter if any
     body: *Expression,
 
     pub fn deinit(self: *FuncDef, allocator: std.mem.Allocator) void {
@@ -248,6 +249,9 @@ pub const FuncDef = struct {
             param.deinit(allocator);
         }
         allocator.free(self.params); // Free the slice itself
+        if (self.rest_param) |rp| {
+            allocator.free(rp);
+        }
         // Restore recursive deinit for body
         self.body.deinit(allocator);
         allocator.destroy(self.body);
@@ -268,6 +272,7 @@ pub const FuncDef = struct {
         return FuncDef{
             .name = try allocator.dupe(u8, self.name),
             .params = params,
+            .rest_param = if (self.rest_param) |rp| try allocator.dupe(u8, rp) else null,
             .body = body,
         };
     }

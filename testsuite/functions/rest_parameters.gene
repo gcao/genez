@@ -1,0 +1,30 @@
+# Test rest parameters/varargs
+
+# Basic rest parameter function
+(fn collect args
+    (println args))
+
+(collect)
+(collect 1)
+(collect 1 2 3)
+
+# Rest parameter with regular parameters
+(fn format [prefix] items
+    (println prefix items))
+
+(format "Items:")
+(format "Numbers:" 1 2 3)
+
+# Multiple regular parameters with rest
+(fn log [level prefix] messages
+    (println #"[#{level}] #{prefix}:" messages))
+
+(log "INFO" "Server")
+(log "ERROR" "Database" "Connection failed" "Retry in 5s")
+
+# Empty rest parameter behavior
+(fn optional_args [required] opts
+    (println "Required:" required "Options:" opts))
+
+(optional_args "value")
+(optional_args "value" "opt1" "opt2")
