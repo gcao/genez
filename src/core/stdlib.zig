@@ -57,6 +57,7 @@ pub const StdlibFunction = enum {
     StringReplace,
     StringStartsWith,
     StringEndsWith,
+    StringConcat,
     
     // Math operations
     MathSqrt,

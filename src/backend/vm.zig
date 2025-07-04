@@ -153,6 +153,9 @@ pub const VM = struct {
         // Math operations
         variables.put("math_sqrt", .{ .StdlibFunction = .MathSqrt }) catch unreachable;
         
+        // String operations
+        variables.put("string_concat", .{ .StdlibFunction = .StringConcat }) catch unreachable;
+        
         // Error handling
         variables.put("throw", .{ .StdlibFunction = .Throw }) catch unreachable;
         variables.put("error_new", .{ .StdlibFunction = .ErrorNew }) catch unreachable;
@@ -1775,6 +1778,66 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Handle logical AND operator
+                    if (builtin_op == .And) {
+                        if (arg_count != 2) {
+                            debug.log("And operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the first argument and check if it's truthy
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        
+                        const left_truthy = switch (left) {
+                            .Nil => false,
+                            .Bool => |b| b,
+                            else => true,
+                        };
+                        
+                        if (!left_truthy) {
+                            // Short-circuit: return first falsy value
+                            try self.setRegister(dst_reg, try left.clone(self.allocator));
+                            return;
+                        }
+                        
+                        // First is truthy, return the second value
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+                        try self.setRegister(dst_reg, try right.clone(self.allocator));
+                        return;
+                    }
+
+                    // Handle logical OR operator
+                    if (builtin_op == .Or) {
+                        if (arg_count != 2) {
+                            debug.log("Or operator requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        // Get the first argument and check if it's truthy
+                        var left = try self.getRegister(func_reg + 1);
+                        defer left.deinit(self.allocator);
+                        
+                        const left_truthy = switch (left) {
+                            .Nil => false,
+                            .Bool => |b| b,
+                            else => true,
+                        };
+                        
+                        if (left_truthy) {
+                            // Short-circuit: return first truthy value
+                            try self.setRegister(dst_reg, try left.clone(self.allocator));
+                            return;
+                        }
+                        
+                        // First is falsy, return the second value
+                        var right = try self.getRegister(func_reg + 2);
+                        defer right.deinit(self.allocator);
+                        try self.setRegister(dst_reg, try right.clone(self.allocator));
+                        return;
+                    }
+
                     // Handle GC operations
                     if (builtin_op == .GCCollect) {
                         if (self.garbage_collector) |gc_ptr| {
@@ -3340,6 +3403,40 @@ pub const VM = struct {
                     return error.TypeMismatch;
                 }
             },
+            .And => {
+                // Handle && operator - short-circuit logical AND
+                // In Gene, nil and false are falsy, everything else is truthy
+                const arg1_truthy = switch (arg1) {
+                    .Nil => false,
+                    .Bool => |b| b,
+                    else => true,
+                };
+                
+                if (!arg1_truthy) {
+                    // Short-circuit: return first falsy value
+                    return arg1;
+                }
+                
+                // Return second value (which determines the final result)
+                return arg2;
+            },
+            .Or => {
+                // Handle || operator - short-circuit logical OR
+                // In Gene, nil and false are falsy, everything else is truthy
+                const arg1_truthy = switch (arg1) {
+                    .Nil => false,
+                    .Bool => |b| b,
+                    else => true,
+                };
+                
+                if (arg1_truthy) {
+                    // Short-circuit: return first truthy value
+                    return arg1;
+                }
+                
+                // Return second value (which determines the final result)
+                return arg2;
+            },
             else => {
                 return error.TypeMismatch;
             },
@@ -3536,6 +3633,76 @@ pub const VM = struct {
                 };
                 
                 try self.setRegister(dst_reg, .{ .Float = @sqrt(x) });
+            },
+            
+            .StringConcat => {
+                // string_concat(parts...) -> String
+                debug.log("StringConcat: arg_count={}, func_reg={}, dst_reg={}", .{arg_count, func_reg, dst_reg});
+                
+                if (arg_count == 0) {
+                    try self.setRegister(dst_reg, .{ .String = try self.allocator.dupe(u8, "") });
+                    return;
+                }
+                
+                // Calculate total length needed
+                var total_len: usize = 0;
+                for (0..arg_count) |i| {
+                    const reg_index = func_reg + 1 + @as(u16, @intCast(i));
+                    debug.log("StringConcat: reading register {} for part {}", .{reg_index, i});
+                    const part = try self.getRegister(reg_index);
+                    
+                    const str = switch (part) {
+                        .String => |s| s,
+                        .Int => |n| blk: {
+                            var buf: [32]u8 = undefined;
+                            const str_result = try std.fmt.bufPrint(&buf, "{}", .{n});
+                            break :blk str_result;
+                        },
+                        .Float => |f| blk: {
+                            var buf: [32]u8 = undefined;
+                            const str_result = try std.fmt.bufPrint(&buf, "{d}", .{f});
+                            break :blk str_result;
+                        },
+                        .Bool => |b| if (b) "true" else "false",
+                        .Nil => "nil",
+                        else => {
+                            debug.log("string_concat: unsupported type {}", .{part});
+                            return error.TypeMismatch;
+                        },
+                    };
+                    total_len += str.len;
+                }
+                
+                // Allocate result string
+                var result = try self.allocator.alloc(u8, total_len);
+                var offset: usize = 0;
+                
+                // Copy all parts
+                for (0..arg_count) |i| {
+                    const part = try self.getRegister(func_reg + 1 + @as(u16, @intCast(i)));
+                    
+                    const str = switch (part) {
+                        .String => |s| s,
+                        .Int => |n| blk: {
+                            var buf: [32]u8 = undefined;
+                            const str_result = try std.fmt.bufPrint(&buf, "{}", .{n});
+                            break :blk str_result;
+                        },
+                        .Float => |f| blk: {
+                            var buf: [32]u8 = undefined;
+                            const str_result = try std.fmt.bufPrint(&buf, "{d}", .{f});
+                            break :blk str_result;
+                        },
+                        .Bool => |b| if (b) "true" else "false",
+                        .Nil => "nil",
+                        else => unreachable,
+                    };
+                    
+                    @memcpy(result[offset..offset + str.len], str);
+                    offset += str.len;
+                }
+                
+                try self.setRegister(dst_reg, .{ .String = result });
             },
             
             .Throw => {

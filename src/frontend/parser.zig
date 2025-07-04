@@ -37,6 +37,7 @@ pub const ParserError = error{
     ExpectedInstanceVarName,
     ExpectedFieldName,
     UnexpectedTokenInPackageGene,
+    UnterminatedInterpolation,
 };
 
 // --- Tokenizer (Mostly unchanged, minor fixes) ---
@@ -50,6 +51,7 @@ pub const TokenKind = union(enum) {
     Float: f64,
     Bool: bool,
     String: []const u8,
+    InterpolatedString: []const u8, // String with interpolation markers
     Ident: []const u8, // Includes operators like +, -, < etc.
     LParen,
     RParen,
@@ -123,12 +125,17 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
     while (i < source_to_parse.len) {
         const c = source_to_parse[i];
 
-        // Skip whitespace and comments
+        // Skip whitespace
         if (std.ascii.isWhitespace(c)) {
             i += 1;
             continue;
         }
-        if (c == '#') {
+        
+        // Check for interpolated string first before treating # as comment
+        if (c == '#' and i + 1 < source_to_parse.len and source_to_parse[i + 1] == '"') {
+            // This is an interpolated string, not a comment - fall through to handle it below
+        } else if (c == '#') {
+            // This is a comment
             while (i < source_to_parse.len and source_to_parse[i] != '\n') : (i += 1) {}
             continue;
         }
@@ -256,7 +263,56 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             continue;
         }
 
-        // Handle strings
+        // Handle interpolated strings #"..."
+        if (c == '#' and i + 1 < source_to_parse.len and source_to_parse[i + 1] == '"') {
+            debug.log("Found interpolated string at position {}", .{i});
+            const start = i + 2;
+            i += 2; // Skip #"
+            var str_parts = std.ArrayList(u8).init(allocator);
+            defer str_parts.deinit();
+            
+            while (i < source_to_parse.len) {
+                if (source_to_parse[i] == '\\' and i + 1 < source_to_parse.len) {
+                    // Handle escape sequence
+                    try str_parts.append('\\');
+                    try str_parts.append(source_to_parse[i + 1]);
+                    i += 2;
+                } else if (source_to_parse[i] == '"') {
+                    break;
+                } else if (source_to_parse[i] == '#' and i + 1 < source_to_parse.len and source_to_parse[i + 1] == '{') {
+                    // Found interpolation marker - for now just include it as-is
+                    // TODO: Parse interpolation expressions
+                    try str_parts.append('#');
+                    try str_parts.append('{');
+                    i += 2;
+                    
+                    // Find matching }
+                    var brace_depth: u32 = 1;
+                    while (i < source_to_parse.len and brace_depth > 0) {
+                        if (source_to_parse[i] == '{') {
+                            brace_depth += 1;
+                        } else if (source_to_parse[i] == '}') {
+                            brace_depth -= 1;
+                        }
+                        try str_parts.append(source_to_parse[i]);
+                        i += 1;
+                    }
+                } else {
+                    try str_parts.append(source_to_parse[i]);
+                    i += 1;
+                }
+            }
+            if (i >= source_to_parse.len) return error.UnterminatedString;
+            
+            // For now, create an InterpolatedString token
+            const str = try str_parts.toOwnedSlice();
+            debug.log("Created InterpolatedString token: '{s}' at loc {}", .{str, start - 2});
+            try tokens.append(.{ .kind = .{ .InterpolatedString = str }, .loc = start - 2 });
+            i += 1; // Move past closing quote
+            continue;
+        }
+        
+        // Handle regular strings
         if (c == '"') {
             const start = i + 1;
             i += 1;
@@ -279,8 +335,8 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
         }
 
         // Handle identifiers and keywords (including operators)
-        const ident_chars = "_!$&*:<=>?@^~+-"; // Added '+' and '-' to allow multi-character operators like ++
-        const ident_start_chars = "_!$&*+:<=>?@^~-"; // '+' and '-' can start an identifier if not followed by digit
+        const ident_chars = "_!$&*:<=>?@^~+-|"; // Added '+', '-', and '|' to allow multi-character operators
+        const ident_start_chars = "_!$&*+:<=>?@^~-|"; // '+', '-', and '|' can start an identifier if not followed by digit
         if (std.ascii.isAlphabetic(c) or std.mem.indexOfScalar(u8, ident_start_chars, c) != null) {
             const start = i;
             while (i + 1 < source_to_parse.len and (std.ascii.isAlphanumeric(source_to_parse[i + 1]) or std.mem.indexOfScalar(u8, ident_chars, source_to_parse[i + 1]) != null)) : (i += 1) {}
@@ -372,7 +428,9 @@ fn isBinaryOperator(op_str: []const u8) bool {
         std.mem.eql(u8, op_str, "<=") or
         std.mem.eql(u8, op_str, ">=") or
         std.mem.eql(u8, op_str, "==") or
-        std.mem.eql(u8, op_str, "!=");
+        std.mem.eql(u8, op_str, "!=") or
+        std.mem.eql(u8, op_str, "&&") or
+        std.mem.eql(u8, op_str, "||");
 }
 
 /// Parse a Gene source string into an AST.
@@ -790,6 +848,98 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
             // String tokens are already allocated by tokenizer
             const literal_result = ParseResult{ .node = .{ .Expression = .{ .Literal = .{ .value = .{ .String = str } } } }, .consumed = 1 };
             return parsePostfixExpression(alloc, toks, literal_result);
+        },
+        .InterpolatedString => |str| {
+            debug.log("Parsing InterpolatedString: '{s}'", .{str});
+            // Parse interpolated string into concatenation of parts
+            var parts = std.ArrayList(*ast.Expression).init(alloc);
+            // Don't defer deinit - we're passing ownership to the FuncCall
+            
+            var i: usize = 0;
+            var current_part = std.ArrayList(u8).init(alloc);
+            defer current_part.deinit();
+            
+            while (i < str.len) {
+                if (i + 1 < str.len and str[i] == '#' and str[i + 1] == '{') {
+                    // Save current string part if not empty
+                    if (current_part.items.len > 0) {
+                        const str_expr = try alloc.create(ast.Expression);
+                        str_expr.* = .{ .Literal = .{ .value = .{ .String = try current_part.toOwnedSlice() } } };
+                        try parts.append(str_expr);
+                        current_part = std.ArrayList(u8).init(alloc);
+                    }
+                    
+                    // Find matching }
+                    i += 2; // Skip #{
+                    const expr_start = i;
+                    var brace_depth: u32 = 1;
+                    while (i < str.len and brace_depth > 0) {
+                        if (str[i] == '{') {
+                            brace_depth += 1;
+                        } else if (str[i] == '}') {
+                            brace_depth -= 1;
+                            if (brace_depth == 0) break;
+                        }
+                        i += 1;
+                    }
+                    
+                    if (brace_depth > 0) return error.UnterminatedInterpolation;
+                    
+                    // Parse the expression inside #{}
+                    const expr_str = str[expr_start..i];
+                    const expr_tokens = tokenize(alloc, expr_str) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidExpression,
+                        error.InvalidCharacter => return error.InvalidExpression,
+                        else => |e| return e,
+                    };
+                    defer expr_tokens.deinit();
+                    
+                    if (expr_tokens.items.len > 0) {
+                        const expr_result = try parseExpression(alloc, expr_tokens.items, depth + 1);
+                        const expr_ptr = try alloc.create(ast.Expression);
+                        expr_ptr.* = expr_result.node.Expression;
+                        
+                        // For now, just add the expression directly
+                        // TODO: Add proper to_string conversion
+                        try parts.append(expr_ptr);
+                    }
+                    
+                    i += 1; // Skip closing }
+                } else {
+                    try current_part.append(str[i]);
+                    i += 1;
+                }
+            }
+            
+            // Add final string part if not empty
+            if (current_part.items.len > 0) {
+                const str_expr = try alloc.create(ast.Expression);
+                str_expr.* = .{ .Literal = .{ .value = .{ .String = try current_part.toOwnedSlice() } } };
+                try parts.append(str_expr);
+            }
+            
+            // If only one part, return it directly
+            if (parts.items.len == 1) {
+                const result = ParseResult{ .node = .{ .Expression = parts.items[0].* }, .consumed = 1 };
+                return parsePostfixExpression(alloc, toks, result);
+            }
+            
+            // Otherwise, create a concatenation expression using string_concat function
+            const concat_func = try alloc.create(ast.Expression);
+            concat_func.* = .{ .Variable = .{ .name = try alloc.dupe(u8, "string_concat") } };
+            
+            debug.log("Creating FuncCall with {} parts", .{parts.items.len});
+            for (parts.items, 0..) |part, idx| {
+                debug.log("  Part {}: {any}", .{idx, part});
+            }
+            
+            const concat_expr = ast.Expression{ .FuncCall = .{
+                .func = concat_func,
+                .args = parts,
+            }};
+            
+            const result = ParseResult{ .node = .{ .Expression = concat_expr }, .consumed = 1 };
+            return parsePostfixExpression(alloc, toks, result);
         },
         .Nil => {
             const literal_result = ParseResult{ .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Nil = {} } } } }, .consumed = 1 };

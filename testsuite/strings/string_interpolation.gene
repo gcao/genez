@@ -1,0 +1,29 @@
+# Test string interpolation
+
+# Basic interpolation
+(var name "World")
+(println #"Hello, #{name}!")
+
+# Number interpolation
+(var count 42)
+(println #"The answer is #{count}")
+
+# Float interpolation  
+(var pi 3.14159)
+(println #"Pi is #{pi}")
+
+# Multiple interpolations
+(var first "Gene")
+(var last "Language")
+(println #"#{first} #{last}")
+
+# Expression interpolation
+(var x 10)
+(var y 20)
+(println #"#{x} + #{y} = #{(+ x y)}")
+
+# Empty string parts
+(println #"#{name}")
+
+# No interpolation
+(println #"Just a string")

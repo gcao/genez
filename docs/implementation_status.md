@@ -6,7 +6,7 @@ This document tracks the current implementation status of Gene as a dynamic, Rub
 
 Gene is a functional interpreter with a working 4-stage compilation pipeline (AST → HIR → MIR → Bytecode). The language combines Lisp's powerful macro system and s-expression syntax with Ruby-like object-oriented features and developer ergonomics. The implementation focuses on being a practical, dynamic language first, with type checking and optimization deferred to later phases.
 
-**Last Updated**: 2025-01-19 - Repositioned as Ruby+Lisp-like dynamic language, type checking moved to future phase.
+**Last Updated**: 2025-01-19 - Added FFI support, exception handling, and identified additional language features from HTTP todo app analysis.
 
 ## Language Philosophy
 
@@ -68,12 +68,21 @@ Gene aims to be a modern dynamic language that combines:
 - **Loops** (for-in) ✓
 - **Do blocks** for sequential execution ✓
 - **Early returns** ✓
+- **Exception handling** (try/catch/finally, throw) ✓
 
 ### 8. **Developer Experience**
 - **REPL** for interactive development ✓
 - **Clear error messages** (basic) ✓
 - **Debug mode** showing compilation stages ✓
 - **Print/println** for debugging ✓
+
+### 9. **Foreign Function Interface (FFI)**
+- **C function declarations** (`c-extern`) ✓
+- **C struct declarations** (`c-struct`) ✓
+- **C type aliases** (`c-type`) ✓
+- **Variadic function support** ✓
+- **FFI callbacks** (`c-callback`) ✓
+- **Native function definitions** with Gene callbacks ✓
 
 ## Ruby-like Features - Completed ✅
 
@@ -114,15 +123,42 @@ Gene aims to be a modern dynamic language that combines:
 - ⏳ More math functions
 
 ### 2. **Error Handling**
-- Try/catch/finally blocks
-- Custom exception types
-- Stack traces with line numbers
+- ✅ Try/catch/finally blocks (basic support)
+- ✅ Throw expressions
+- ✅ Custom exception types (Error values)
+- ⏳ Stack traces with line numbers
 
 ### 3. **Advanced Pattern Matching**
-- Array patterns
-- Map patterns
-- Guard clauses
-- Destructuring
+- ⏳ Array patterns
+- ⏳ Map patterns
+- ⏳ Guard clauses
+- ⏳ Destructuring in pattern matching
+- ⏳ Pattern matching with extraction (e.g., `(match [^id ^status] data)`)
+
+### 4. **Language Features - High Priority**
+- ⏳ **Default parameter values** - `(fn f [a b = 10])` 
+- ⏳ **Rest parameters/varargs** - `(fn f [a b...])` 
+- ⏳ **Spread operator** - `(... array)` 
+- ⏳ **String interpolation** - `#"Hello #{name}"` 
+- ⏳ **Logical AND operator** - `&&` 
+- ⏳ **Conditional assignment** - `||=` and `||` for defaults
+- ⏳ **For loop destructuring** - `(for [k v] in map)`
+
+### 5. **Language Features - Medium Priority**
+- ⏳ **Triple-quoted strings** - `"""multi-line"""` 
+- ⏳ **Named parameters** - `(fn f [^opt1 ^opt2 required])` 
+- ⏳ **Dynamic selectors** - `@property` syntax for dynamic access (see test_selector.nim)
+- ⏳ **Class inheritance syntax** - `(class Child < Parent)`
+- ⏳ **Method chaining with tap** - `$tap` macro
+- ⏳ **Advanced OOP hooks** - `.on_extended`, `.on_member_missing`
+- ⏳ **Class variables** - `/table`, `/columns` notation
+- ⏳ **$set macro** - Dynamic property setter
+- ⏳ **Symbol literals** - `:symbol` syntax (considering `` ` `` as alternative)
+
+### 6. **Global Variables/Built-ins**
+- ⏳ **$env** - Environment variables access
+- ⏳ **$cmd_args** - Command line arguments
+- ⏳ **$if_main** - Conditional execution for main module
 
 ## Future Phases 🔮
 
@@ -150,7 +186,6 @@ Gene aims to be a modern dynamic language that combines:
 ### Phase 4: Advanced Features
 - **Concurrency** - actors, channels, STM
 - **Native compilation** - standalone executables
-- **FFI** - C interop
 - **Package manager** - dependency management
 
 ## Design Principles

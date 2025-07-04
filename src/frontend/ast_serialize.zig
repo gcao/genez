@@ -33,10 +33,10 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
         .FuncCall => |call| {
             try writer.writeAll("(call ");
             try serializeExpression(writer, call.func.*, indent);
-            try writer.writeAll(" ");
-
-            for (call.args.items, 0..) |arg, i| {
-                if (i > 0) try writer.writeAll(" ");
+            
+            // Handle args which is an ArrayList
+            for (call.args.items) |arg| {
+                try writer.writeAll(" ");
                 try serializeExpression(writer, arg.*, indent + 1);
             }
 

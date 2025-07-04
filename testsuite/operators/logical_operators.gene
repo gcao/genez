@@ -1,0 +1,19 @@
+(println (&& true true))
+(println (&& true false))
+(println (&& false true))
+(println (&& false false))
+
+(println (|| true true))
+(println (|| true false))
+(println (|| false true))
+(println (|| false false))
+
+(println (&& 1 2))
+(println (&& nil 2))
+(println (&& false 2))
+(println (&& "hello" "world"))
+
+(println (|| 1 2))
+(println (|| nil 2))
+(println (|| false "default"))
+(println (|| "first" "second"))
