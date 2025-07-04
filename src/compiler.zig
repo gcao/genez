@@ -412,9 +412,15 @@ pub fn compile(ctx: CompilationContext, nodes: []ast.AstNode) !mir_to_bytecode.C
     // Display MIR
     try debug.writeMIR(mir_prog, "MIR");
 
+    // Transfer ownership of FFI functions from HIR before it gets cleaned up
+    const ffi_functions = hir_prog.takeFFIFunctions();
+    
     // MIR -> Bytecode (bypassing LIR for now until function handling is fixed)
     debug.writeMessage("\n=== MIR to Bytecode ===\n", .{});
-    const conversion_result = try mir_to_bytecode.convert(ctx.allocator, &mir_prog, hir_prog.ffi_functions.items);
+    var conversion_result = try mir_to_bytecode.convert(ctx.allocator, &mir_prog, ffi_functions.items);
+    
+    // Transfer ownership to conversion_result
+    conversion_result.ffi_functions = ffi_functions;
 
     // Display Bytecode
     try debug.writeBytecode(conversion_result.main_func, "Bytecode");

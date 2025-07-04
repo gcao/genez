@@ -33,8 +33,8 @@ fn testGeneExecution(source: []const u8, expected: types.Value) !void {
     var mir_module = try hir_to_mir.convert(allocator, hir_module);
     defer mir_module.deinit();
 
-    // Convert MIR to bytecode
-    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module);
+    // Convert MIR to bytecode (pass empty FFI functions array)
+    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module, &[_]*@import("../ir/hir.zig").HIR.FFIFunction{});
     defer conversion_result.deinit();
 
     const func = conversion_result.main_func;

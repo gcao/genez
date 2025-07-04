@@ -38,21 +38,9 @@ pub const CompiledResult = struct {
             // Note: registry itself is allocated in the arena, so don't destroy it
         }
         
-        // Clean up FFI functions
-        // TODO: This is a temporary workaround - FFI functions are allocated in arena
-        // but we're trying to free them with main allocator
-        if (self.ffi_functions.items.len > 0) {
-            // For now, just deinit the list but not the items to avoid crash
-            // This will cause a memory leak but at least allows tests to run
-            self.ffi_functions.deinit();
-        } else {
-            // Normal path when no FFI functions
-            for (self.ffi_functions.items) |ffi_func| {
-                ffi_func.deinit(self.allocator);
-                self.allocator.destroy(ffi_func);
-            }
-            self.ffi_functions.deinit();
-        }
+        // FFI functions are allocated in the arena, so we don't free them here
+        // Just clean up the list itself
+        self.ffi_functions.deinit();
         
         // Clean up parse arena - this will free all arena-allocated memory
         self.parse_arena.deinit();
@@ -78,36 +66,23 @@ pub fn compileSourceWithFilename(allocator: std.mem.Allocator, source: []const u
     // Don't defer deinit here, ownership transfers to CompiledResult
     const conversion_result = try compiler.compile(ctx, nodes);
     
-    // Deep copy FFI functions to the main allocator IMMEDIATELY before any potential memory issues
-    var ffi_functions_copy = std.ArrayList(*@import("ir/hir.zig").HIR.FFIFunction).init(allocator);
-    errdefer {
-        for (ffi_functions_copy.items) |ffi_func| {
-            ffi_func.deinit(allocator);
-            allocator.destroy(ffi_func);
-        }
-        ffi_functions_copy.deinit();
-    }
+    // Simply transfer ownership of FFI functions from conversion_result
+    // The FFI functions are allocated in the arena, but we'll take ownership
+    const ffi_functions_copy = conversion_result.ffi_functions;
     
-    // Skip FFI function copying for now due to memory corruption issues
-    // TODO: Fix the architectural issue where FFI functions are allocated in arena
-    // but need to survive beyond the compilation phase
-    if (conversion_result.ffi_functions.items.len > 0) {
-        // For now, just pass the arena-allocated FFI functions directly
-        // This is unsafe but might work if the arena isn't freed before use
-        for (conversion_result.ffi_functions.items) |ffi_func| {
-            try ffi_functions_copy.append(ffi_func);
-        }
-    }
-    
-    // Transfer ownership of module_registry
+    // Transfer ownership of module_registry BEFORE deinit
     const registry = ctx.module_registry;
     ctx.module_registry = null; // Prevent double-free
+    
+    // Store the main function and created functions before deinit
+    const main_func = conversion_result.main_func;
+    const created_functions = conversion_result.created_functions;
     
     ctx.deinit();
 
     return CompiledResult{
-        .main_func = conversion_result.main_func,
-        .created_functions = conversion_result.created_functions,
+        .main_func = main_func,
+        .created_functions = created_functions,
         .parse_arena = parse_result.arena,
         .allocator = allocator,
         .module_registry = registry,

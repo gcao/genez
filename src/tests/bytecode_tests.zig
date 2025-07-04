@@ -30,8 +30,8 @@ test "compile simple expression to bytecode" {
     var mir_module = try hir_to_mir.convert(allocator, hir_module);
     defer mir_module.deinit();
 
-    // Lower to bytecode
-    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module);
+    // Lower to bytecode (pass empty FFI functions array)
+    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module, &[_]*@import("../ir/hir.zig").HIR.FFIFunction{});
     defer conversion_result.deinit();
 
     // Verify the bytecode structure
@@ -81,8 +81,8 @@ test "compile binary operation to bytecode" {
     var mir_module = try hir_to_mir.convert(allocator, hir_module);
     defer mir_module.deinit();
 
-    // Lower to bytecode
-    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module);
+    // Lower to bytecode (pass empty FFI functions array)
+    var conversion_result = try mir_to_bytecode.convert(allocator, &mir_module, &[_]*@import("../ir/hir.zig").HIR.FFIFunction{});
     defer conversion_result.deinit();
 
     // Verify the bytecode structure

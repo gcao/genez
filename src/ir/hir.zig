@@ -31,6 +31,13 @@ pub const HIR = struct {
         };
     }
 
+    /// Transfer ownership of FFI functions to the caller
+    pub fn takeFFIFunctions(self: *HIR) std.ArrayList(*FFIFunction) {
+        const ffi_funcs = self.ffi_functions;
+        self.ffi_functions = std.ArrayList(*FFIFunction).init(self.allocator);
+        return ffi_funcs;
+    }
+    
     pub fn deinit(self: *HIR) void {
         for (self.functions.items) |*func| {
             func.deinit();
