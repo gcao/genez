@@ -407,6 +407,14 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
         .CTypeDecl => |type_decl| {
             try writer.print("(c-type {s} \"{s}\")", .{type_decl.name, type_decl.c_type});
         },
+        .CCallback => |callback| {
+            try writer.writeAll("(c-callback ");
+            try serializeExpression(writer, callback.function.*, indent);
+            if (callback.signature) |sig| {
+                try writer.print(" \"{s}\"", .{sig});
+            }
+            try writer.writeAll(")");
+        },
         else => |tag| {
             try writer.print("(; unsupported: {s} ;)", .{@tagName(tag)});
         },

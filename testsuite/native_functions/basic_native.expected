@@ -1,0 +1,14 @@
+sin(0) =  0
+cos(0) =  1
+sqrt(16) =  4
+sqrt(2.25) =  1.5
+int(3.14) =  3
+int(\"42\") =  42
+float(10) =  10
+float(\"3.14\") =  3.14
+str(123) =  123
+str(true) =  true
+len([1 2 3]) =  3
+len(\"hello\") =  5
+[1 2] ++ [3 4] =  [1 2 3 4]
+\"hello\" ++ \" world\" =  hello world

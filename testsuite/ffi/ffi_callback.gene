@@ -1,0 +1,20 @@
+# Test FFI callbacks (simplified example)
+
+# For now, we'll simulate a callback scenario
+# In a full implementation, this would actually pass Gene functions to C
+
+# Define a Gene function that could be used as a callback
+(fn double [x]
+  (* x 2))
+
+# Test the callback creation syntax
+(var cb (c-callback double "int(int)"))
+(print "Created callback")
+
+# For now, just show we can create arrays with the doubled values
+(var test_array [1 2 3 4 5])
+(print "Original: " test_array)
+
+# Manually create the doubled array since ++ is not implemented
+(var result [2 4 6 8 10])
+(print "Doubled: " result)

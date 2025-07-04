@@ -1166,6 +1166,27 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .op = bytecode.OpCode.ClearException,
             });
         },
+        .CreateCallback => {
+            // Create a C callback wrapper from function and signature on stack
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: CreateCallback needs 2 operands but stack has {}\n", .{stack.len()});
+                return error.StackUnderflow;
+            }
+            
+            const sig_reg = stack.pop(); // Signature (string or nil)
+            const func_reg = stack.pop(); // Function
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.CreateCallback,
+                .dst = dst_reg,
+                .src1 = func_reg,
+                .src2 = sig_reg,
+            });
+            
+            try stack.push(dst_reg);
+        },
 
         .IsArray => {
             if (stack.len() < 1) {

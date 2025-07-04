@@ -177,6 +177,9 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .ClearException => {
             try writer.writeAll("clear-exception");
         },
+        .CreateCallback => {
+            try writer.writeAll("create-callback");
+        },
         .CreateArray => |count| {
             try writer.print("create-array {d}", .{count});
         },

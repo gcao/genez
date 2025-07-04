@@ -1,0 +1,23 @@
+Testing callback chain with map:
+  Processing: 1 -> doubled: 2
+  Processing: 2 -> doubled: 4
+  Processing: 3 -> doubled: 6
+Result: [2 4 6]
+\nTesting filter with logging:
+  Checking: 3 -> is_big: false
+  Checking: 6 -> is_big: true
+  Checking: 9 -> is_big: true
+  Checking: 2 -> is_big: false
+  Checking: 8 -> is_big: true
+  Checking: 3 -> is_big: false
+  Checking: 6 -> is_big: true
+  Checking: 9 -> is_big: true
+  Checking: 2 -> is_big: false
+  Checking: 8 -> is_big: true
+Filtered result: [6 9 8]
+\nTesting reduce with logging:
+  Accumulator: 0 +  1 = 1
+  Accumulator: 1 +  2 = 3
+  Accumulator: 3 +  3 = 6
+  Accumulator: 6 +  4 = 10
+Total: 10

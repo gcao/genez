@@ -1189,6 +1189,29 @@ pub const CTypeDecl = struct {
     }
 };
 
+pub const CCallback = struct {
+    function: *Expression, // The Gene function to wrap
+    signature: ?[]const u8, // Optional C signature
+    
+    pub fn deinit(self: *CCallback, allocator: std.mem.Allocator) void {
+        self.function.deinit(allocator);
+        allocator.destroy(self.function);
+        if (self.signature) |sig| {
+            allocator.free(sig);
+        }
+    }
+    
+    pub fn clone(self: CCallback, allocator: std.mem.Allocator) !CCallback {
+        const new_function = try allocator.create(Expression);
+        new_function.* = try self.function.clone(allocator);
+        
+        return CCallback{
+            .function = new_function,
+            .signature = if (self.signature) |sig| try allocator.dupe(u8, sig) else null,
+        };
+    }
+};
+
 pub const ExportStmt = struct {
     items: []ExportItem, // Items to export
     
@@ -1459,6 +1482,7 @@ pub const Expression = union(enum) {
     CExternDecl: CExternDecl, // New - FFI external function declaration
     CStructDecl: CStructDecl, // New - FFI struct declaration
     CTypeDecl: CTypeDecl, // New - FFI type declaration
+    CCallback: CCallback, // New - FFI callback wrapper
     NamespaceDecl: NamespaceDecl, // New - Namespace declaration
     ForLoop: ForLoop, // New - For-in loops
     Return: Return, // New - Return statement
@@ -1492,6 +1516,7 @@ pub const Expression = union(enum) {
             .CExternDecl => |*extern_decl| extern_decl.deinit(allocator), // New
             .CStructDecl => |*struct_decl| struct_decl.deinit(allocator), // New
             .CTypeDecl => |*type_decl| type_decl.deinit(allocator), // New
+            .CCallback => |*callback| callback.deinit(allocator), // New
             .NamespaceDecl => |*ns_decl| ns_decl.deinit(allocator), // New
             .ForLoop => |*for_loop| for_loop.deinit(allocator), // New
             .Return => |*ret| ret.deinit(allocator), // New
@@ -1527,6 +1552,7 @@ pub const Expression = union(enum) {
             .CExternDecl => |extern_decl| Expression{ .CExternDecl = try extern_decl.clone(allocator) }, // New
             .CStructDecl => |struct_decl| Expression{ .CStructDecl = try struct_decl.clone(allocator) }, // New
             .CTypeDecl => |type_decl| Expression{ .CTypeDecl = try type_decl.clone(allocator) }, // New
+            .CCallback => |callback| Expression{ .CCallback = try callback.clone(allocator) }, // New
             .NamespaceDecl => |ns_decl| Expression{ .NamespaceDecl = try ns_decl.clone(allocator) }, // New
             .ForLoop => |for_loop| Expression{ .ForLoop = try for_loop.clone(allocator) }, // New
             .Return => |ret| Expression{ .Return = try ret.clone(allocator) }, // New

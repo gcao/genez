@@ -296,6 +296,8 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .CStruct => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CStruct
             .CArray => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CArray
             .FFIFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for FFIFunction
+            .NativeFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for NativeFunction
+            .CCallback => |_| .{ .literal = .{ .nil = {} } }, // Fallback for CCallback
         },
         .Variable => |var_expr| .{ .variable = .{ .name = try allocator.dupe(u8, var_expr.name) } },
         .If => |if_expr| {
@@ -977,6 +979,22 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             // FFI declarations are handled at the top level in convert()
             // They shouldn't appear as expressions inside functions
             return hir.HIR.Expression{ .literal = .{ .nil = {} } };
+        },
+        .CCallback => |callback| {
+            // Create a callback wrapper expression
+            const cb_ptr = try allocator.create(hir.HIR.CCallback);
+            errdefer allocator.destroy(cb_ptr);
+            
+            // Convert the function expression
+            const func_ptr = try allocator.create(hir.HIR.Expression);
+            func_ptr.* = try lowerExpression(allocator, callback.function.*);
+            
+            cb_ptr.* = .{
+                .function = func_ptr,
+                .signature = if (callback.signature) |sig| try allocator.dupe(u8, sig) else null,
+            };
+            
+            return hir.HIR.Expression{ .c_callback = cb_ptr };
         },
         .NamespaceDecl => |ns_decl| {
             // Create a proper namespace declaration in HIR

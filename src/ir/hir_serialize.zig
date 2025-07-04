@@ -469,6 +469,14 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             try serializeExpression(writer, throw_ptr.value.*, indent);
             try writer.writeAll(")");
         },
+        .c_callback => |cb_ptr| {
+            try writer.writeAll("(c-callback ");
+            try serializeExpression(writer, cb_ptr.function.*, indent);
+            if (cb_ptr.signature) |sig| {
+                try writer.print(" \"{s}\"", .{sig});
+            }
+            try writer.writeAll(")");
+        },
     }
 }
 

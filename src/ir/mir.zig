@@ -157,6 +157,7 @@ pub const MIR = struct {
         Throw, // Throw exception from stack
         LoadException, // Load current exception onto stack
         ClearException, // Clear current exception
+        CreateCallback, // Create a C callback wrapper from function and signature on stack
     };
 
     pub const ClassDefinition = struct {

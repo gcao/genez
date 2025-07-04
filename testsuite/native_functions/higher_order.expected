@@ -1,0 +1,12 @@
+map [1 2 3] double =  [2 4 6]
+map [2 3 4] square =  [4 9 16]
+map [] double =  []
+filter [1 2 3 4 5] is_even =  [2 4]
+filter [-2 -1 0 1 2] is_positive =  [1 2]
+filter [1 3 5] is_even =  []
+reduce [1 2 3 4] add 0 =  10
+reduce [2 3 4] multiply 1 =  24
+reduce [] add 10 =  10
+map then filter:  [2 4 6 8 10]
+filter then map:  [4 16]
+reduce mapped values:  55

@@ -38,6 +38,8 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .FileHandle => |handle| log("FileHandle: {s}", .{handle.path}),
         .Error => |err| log("Error: {s}: {s}", .{ err.type, err.message }),
         .FFIFunction => |name| log("FFIFunction: {s}", .{name}),
+        .NativeFunction => log("NativeFunction", .{}),
+        .CCallback => |cb| log("CCallback({s})", .{cb.signature orelse "dynamic"}),
     }
 }
 

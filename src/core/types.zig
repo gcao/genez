@@ -2,6 +2,15 @@ const std = @import("std");
 const bytecode = @import("../backend/bytecode.zig");
 const debug = @import("debug.zig");
 
+// Error set for native functions
+pub const NativeError = error{
+    OutOfMemory,
+    ArgumentCountMismatch,
+    TypeMismatch,
+    ParseError,
+    MathDomainError,
+};
+
 // Forward declarations
 pub const ClassDefinition = struct {
     name: []const u8,
@@ -173,6 +182,12 @@ pub const Value = union(enum) {
         element_size: usize, // Size of each element
     },
     FFIFunction: []const u8, // Name of an FFI function to be resolved at call time
+    NativeFunction: *const fn (vm: *anyopaque, args: []const Value) NativeError!Value, // Native Zig function
+    CCallback: struct {
+        function: *Value, // The Gene function to wrap
+        signature: ?[]const u8, // Optional C signature
+        callback_id: ?usize, // ID in the callback registry
+    },
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -228,6 +243,15 @@ pub const Value = union(enum) {
             .CStruct => {}, // C structs are not owned by Gene
             .CArray => {}, // C arrays are not owned by Gene
             .FFIFunction => |name| allocator.free(name),
+            .NativeFunction => {}, // Function pointers don't need to be freed
+            .CCallback => |*cb| {
+                cb.function.deinit(allocator);
+                allocator.destroy(cb.function);
+                if (cb.signature) |sig| {
+                    allocator.free(sig);
+                }
+                // callback_id is just a number, nothing to free
+            },
             else => {},
         }
     }
@@ -297,6 +321,16 @@ pub const Value = union(enum) {
             .CStruct => |ptr| Value{ .CStruct = ptr }, // Just copy the struct pointer
             .CArray => |arr| Value{ .CArray = arr }, // Copy the array descriptor
             .FFIFunction => |name| Value{ .FFIFunction = try allocator.dupe(u8, name) },
+            .NativeFunction => |func| Value{ .NativeFunction = func },
+            .CCallback => |cb| blk: {
+                const new_func = try allocator.create(Value);
+                new_func.* = try cb.function.clone(allocator);
+                break :blk Value{ .CCallback = .{
+                    .function = new_func,
+                    .signature = if (cb.signature) |sig| try allocator.dupe(u8, sig) else null,
+                    .callback_id = cb.callback_id,
+                }};
+            },
         };
     }
 };

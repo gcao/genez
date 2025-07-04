@@ -1,0 +1,35 @@
+#!/usr/bin/env gene run
+
+# Test: Gene -> Zig -> Gene -> Zig callback chains
+
+# Define a Gene function that uses native functions
+(fn process_with_logging [x]
+  (var doubled = (* x 2))
+  # This will call native print
+  (print "  Processing:" x "-> doubled:" doubled)
+  doubled)
+
+# Test callback chain
+(print "Testing callback chain with map:")
+(var result = (map [1 2 3] process_with_logging))
+(print "Result:" result)
+
+# More complex chain: filter with logging
+(fn check_and_log [x]
+  (var is_big = (> x 5))
+  (print "  Checking:" x "-> is_big:" is_big)
+  is_big)
+
+(print "\nTesting filter with logging:")
+(var filtered = (filter [3 6 9 2 8] check_and_log))
+(print "Filtered result:" filtered)
+
+# Reduce with accumulator logging
+(fn add_with_log [acc x]
+  (var sum = (+ acc x))
+  (print "  Accumulator:" acc "+ " x "=" sum)
+  sum)
+
+(print "\nTesting reduce with logging:")
+(var total = (reduce [1 2 3 4] add_with_log 0))
+(print "Total:" total)

@@ -84,6 +84,7 @@ pub const TokenKind = union(enum) {
     CExtern, // New: for FFI external function declarations
     CStruct, // New: for FFI struct declarations
     CType, // New: for FFI type declarations
+    CCallback, // New: for wrapping Gene functions as C callbacks
 };
 
 /// Tokenize a Gene source string.
@@ -330,6 +331,10 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             else if (std.mem.eql(u8, word, "c-type")) {
                 debug.log("Tokenizing 'c-type' as CType keyword", .{});
                 token_kind = .CType; // New keyword
+            }
+            else if (std.mem.eql(u8, word, "c-callback")) {
+                debug.log("Tokenizing 'c-callback' as CCallback keyword", .{});
+                token_kind = .CCallback; // New keyword
             }
             else if (std.mem.eql(u8, word, "true")) token_kind = .{ .Bool = true } else if (std.mem.eql(u8, word, "false")) token_kind = .{ .Bool = false } else if (std.mem.eql(u8, word, "nil")) token_kind = .Nil else {
                 // Store the slice directly, parser will dupe if needed
@@ -839,6 +844,7 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .CExtern => return parseCExtern(alloc, toks, depth + 1),
                 .CStruct => return parseCStruct(alloc, toks, depth + 1),
                 .CType => return parseCType(alloc, toks, depth + 1),
+                .CCallback => return parseCCallback(alloc, toks, depth + 1),
                 .Dot => {
                     // Implicit self method call: (.method args...)
                     return parseImplicitSelfMethodCall(alloc, toks, depth + 1);
@@ -3593,6 +3599,47 @@ fn parseCType(alloc: std.mem.Allocator, toks: []const Token, depth: usize) Parse
         .node = .{ .Expression = .{ .CTypeDecl = .{
             .name = type_name,
             .c_type = c_type,
+        }}},
+        .consumed = pos,
+    };
+}
+
+fn parseCCallback(alloc: std.mem.Allocator, toks: []const Token, depth: usize) ParserError!ParseResult {
+    // Parse (c-callback function-ref "signature")
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+    if (toks.len < 4) return error.UnexpectedEOF; // At least (c-callback func)
+    
+    var pos: usize = 0;
+    
+    // Expect (
+    if (toks[pos].kind != .LParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Expect c-callback
+    if (toks[pos].kind != .CCallback) return error.UnexpectedToken;
+    pos += 1;
+    
+    // Parse function reference (could be identifier or expression)
+    const func_result = try parseExpression(alloc, toks[pos..], depth + 1);
+    const func_expr = try alloc.create(ast.Expression);
+    func_expr.* = try func_result.node.Expression.clone(alloc);
+    pos += func_result.consumed;
+    
+    // Optional: C signature string
+    var signature: ?[]const u8 = null;
+    if (pos < toks.len and toks[pos].kind == .String) {
+        signature = try alloc.dupe(u8, toks[pos].kind.String);
+        pos += 1;
+    }
+    
+    // Expect closing )
+    if (pos >= toks.len or toks[pos].kind != .RParen) return error.UnexpectedToken;
+    pos += 1;
+    
+    return .{
+        .node = .{ .Expression = .{ .CCallback = .{
+            .function = func_expr,
+            .signature = signature,
         }}},
         .consumed = pos,
     };

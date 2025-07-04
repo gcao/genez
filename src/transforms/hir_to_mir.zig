@@ -905,6 +905,20 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // Throw the exception
             try block.instructions.append(.Throw);
         },
+        .c_callback => |cb_ptr| {
+            // Convert the function expression
+            try convertExpressionWithContext(block, cb_ptr.function.*, context);
+            
+            // Push the signature (or nil if not provided)
+            if (cb_ptr.signature) |sig| {
+                try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, sig) });
+            } else {
+                try block.instructions.append(.LoadNil);
+            }
+            
+            // Add instruction to create callback wrapper
+            try block.instructions.append(.CreateCallback);
+        },
     }
 }
 

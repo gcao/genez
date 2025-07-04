@@ -78,6 +78,7 @@ pub const OpCode = enum {
     Throw, // Throw exception: Throw Rs
     LoadException, // Load current exception: LoadException Rd
     ClearException, // Clear current exception: ClearException
+    CreateCallback, // Create C callback wrapper: CreateCallback Rd, Rs1, Rs2 (func, sig)
 };
 
 // Register identifier - u16 allows for 65,536 virtual registers
@@ -426,7 +427,7 @@ pub const Module = struct {
                 std.mem.writeInt(usize, &usize_buf, addr.arg_count, .little);
                 try writer.writeAll(&usize_buf);
             },
-            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray, .StdlibFunction, .FileHandle, .Error, .FFIFunction => {
+            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray, .StdlibFunction, .FileHandle, .Error, .FFIFunction, .NativeFunction, .CCallback => {
                 // For now, we don't support serializing complex types like arrays, maps, classes, objects, modules, FFI types, stdlib types, and errors
                 // This would require more sophisticated serialization
                 return error.UnsupportedComplexType;

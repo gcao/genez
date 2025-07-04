@@ -127,6 +127,7 @@ pub const HIR = struct {
         namespace_decl: *NamespaceDecl, // Namespace declaration
         try_expr: *TryExpr, // Try/catch/finally expression
         throw_expr: *ThrowExpr, // Throw expression
+        c_callback: *CCallback, // FFI callback wrapper
 
         pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
             switch (self.*) {
@@ -186,6 +187,10 @@ pub const HIR = struct {
                 .throw_expr => |throw_ptr| {
                     throw_ptr.deinit(allocator);
                     allocator.destroy(throw_ptr);
+                },
+                .c_callback => |cb_ptr| {
+                    cb_ptr.deinit(allocator);
+                    allocator.destroy(cb_ptr);
                 },
             }
         }
@@ -943,6 +948,19 @@ pub const HIR = struct {
         pub fn deinit(self: *FFIType, allocator: std.mem.Allocator) void {
             allocator.free(self.name);
             allocator.free(self.c_type);
+        }
+    };
+    
+    pub const CCallback = struct {
+        function: *Expression, // The Gene function to wrap
+        signature: ?[]const u8, // Optional C signature
+        
+        pub fn deinit(self: *CCallback, allocator: std.mem.Allocator) void {
+            self.function.deinit(allocator);
+            allocator.destroy(self.function);
+            if (self.signature) |sig| {
+                allocator.free(sig);
+            }
         }
     };
 };

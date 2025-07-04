@@ -6,6 +6,7 @@ const builtin_classes = @import("../core/builtin_classes.zig");
 const gc = @import("../core/gc.zig");
 const stdlib = @import("../core/stdlib.zig");
 const ffi = @import("../core/ffi.zig");
+const native_functions = @import("../core/native_functions.zig");
 
 const ExceptionHandler = struct {
     catch_addr: usize,
@@ -35,6 +36,8 @@ pub const VMError = error{
     NoExceptionHandler,
     FunctionNotResolved, // For unresolved FFI functions
     LibraryNotFound, // For missing FFI libraries
+    ParseError, // For parsing errors in native functions
+    MathDomainError, // For math domain errors in native functions
 } || std.mem.Allocator.Error || std.fs.File.WriteError || std.fs.File.GetSeekPosError || std.fs.File.ReadError;
 
 pub const CallFrame = struct {
@@ -198,6 +201,9 @@ pub const VM = struct {
             ptr.* = ffi.FFIRuntime.init(allocator);
             vm.ffi_runtime = ptr;
         }
+        
+        // Register native functions
+        native_functions.registerNativeFunctions(&vm) catch unreachable;
 
         return vm;
     }
@@ -347,6 +353,76 @@ pub const VM = struct {
 
     pub fn setVariable(self: *VM, name: []const u8, value: types.Value) !void {
         try self.variables.put(name, value);
+    }
+    
+    /// Call a Gene function from external code (e.g., FFI callbacks)
+    pub fn callGeneValueOld(self: *VM, func: types.Value, args: []const types.Value) !types.Value {
+        switch (func) {
+            .Function => |gene_func| {
+                // Save current VM state
+                const saved_func = self.current_func;
+                const saved_pc = self.pc;
+                const saved_base = self.current_register_base;
+                
+                // Allocate registers for the function call
+                const new_base = self.next_free_register;
+                const needed_regs = @as(u16, @intCast(gene_func.param_count + gene_func.register_count));
+                _ = try self.allocateRegisters(needed_regs);
+                
+                // Copy arguments to registers
+                for (args, 0..) |arg, i| {
+                    if (i >= gene_func.param_count) break;
+                    const reg = new_base + @as(u16, @intCast(i));
+                    try self.setRegisterAbsolute(reg, arg);
+                }
+                
+                // Create a call frame
+                const frame = CallFrame.init(self.current_func, new_base, self.current_register_base, self.pc, new_base);
+                try self.call_frames.append(frame);
+                
+                // Switch to the function
+                self.current_func = gene_func;
+                self.pc = 0;
+                self.current_register_base = new_base;
+                
+                // Execute the function
+                var result: types.Value = .{ .Nil = {} };
+                while (self.pc < gene_func.instructions.items.len) {
+                    const instruction = gene_func.instructions.items[self.pc];
+                    if (instruction.op == .Return) {
+                        // Get return value if any
+                        if (instruction.src1) |ret_reg| {
+                            result = try self.getRegister(ret_reg);
+                        }
+                        break;
+                    }
+                    try self.executeInstruction(instruction);
+                    self.pc += 1;
+                }
+                
+                // Restore VM state
+                _ = self.call_frames.pop();
+                self.current_func = saved_func;
+                self.pc = saved_pc;
+                self.current_register_base = saved_base;
+                
+                return result;
+            },
+            .BuiltinOperator, .StdlibFunction => {
+                // For builtin functions, call them directly
+                // This would need to be implemented based on the specific function
+                return error.NotImplemented;
+            },
+            else => return error.TypeMismatch,
+        }
+    }
+    
+    fn setRegisterAbsolute(self: *VM, absolute_reg: u16, value: types.Value) !void {
+        while (absolute_reg >= self.registers.items.len) {
+            try self.registers.append(.{ .Nil = {} });
+        }
+        self.registers.items[absolute_reg].deinit(self.allocator);
+        self.registers.items[absolute_reg] = value;
     }
 
     /// Get an iterator over all variables in the VM
@@ -1061,6 +1137,8 @@ pub const VM = struct {
                     .FileHandle => |handle| try self.stdout.print("FileHandle: {s}\n", .{handle.path}),
                     .Error => |err| try self.stdout.print("Error({s}): {s}\n", .{ err.type, err.message }),
                     .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}\n", .{name}),
+                    .NativeFunction => try self.stdout.print("NativeFunction\n", .{}),
+                    .CCallback => |cb| try self.stdout.print("CCallback({s})\n", .{cb.signature orelse "dynamic"}),
                 }
             },
             .Call => {
@@ -1080,7 +1158,33 @@ pub const VM = struct {
                 defer func_val.deinit(self.allocator);
                 debug.logValue(func_val);
 
-                // Handle built-in functions first
+                // Handle native functions first
+                if (func_val == .NativeFunction) {
+                    const native_fn = func_val.NativeFunction;
+                    
+                    // Collect arguments
+                    var args = try self.allocator.alloc(types.Value, arg_count);
+                    defer self.allocator.free(args);
+                    
+                    for (0..arg_count) |i| {
+                        const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
+                        args[i] = try self.getRegister(arg_reg);
+                    }
+                    
+                    // Call native function
+                    const result = try native_fn(@ptrCast(self), args);
+                    
+                    // Clean up arguments
+                    for (args) |*arg| {
+                        arg.deinit(self.allocator);
+                    }
+                    
+                    // Store result
+                    try self.setRegister(dst_reg, result);
+                    return;
+                }
+                
+                // Handle built-in functions
                 if (func_val == .BuiltinOperator) {
                     const builtin_op = func_val.BuiltinOperator;
 
@@ -1105,7 +1209,21 @@ pub const VM = struct {
                                 .Bool => |b| try self.stdout.print("{}", .{b}),
                                 .Float => |f| try self.stdout.print("{d}", .{f}),
                                 .Nil => try self.stdout.print("nil", .{}),
-                                .Array => |arr| try self.stdout.print("{any}", .{arr}),
+                                .Array => |arr| {
+                                    try self.stdout.print("[", .{});
+                                    for (arr, 0..) |item, idx| {
+                                        if (idx > 0) try self.stdout.print(" ", .{});
+                                        switch (item) {
+                                            .Int => |val| try self.stdout.print("{d}", .{val}),
+                                            .String => |str| try self.stdout.print("\"{s}\"", .{str}),
+                                            .Bool => |b| try self.stdout.print("{}", .{b}),
+                                            .Float => |f| try self.stdout.print("{d}", .{f}),
+                                            .Nil => try self.stdout.print("nil", .{}),
+                                            else => try self.stdout.print("{any}", .{item}),
+                                        }
+                                    }
+                                    try self.stdout.print("]", .{});
+                                },
                                 .Map => |map| try self.stdout.print("{any}", .{map}),
                                 .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {any}", .{addr}),
                                 .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
@@ -1134,6 +1252,8 @@ pub const VM = struct {
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                                 .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
                                 .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
+                                .NativeFunction => try self.stdout.print("NativeFunction", .{}),
+                                .CCallback => |cb| try self.stdout.print("CCallback({s})", .{cb.signature orelse "dynamic"}),
                             }
 
                             // Add space between arguments except for the last one
@@ -1171,7 +1291,21 @@ pub const VM = struct {
                                 .Bool => |b| try self.stdout.print("{}", .{b}),
                                 .Float => |f| try self.stdout.print("{d}", .{f}),
                                 .Nil => try self.stdout.print("nil", .{}),
-                                .Array => |arr| try self.stdout.print("{any}", .{arr}),
+                                .Array => |arr| {
+                                    try self.stdout.print("[", .{});
+                                    for (arr, 0..) |item, idx| {
+                                        if (idx > 0) try self.stdout.print(" ", .{});
+                                        switch (item) {
+                                            .Int => |val| try self.stdout.print("{d}", .{val}),
+                                            .String => |str| try self.stdout.print("\"{s}\"", .{str}),
+                                            .Bool => |b| try self.stdout.print("{}", .{b}),
+                                            .Float => |f| try self.stdout.print("{d}", .{f}),
+                                            .Nil => try self.stdout.print("nil", .{}),
+                                            else => try self.stdout.print("{any}", .{item}),
+                                        }
+                                    }
+                                    try self.stdout.print("]", .{});
+                                },
                                 .Map => |map| try self.stdout.print("{any}", .{map}),
                                 .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {any}", .{addr}),
                                 .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
@@ -1200,6 +1334,8 @@ pub const VM = struct {
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                                 .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
                                 .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
+                                .NativeFunction => try self.stdout.print("NativeFunction", .{}),
+                                .CCallback => |cb| try self.stdout.print("CCallback({s})", .{cb.signature orelse "dynamic"}),
                             }
 
                             // Add space between arguments except for the last one
@@ -1715,7 +1851,21 @@ pub const VM = struct {
                                 .Bool => |b| try self.stdout.print("{}", .{b}),
                                 .Float => |f| try self.stdout.print("{d}", .{f}),
                                 .Nil => try self.stdout.print("nil", .{}),
-                                .Array => |arr| try self.stdout.print("{any}", .{arr}),
+                                .Array => |arr| {
+                                    try self.stdout.print("[", .{});
+                                    for (arr, 0..) |item, idx| {
+                                        if (idx > 0) try self.stdout.print(" ", .{});
+                                        switch (item) {
+                                            .Int => |val| try self.stdout.print("{d}", .{val}),
+                                            .String => |str| try self.stdout.print("\"{s}\"", .{str}),
+                                            .Bool => |b| try self.stdout.print("{}", .{b}),
+                                            .Float => |f| try self.stdout.print("{d}", .{f}),
+                                            .Nil => try self.stdout.print("nil", .{}),
+                                            else => try self.stdout.print("{any}", .{item}),
+                                        }
+                                    }
+                                    try self.stdout.print("]", .{});
+                                },
                                 .Map => |map| try self.stdout.print("{any}", .{map}),
                                 .ReturnAddress => |addr| try self.stdout.print("ReturnAddress: {any}", .{addr}),
                                 .Function => |func| try self.stdout.print("Function: {s}", .{func.name}),
@@ -1744,6 +1894,8 @@ pub const VM = struct {
                                 .CArray => |arr| try self.stdout.print("CArray[{} x {}]", .{ arr.len, arr.element_size }),
                                 .Error => |err| try self.stdout.print("Error({s}): {s}", .{ err.type, err.message }),
                                 .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
+                                .NativeFunction => try self.stdout.print("NativeFunction", .{}),
+                                .CCallback => |cb| try self.stdout.print("CCallback({s})", .{cb.signature orelse "dynamic"}),
                             }
 
                             // Add space between arguments except for the last one
@@ -3086,6 +3238,37 @@ pub const VM = struct {
                     self.current_exception = null;
                 }
             },
+            .CreateCallback => {
+                // Create a C callback wrapper
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const func_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const sig_reg = instruction.src2 orelse return error.InvalidInstruction;
+                
+                const func_val = try self.getRegister(func_reg);
+                var sig_val = try self.getRegister(sig_reg);
+                defer sig_val.deinit(self.allocator);
+                
+                // Extract signature string if provided
+                const signature = switch (sig_val) {
+                    .String => |s| s,
+                    .Nil => null,
+                    else => return error.TypeMismatch,
+                };
+                
+                // Create the callback wrapper
+                const ffi_callback = @import("../core/ffi_callback.zig");
+                const wrapper = try ffi_callback.createCallback(self, func_val, signature);
+                
+                // Create CCallback value
+                const callback_value = types.Value{ .CCallback = .{
+                    .function = try self.allocator.create(types.Value),
+                    .signature = if (signature) |sig| try self.allocator.dupe(u8, sig) else null,
+                    .callback_id = @intFromPtr(wrapper), // Store wrapper pointer as ID
+                }};
+                callback_value.CCallback.function.* = try func_val.clone(self.allocator);
+                
+                try self.setRegister(dst_reg, callback_value);
+            },
         }
     }
 
@@ -3446,4 +3629,289 @@ pub const VM = struct {
             },
         }
     }
+    
+    /// Call a Gene function from native code
+    /// This allows native functions to call back into Gene code
+    pub fn callGeneFunction(self: *VM, func: *bytecode.Function, args: []const types.Value) !types.Value {
+        debug.log("Native calling Gene function: {s} with {} args", .{ func.name, args.len });
+        
+        // Save current VM state
+        const saved_func = self.current_func;
+        const saved_pc = self.pc;
+        const saved_register_base = self.current_register_base;
+        const saved_call_frames_len = self.call_frames.items.len;
+        
+        // Set up new call frame for the function
+        const new_register_base = self.next_free_register;
+        const result_reg = new_register_base + @as(u16, @intCast(func.param_count + func.register_count));
+        
+        // Create a dummy frame that will help us track where to store the result
+        const frame = CallFrame.init(saved_func, new_register_base, saved_register_base, saved_pc, result_reg);
+        try self.call_frames.append(frame);
+        
+        // Allocate registers for the function (parameters + locals)
+        const needed_regs = @as(u16, @intCast(func.param_count + func.register_count + 1)); // +1 for result
+        const allocated_base = try self.allocateRegisters(needed_regs);
+        
+        // Copy arguments to parameter registers
+        for (args, 0..) |arg, i| {
+            const dest_reg = allocated_base + @as(u16, @intCast(i));
+            // Ensure register exists
+            while (dest_reg >= self.registers.items.len) {
+                try self.registers.append(.{ .Nil = {} });
+            }
+            self.registers.items[dest_reg].deinit(self.allocator);
+            self.registers.items[dest_reg] = try arg.clone(self.allocator);
+            debug.log("Set arg {} in R{}", .{ i, dest_reg });
+        }
+        
+        // Initialize remaining parameter registers to nil
+        for (args.len..func.param_count) |i| {
+            const dest_reg = allocated_base + @as(u16, @intCast(i));
+            while (dest_reg >= self.registers.items.len) {
+                try self.registers.append(.{ .Nil = {} });
+            }
+            self.registers.items[dest_reg].deinit(self.allocator);
+            self.registers.items[dest_reg] = .{ .Nil = {} };
+        }
+        
+        // Switch to the function
+        self.current_func = func;
+        self.pc = 0;
+        self.current_register_base = allocated_base;
+        
+        // Run the function until it returns
+        var result: types.Value = .{ .Nil = {} };
+        errdefer result.deinit(self.allocator);
+        
+        while (self.pc < func.instructions.items.len and self.call_frames.items.len > saved_call_frames_len) {
+            const instruction = &func.instructions.items[self.pc];
+            debug.log("Gene function PC={}: {s}", .{ self.pc, @tagName(instruction.op) });
+            
+            const old_pc = self.pc;
+            try self.executeInstruction(instruction.*);
+            
+            if (!self.function_called and self.pc == old_pc) {
+                self.pc += 1;
+            }
+            self.function_called = false;
+        }
+        
+        // Get the result from the result register if available
+        if (result_reg < self.registers.items.len) {
+            result = try self.registers.items[result_reg].clone(self.allocator);
+        }
+        
+        // Clean up allocated registers
+        self.next_free_register = new_register_base;
+        
+        // Restore VM state
+        self.current_func = saved_func;
+        self.pc = saved_pc;
+        self.current_register_base = saved_register_base;
+        
+        // Pop any remaining frames from nested calls
+        while (self.call_frames.items.len > saved_call_frames_len) {
+            _ = self.call_frames.pop();
+        }
+        
+        debug.log("Native call to Gene function completed, result: {any}", .{result});
+        return result;
+    }
+    
+    /// Call a Gene value (function or closure) from native code
+    pub fn callGeneValue(self: *VM, value: types.Value, args: []const types.Value) !types.Value {
+        switch (value) {
+            .Function => |func| return self.callGeneFunction(func, args),
+            // TODO: Add support for closures when implemented
+            else => {
+                debug.log("callGeneValue: expected Function, got {}", .{value});
+                return error.TypeMismatch;
+            },
+        }
+    }
 };
+
+// ===== C API for FFI Callbacks =====
+// These functions allow C code to interact with the Gene VM dynamically
+// Note: For WASM compatibility, we use opaque pointers instead of returning Values directly
+
+/// Opaque handle to a Gene value
+pub const GeneValueHandle = *anyopaque;
+
+/// Create a Gene integer value from C
+export fn gene_make_int(vm_ptr: *VM, value: i64) callconv(.C) ?GeneValueHandle {
+    const val = vm_ptr.allocator.create(types.Value) catch return null;
+    val.* = .{ .Int = value };
+    return @ptrCast(val);
+}
+
+/// Create a Gene float value from C
+export fn gene_make_float(vm_ptr: *VM, value: f64) callconv(.C) ?GeneValueHandle {
+    const val = vm_ptr.allocator.create(types.Value) catch return null;
+    val.* = .{ .Float = value };
+    return @ptrCast(val);
+}
+
+/// Create a Gene string value from C
+export fn gene_make_string(vm_ptr: *VM, str: [*:0]const u8) callconv(.C) ?GeneValueHandle {
+    const len = std.mem.len(str);
+    const copy = vm_ptr.allocator.dupe(u8, str[0..len]) catch return null;
+    const val = vm_ptr.allocator.create(types.Value) catch {
+        vm_ptr.allocator.free(copy);
+        return null;
+    };
+    val.* = .{ .String = copy };
+    return @ptrCast(val);
+}
+
+/// Create a Gene boolean value from C
+export fn gene_make_bool(vm_ptr: *VM, value: bool) callconv(.C) ?GeneValueHandle {
+    const val = vm_ptr.allocator.create(types.Value) catch return null;
+    val.* = .{ .Bool = value };
+    return @ptrCast(val);
+}
+
+/// Create a Gene nil value from C
+export fn gene_make_nil(vm_ptr: *VM) callconv(.C) ?GeneValueHandle {
+    const val = vm_ptr.allocator.create(types.Value) catch return null;
+    val.* = .{ .Nil = {} };
+    return @ptrCast(val);
+}
+
+/// Look up a function by name in the VM's global scope
+export fn gene_get_function(vm_ptr: *VM, name: [*:0]const u8) callconv(.C) ?GeneValueHandle {
+    const name_slice = std.mem.span(name);
+    const value = vm_ptr.variables.get(name_slice) orelse return null;
+    const val = vm_ptr.allocator.create(types.Value) catch return null;
+    val.* = value;
+    return @ptrCast(val);
+}
+
+/// Get a method from a Gene value
+export fn gene_get_method(vm_ptr: *VM, object_handle: GeneValueHandle, method_name: [*:0]const u8) callconv(.C) ?GeneValueHandle {
+    const object = @as(*types.Value, @ptrCast(@alignCast(object_handle))).*;
+    const name = std.mem.span(method_name);
+    
+    // For core types, get methods from core classes
+    if (vm_ptr.core_classes) |core| {
+        const class = switch (object) {
+            .Int => core.int_class,
+            .Float => core.float_class,
+            .String => core.string_class,
+            .Bool => core.bool_class,
+            .Array => core.array_class,
+            .Map => core.map_class,
+            .Object => |id| blk: {
+                const obj = vm_ptr.getObjectById(id) orelse return null;
+                break :blk obj.class;
+            },
+            else => return null,
+        };
+        
+        // Look up method in class
+        if (class.methods.get(name)) |method| {
+            const val = vm_ptr.allocator.create(types.Value) catch return null;
+            val.* = .{ .Function = method };
+            return @ptrCast(val);
+        }
+    }
+    
+    return null;
+}
+
+/// Check if a value is callable
+export fn gene_is_callable(handle: GeneValueHandle) callconv(.C) bool {
+    const value = @as(*types.Value, @ptrCast(@alignCast(handle))).*;
+    return switch (value) {
+        .Function, .BuiltinOperator, .StdlibFunction => true,
+        else => false,
+    };
+}
+
+/// Call a Gene function/callable from C
+export fn gene_call(vm_ptr: *VM, callable_handle: GeneValueHandle, args: [*]GeneValueHandle, arg_count: usize) callconv(.C) ?GeneValueHandle {
+    const callable = @as(*types.Value, @ptrCast(@alignCast(callable_handle))).*;
+    
+    // Convert handles to values
+    var args_values = vm_ptr.allocator.alloc(types.Value, arg_count) catch return null;
+    defer vm_ptr.allocator.free(args_values);
+    
+    for (0..arg_count) |i| {
+        args_values[i] = @as(*types.Value, @ptrCast(@alignCast(args[i]))).*;
+    }
+    
+    const result_value = vm_ptr.callGeneValue(callable, args_values) catch |err| {
+        // On error, return an Error value
+        const err_name = @errorName(err);
+        const type_copy = vm_ptr.allocator.dupe(u8, "RuntimeError") catch return null;
+        const msg_copy = vm_ptr.allocator.dupe(u8, err_name) catch {
+            vm_ptr.allocator.free(type_copy);
+            return null;
+        };
+        const val = vm_ptr.allocator.create(types.Value) catch {
+            vm_ptr.allocator.free(type_copy);
+            vm_ptr.allocator.free(msg_copy);
+            return null;
+        };
+        val.* = .{ .Error = .{
+            .type = type_copy,
+            .message = msg_copy,
+            .stack_trace = null,
+        }};
+        return @ptrCast(val);
+    };
+    
+    const val = vm_ptr.allocator.create(types.Value) catch return null;
+    val.* = result_value;
+    return @ptrCast(val);
+}
+
+/// Safe version that returns error code
+export fn gene_call_safe(vm_ptr: *VM, callable_handle: GeneValueHandle, args: [*]GeneValueHandle, arg_count: usize, result: *GeneValueHandle) callconv(.C) c_int {
+    const callable = @as(*types.Value, @ptrCast(@alignCast(callable_handle))).*;
+    
+    // Convert handles to values
+    var args_values = vm_ptr.allocator.alloc(types.Value, arg_count) catch return -2; // Memory error
+    defer vm_ptr.allocator.free(args_values);
+    
+    for (0..arg_count) |i| {
+        args_values[i] = @as(*types.Value, @ptrCast(@alignCast(args[i]))).*;
+    }
+    
+    const result_value = vm_ptr.callGeneValue(callable, args_values) catch return -1; // Execution error
+    
+    const val = vm_ptr.allocator.create(types.Value) catch return -2; // Memory error
+    val.* = result_value;
+    result.* = @ptrCast(val);
+    return 0; // Success
+}
+
+/// Get the type name of a Gene value
+export fn gene_type_name(handle: GeneValueHandle) callconv(.C) [*:0]const u8 {
+    const value = @as(*types.Value, @ptrCast(@alignCast(handle))).*;
+    return switch (value) {
+        .Nil => "Nil",
+        .Bool => "Bool",
+        .Int => "Int",
+        .Float => "Float",
+        .String => "String",
+        .Symbol => "Symbol",
+        .Array => "Array",
+        .Map => "Map",
+        .Function => "Function",
+        .Object => "Object",
+        .Module => "Module",
+        .Class => "Class",
+        .Error => "Error",
+        .CCallback => "CCallback",
+        else => "Unknown",
+    };
+}
+
+/// Free a Gene value handle (for memory management from C)
+export fn gene_free_value(vm_ptr: *VM, handle: GeneValueHandle) callconv(.C) void {
+    const value = @as(*types.Value, @ptrCast(@alignCast(handle)));
+    value.deinit(vm_ptr.allocator);
+    vm_ptr.allocator.destroy(value);
+}

@@ -20,10 +20,23 @@ fn printHelp(writer: anytype) !void {
 }
 
 pub fn main() !void {
-    // Revert back to GeneralPurposeAllocator
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    // Use different allocator based on environment
+    const use_gpa = std.process.getEnvVarOwned(std.heap.page_allocator, "GENE_USE_GPA") catch null;
+    defer if (use_gpa) |v| std.heap.page_allocator.free(v);
+    
+    var allocator: std.mem.Allocator = undefined;
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
+    
+    if (use_gpa != null) {
+        gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        allocator = gpa.allocator();
+    } else {
+        // Use page allocator for now to avoid GPA overhead
+        allocator = std.heap.page_allocator;
+    }
+    defer if (use_gpa != null) {
+        _ = gpa.deinit();
+    };
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
