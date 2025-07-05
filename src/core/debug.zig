@@ -40,6 +40,10 @@ pub fn logValue(value: @import("types.zig").Value) void {
         .FFIFunction => |name| log("FFIFunction: {s}", .{name}),
         .NativeFunction => log("NativeFunction", .{}),
         .CCallback => |cb| log("CCallback({s})", .{cb.signature orelse "dynamic"}),
+        .Ref => |ref| {
+            log("Ref -> ", .{});
+            logValue(ref.*);
+        },
     }
 }
 

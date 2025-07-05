@@ -1,0 +1,62 @@
+#!/usr/bin/env gene run
+
+# Mutable References in Gene
+# 
+# Gene is immutable by default, but provides mutable references
+# for cases where mutation is needed (like loop counters)
+
+(println "=== Basic Ref Usage ===")
+
+# Create a mutable reference with ref
+(var counter (ref 0))
+(println "Initial value:" (deref counter))
+
+# Update the reference with set!
+(set! counter 5)
+(println "After set!:" (deref counter))
+
+(println "\n=== Refs in Loops ===")
+
+# While loop with mutable counter
+(var i (ref 0))
+(while (< (deref i) 5) (do
+  (println "Count:" (deref i))
+  (set! i (+ (deref i) 1))
+))
+
+(println "\n=== Multiple Refs ===")
+
+# Multiple refs can be used together
+(var x (ref 10))
+(var y (ref 20))
+(var sum (ref 0))
+
+(set! sum (+ (deref x) (deref y)))
+(println "Sum of" (deref x) "and" (deref y) "is" (deref sum))
+
+# Refs can be passed to functions
+(fn increment-ref [r]
+  (set! r (+ (deref r) 1)))
+
+(var n (ref 42))
+(println "\nBefore increment:" (deref n))
+(increment-ref n)
+(println "After increment:" (deref n))
+
+# Refs are useful for accumulating values
+(println "\n=== Accumulator Example ===")
+(var total (ref 0))
+(var nums [1 2 3 4 5])
+
+(for n in nums
+  (set! total (+ (deref total) n)))
+
+(println "Sum of" nums "is" (deref total))
+
+# Note: Refs are shared - multiple variables can point to the same ref
+(println "\n=== Shared Refs ===")
+(var a (ref 100))
+(var b a)  # b points to the same ref as a
+(set! b 200)
+(println "a =" (deref a))  # prints 200
+(println "b =" (deref b))  # prints 200

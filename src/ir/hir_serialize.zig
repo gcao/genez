@@ -484,6 +484,41 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             }
             try writer.writeAll(")");
         },
+        .module_def => |mod_def| {
+            try writer.print("(module \"{s}\"", .{mod_def.name});
+            
+            // Write exports if any
+            if (mod_def.exports.len > 0) {
+                try writer.writeAll(" :exports [");
+                for (mod_def.exports, 0..) |export_name, i| {
+                    if (i > 0) try writer.writeAll(" ");
+                    try writer.print("\"{s}\"", .{export_name});
+                }
+                try writer.writeAll("]");
+            }
+            
+            // Write body
+            try writer.writeAll("\n");
+            for (mod_def.body.items) |stmt| {
+                try writeIndent(writer, indent + 1);
+                try serializeStatement(writer, stmt, indent + 1);
+                try writer.writeAll("\n");
+            }
+            try writeIndent(writer, indent);
+            try writer.writeAll(")");
+        },
+        .export_stmt => |export_stmt| {
+            try writer.writeAll("(export");
+            for (export_stmt.items) |item| {
+                try writer.writeAll(" ");
+                if (item.alias) |alias| {
+                    try writer.print("[\"{s}\" => \"{s}\"]", .{item.name, alias});
+                } else {
+                    try writer.print("\"{s}\"", .{item.name});
+                }
+            }
+            try writer.writeAll(")");
+        },
     }
 }
 

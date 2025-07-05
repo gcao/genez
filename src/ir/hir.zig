@@ -136,6 +136,8 @@ pub const HIR = struct {
         return_expr: *ReturnExpr, // Return statement
         import_stmt: *ImportStmt, // Import statement
         module_access: ModuleAccess, // Access to module member
+        module_def: *ModuleDef, // Module definition
+        export_stmt: *ExportStmt, // Export statement
         namespace_decl: *NamespaceDecl, // Namespace declaration
         try_expr: *TryExpr, // Try/catch/finally expression
         throw_expr: *ThrowExpr, // Throw expression
@@ -192,6 +194,14 @@ pub const HIR = struct {
                     allocator.destroy(import_ptr);
                 },
                 .module_access => |*mod_access| mod_access.deinit(allocator),
+                .module_def => |mod_ptr| {
+                    mod_ptr.deinit(allocator);
+                    allocator.destroy(mod_ptr);
+                },
+                .export_stmt => |export_ptr| {
+                    export_ptr.deinit(allocator);
+                    allocator.destroy(export_ptr);
+                },
                 .namespace_decl => |ns_ptr| {
                     ns_ptr.deinit(allocator);
                     allocator.destroy(ns_ptr);
@@ -859,6 +869,51 @@ pub const HIR = struct {
                 }
                 allocator.free(items);
             }
+        }
+    };
+    
+    pub const ModuleDef = struct {
+        name: []const u8,
+        body: std.ArrayList(Statement),
+        exports: [][]const u8,
+        
+        pub fn init(allocator: std.mem.Allocator) ModuleDef {
+            return ModuleDef{
+                .name = "",
+                .body = std.ArrayList(Statement).init(allocator),
+                .exports = &[_][]const u8{},
+            };
+        }
+        
+        pub fn deinit(self: *ModuleDef, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            for (self.body.items) |*stmt| {
+                stmt.deinit(allocator);
+            }
+            self.body.deinit();
+            for (self.exports) |export_name| {
+                allocator.free(export_name);
+            }
+            if (self.exports.len > 0) {
+                allocator.free(self.exports);
+            }
+        }
+    };
+    
+    pub const ExportStmt = struct {
+        items: []ExportItem,
+        
+        pub const ExportItem = struct {
+            name: []const u8,
+            alias: ?[]const u8,
+        };
+        
+        pub fn deinit(self: *ExportStmt, allocator: std.mem.Allocator) void {
+            for (self.items) |*item| {
+                allocator.free(item.name);
+                if (item.alias) |a| allocator.free(a);
+            }
+            allocator.free(self.items);
         }
     };
     

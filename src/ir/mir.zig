@@ -163,6 +163,13 @@ pub const MIR = struct {
         PushNamespace, // Push namespace onto namespace stack
         PopNamespace, // Pop namespace from stack and return it
         
+        // Module instructions
+        CreateModule, // Create a new module with name from stack
+        PushModule, // Push module onto module stack for evaluation
+        PopModule, // Pop module from stack and return it
+        MarkExport, // Mark a name (from stack) for export in current module
+        Export, // Export a value with a name in current module
+        
         // Exception handling instructions
         TryStart: usize, // Start of try block (jump to catch on exception)
         TryEnd, // End of try/catch/finally block

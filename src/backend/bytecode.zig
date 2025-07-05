@@ -55,6 +55,15 @@ pub const OpCode = enum {
     // String operations
     Substring, // Get substring: Substring Rd, str_reg, start_reg, end_reg
     ToString, // Convert value to string: ToString Rd, Rs
+    StringSplit, // Split string: StringSplit Rd, str_reg, separator_reg
+    StringTrim, // Trim whitespace: StringTrim Rd, str_reg
+    StringIndexOf, // Find substring index: StringIndexOf Rd, str_reg, substr_reg
+    StringContains, // Check if contains substring: StringContains Rd, str_reg, substr_reg
+    StringStartsWith, // Check if starts with prefix: StringStartsWith Rd, str_reg, prefix_reg
+    StringEndsWith, // Check if ends with suffix: StringEndsWith Rd, str_reg, suffix_reg
+    StringReplace, // Replace first occurrence: StringReplace Rd, str_reg, old_reg, new_reg
+    StringToUpper, // Convert to uppercase: StringToUpper Rd, str_reg
+    StringToLower, // Convert to lowercase: StringToLower Rd, str_reg
     
     // Class operations
     DefineClass, // Define a class: DefineClass Rd, class_name, parent_reg (optional)
@@ -82,6 +91,13 @@ pub const OpCode = enum {
     CreateNamespace, // Create namespace: CreateNamespace Rd (name in immediate)
     PushNamespace, // Push namespace onto context stack: PushNamespace Rs
     PopNamespace, // Pop namespace from context stack: PopNamespace Rd
+    
+    // Module operations
+    CreateModule, // Create module: CreateModule Rd (name in immediate)
+    PushModule, // Push module onto context stack: PushModule Rs
+    PopModule, // Pop module from context stack: PopModule Rd
+    MarkExport, // Mark name for export: MarkExport (name in immediate)
+    Export, // Export value with name: Export Rs (name in immediate)
     
     // Exception handling operations
     TryStart, // Start try block: TryStart catch_target
@@ -445,8 +461,8 @@ pub const Module = struct {
                 std.mem.writeInt(usize, &usize_buf, addr.arg_count, .little);
                 try writer.writeAll(&usize_buf);
             },
-            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray, .StdlibFunction, .FileHandle, .Error, .FFIFunction, .NativeFunction, .CCallback => {
-                // For now, we don't support serializing complex types like arrays, maps, classes, objects, modules, FFI types, stdlib types, and errors
+            .Array, .Map, .Class, .Object, .Module, .CPtr, .CFunction, .CStruct, .CArray, .StdlibFunction, .FileHandle, .Error, .FFIFunction, .NativeFunction, .CCallback, .Ref => {
+                // For now, we don't support serializing complex types like arrays, maps, classes, objects, modules, FFI types, stdlib types, errors, and references
                 // This would require more sophisticated serialization
                 return error.UnsupportedComplexType;
             },

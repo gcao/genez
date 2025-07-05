@@ -1,0 +1,32 @@
+#!/usr/bin/env gene run
+
+# Test string methods
+
+# Test trim
+(println ("  hello  " .trim))
+
+# Test split
+(println ("a,b,c" .split ","))
+(println ("ABC" .split ""))
+
+# Test index_of
+(println ("hello world" .index_of "world"))
+(println ("hello world" .index_of "xyz"))
+
+# Test contains
+(println ("hello world" .contains "world"))
+(println ("hello world" .contains "xyz"))
+
+# Test starts_with and ends_with
+(println ("hello world" .starts_with "hello"))
+(println ("hello world" .starts_with "world"))
+(println ("hello world" .ends_with "world"))
+(println ("hello world" .ends_with "hello"))
+
+# Test replace
+(println ("hello world" .replace "world" "gene"))
+(println ("hello world" .replace "xyz" "abc"))
+
+# Test case conversion
+(println ("Hello World" .to_upper))
+(println ("Hello World" .to_lower))

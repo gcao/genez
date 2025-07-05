@@ -244,11 +244,22 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 .lt => {
                     try block.instructions.append(.LessThan);
                 },
-                .gt => try block.instructions.append(.GreaterThan), // Added GreaterThan
-                .eq => try block.instructions.append(.Equal), // Added Equal
+                .gt => try block.instructions.append(.GreaterThan),
+                .eq => try block.instructions.append(.Equal),
+                .ne => try block.instructions.append(.NotEqual),
+                .le => try block.instructions.append(.LessEqual),
+                .ge => try block.instructions.append(.GreaterEqual),
                 .mul => try block.instructions.append(.Mul),
                 .div => try block.instructions.append(.Div),
-                // TODO: Add other MIR binary instructions
+                .mod => {
+                    // For now, modulo can be implemented as a function call
+                    // TODO: Add Mod instruction to MIR/bytecode
+                    const mod_name = try block.allocator.dupe(u8, "%");
+                    try block.instructions.append(.{ .LoadVariable = mod_name });
+                    try block.instructions.append(.{ .Call = 2 });
+                },
+                .and_op => try block.instructions.append(.LogicalAnd),
+                .or_op => try block.instructions.append(.LogicalOr),
             }
         },
         .variable => |var_expr| {
@@ -1051,6 +1062,50 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             
             // Add instruction to create callback wrapper
             try block.instructions.append(.CreateCallback);
+        },
+        .module_def => |mod_def| {
+            // Module definitions create a new module object at runtime
+            // 1. Create a new module
+            try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, mod_def.name) });
+            try block.instructions.append(.CreateModule);
+            
+            // 2. Make it the current module for body evaluation
+            try block.instructions.append(.PushModule);
+            
+            // 3. Evaluate the module body (defines members in the module)
+            for (mod_def.body.items) |stmt| {
+                try convertStatementWithContext(block, stmt, context);
+            }
+            
+            // 4. Handle exports if any
+            if (mod_def.exports.len > 0) {
+                for (mod_def.exports) |export_name| {
+                    try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, export_name) });
+                    try block.instructions.append(.MarkExport);
+                }
+            }
+            
+            // 5. Pop module and store it
+            try block.instructions.append(.PopModule);
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, mod_def.name) });
+            
+            // Leave nil on stack as result
+            try block.instructions.append(.LoadNil);
+        },
+        .export_stmt => |export_stmt| {
+            // Export statements mark variables/functions for export from current module
+            for (export_stmt.items) |item| {
+                // Load the value to export
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, item.name) });
+                
+                // Export it with the given name (or alias if provided)
+                const export_name = item.alias orelse item.name;
+                try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, export_name) });
+                try block.instructions.append(.Export);
+            }
+            
+            // Export statements evaluate to nil
+            try block.instructions.append(.LoadNil);
         },
     }
 }

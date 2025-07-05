@@ -137,6 +137,11 @@ pub const BuiltinOperatorType = enum {
     GCDisable,  // Disable GC
     GCEnable,   // Enable GC  
     GCStats,    // Get GC statistics
+    
+    // Reference operations
+    MakeRef,    // Create a mutable reference: (ref value)
+    RefGet,     // Get value from reference: (deref ref)
+    RefSet,     // Set value in reference: (set! ref value)
 };
 
 pub const Value = union(enum) {
@@ -188,6 +193,7 @@ pub const Value = union(enum) {
         signature: ?[]const u8, // Optional C signature
         callback_id: ?usize, // ID in the callback registry
     },
+    Ref: *Value, // Mutable reference to a value
 
     pub fn deinit(self: *Value, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -251,6 +257,11 @@ pub const Value = union(enum) {
                     allocator.free(sig);
                 }
                 // callback_id is just a number, nothing to free
+            },
+            .Ref => |ref| {
+                // Don't deinit refs here - they're meant to be shared
+                // TODO: Implement proper reference counting or garbage collection
+                _ = ref;
             },
             else => {},
         }
@@ -330,6 +341,11 @@ pub const Value = union(enum) {
                     .signature = if (cb.signature) |sig| try allocator.dupe(u8, sig) else null,
                     .callback_id = cb.callback_id,
                 }};
+            },
+            .Ref => |ref| blk: {
+                // Clone creates a new reference to the same value (aliasing)
+                // This is intentional for mutable references
+                break :blk Value{ .Ref = ref };
             },
         };
     }

@@ -102,6 +102,24 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         .Equal => {
             try writer.writeAll("equal");
         },
+        .NotEqual => {
+            try writer.writeAll("not-equal");
+        },
+        .LessEqual => {
+            try writer.writeAll("less-equal");
+        },
+        .GreaterEqual => {
+            try writer.writeAll("greater-equal");
+        },
+        .LogicalAnd => {
+            try writer.writeAll("logical-and");
+        },
+        .LogicalOr => {
+            try writer.writeAll("logical-or");
+        },
+        .LogicalNot => {
+            try writer.writeAll("logical-not");
+        },
         .Jump => |target| {
             try writer.print("jump {d}", .{target});
         },
@@ -161,6 +179,21 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
         },
         .PopNamespace => {
             try writer.writeAll("pop-namespace");
+        },
+        .CreateModule => {
+            try writer.writeAll("create-module");
+        },
+        .PushModule => {
+            try writer.writeAll("push-module");
+        },
+        .PopModule => {
+            try writer.writeAll("pop-module");
+        },
+        .MarkExport => {
+            try writer.writeAll("mark-export");
+        },
+        .Export => {
+            try writer.writeAll("export");
         },
         .TryStart => |catch_target| {
             try writer.print("try-start {d}", .{catch_target});

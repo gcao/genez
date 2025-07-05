@@ -98,6 +98,15 @@ pub const CoreClasses = struct {
         try self.addMethod(self.string_class, "length", createLengthMethod);
         try self.addMethod(self.string_class, "++", createConcatMethod);
         try self.addMethod(self.string_class, "substring", createSubstringMethod);
+        try self.addMethod(self.string_class, "split", createSplitMethod);
+        try self.addMethod(self.string_class, "trim", createTrimMethod);
+        try self.addMethod(self.string_class, "index_of", createIndexOfMethod);
+        try self.addMethod(self.string_class, "contains", createStringContainsMethod);
+        try self.addMethod(self.string_class, "starts_with", createStartsWithMethod);
+        try self.addMethod(self.string_class, "ends_with", createEndsWithMethod);
+        try self.addMethod(self.string_class, "replace", createReplaceMethod);
+        try self.addMethod(self.string_class, "to_upper", createToUpperMethod);
+        try self.addMethod(self.string_class, "to_lower", createToLowerMethod);
 
         // Add methods to Array class
         try self.addMethod(self.array_class, "length", createLengthMethod);
@@ -403,6 +412,80 @@ fn createParentMethod(allocator: std.mem.Allocator) !*bytecode.Function {
     const func = try createFunction(allocator, "parent", 1, 2);
     // Get parent of class (self is in register 0)
     try func.instructions.append(.{ .op = .ClassParent, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
+    return func;
+}
+
+// String methods
+fn createSplitMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "split", 2, 3);
+    // Split string (self in r0, separator in r1)
+    try func.instructions.append(.{ .op = .StringSplit, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
+    return func;
+}
+
+fn createTrimMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "trim", 1, 2);
+    // Trim whitespace (self in r0)
+    try func.instructions.append(.{ .op = .StringTrim, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
+    return func;
+}
+
+fn createIndexOfMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "index_of", 2, 3);
+    // Find substring index (self in r0, substring in r1)
+    try func.instructions.append(.{ .op = .StringIndexOf, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
+    return func;
+}
+
+fn createStringContainsMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "contains", 2, 3);
+    // Check if string contains substring (self in r0, substring in r1)
+    try func.instructions.append(.{ .op = .StringContains, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
+    return func;
+}
+
+fn createStartsWithMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "starts_with", 2, 3);
+    // Check if string starts with prefix (self in r0, prefix in r1)
+    try func.instructions.append(.{ .op = .StringStartsWith, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
+    return func;
+}
+
+fn createEndsWithMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "ends_with", 2, 3);
+    // Check if string ends with suffix (self in r0, suffix in r1)
+    try func.instructions.append(.{ .op = .StringEndsWith, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
+    return func;
+}
+
+fn createReplaceMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "replace", 3, 4);
+    // Replace first occurrence (self in r0, old in r1, new in r2)
+    // Note: StringReplace currently uses immediate for new string, so we need to adjust
+    try func.instructions.append(.{ .op = .StringReplace, .dst = 3, .src1 = 0, .src2 = 1, .immediate = .{ .Int = 2 } });
+    try func.instructions.append(.{ .op = .Return, .src1 = 3 });
+    return func;
+}
+
+fn createToUpperMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "to_upper", 1, 2);
+    // Convert to uppercase (self in r0)
+    try func.instructions.append(.{ .op = .StringToUpper, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
+    return func;
+}
+
+fn createToLowerMethod(allocator: std.mem.Allocator) !*bytecode.Function {
+    const func = try createFunction(allocator, "to_lower", 1, 2);
+    // Convert to lowercase (self in r0)
+    try func.instructions.append(.{ .op = .StringToLower, .dst = 1, .src1 = 0 });
     try func.instructions.append(.{ .op = .Return, .src1 = 1 });
     return func;
 }

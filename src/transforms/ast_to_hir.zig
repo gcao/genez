@@ -312,6 +312,7 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             .Array => |_| unreachable, // Should be handled by ast.Expression.ArrayLiteral
             .Map => |_| unreachable, // Should be handled by ast.Expression.MapLiteral
             .Module => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Module
+            .Ref => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Ref
             .StdlibFunction => |_| .{ .literal = .{ .nil = {} } }, // Fallback for StdlibFunction
             .FileHandle => |_| .{ .literal = .{ .nil = {} } }, // Fallback for FileHandle
             .Error => |_| .{ .literal = .{ .nil = {} } }, // Fallback for Error
@@ -821,10 +822,39 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
 
             return hir.HIR.Expression{ .match_expr = hir_match };
         },
-        .ModuleDef => {
-            // TODO: Implement proper HIR module support
-            // For now, convert module definitions to nil literals as placeholder
-            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
+        .ModuleDef => |mod_def| {
+            // Convert AST ModuleDef to HIR ModuleDef
+            const hir_mod = try allocator.create(hir.HIR.ModuleDef);
+            errdefer allocator.destroy(hir_mod);
+            
+            hir_mod.* = hir.HIR.ModuleDef.init(allocator);
+            errdefer hir_mod.deinit(allocator);
+            
+            // Copy module name
+            hir_mod.name = try allocator.dupe(u8, mod_def.name);
+            
+            // Convert module body
+            if (mod_def.body.* == .DoBlock) {
+                const do_block = mod_def.body.DoBlock;
+                for (do_block.statements) |body_expr| {
+                    const hir_expr = try lowerExpression(allocator, body_expr.*);
+                    try hir_mod.body.append(.{ .Expression = hir_expr });
+                }
+            } else {
+                // Single expression body
+                const hir_expr = try lowerExpression(allocator, mod_def.body.*);
+                try hir_mod.body.append(.{ .Expression = hir_expr });
+            }
+            
+            // Copy exports
+            if (mod_def.exports.len > 0) {
+                hir_mod.exports = try allocator.alloc([]const u8, mod_def.exports.len);
+                for (mod_def.exports, 0..) |export_name, i| {
+                    hir_mod.exports[i] = try allocator.dupe(u8, export_name);
+                }
+            }
+            
+            return hir.HIR.Expression{ .module_def = hir_mod };
         },
         .ImportStmt => |import| {
             // Convert AST import to HIR import
@@ -854,10 +884,27 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             
             return hir.HIR.Expression{ .import_stmt = import_stmt };
         },
-        .ExportStmt => {
-            // TODO: Implement proper HIR export support
-            // For now, convert export statements to nil literals as placeholder
-            return hir.HIR.Expression{ .literal = .{ .nil = {} } };
+        .ExportStmt => |export_stmt_ast| {
+            // Convert AST ExportStmt to HIR ExportStmt
+            const export_stmt = try allocator.create(hir.HIR.ExportStmt);
+            errdefer allocator.destroy(export_stmt);
+            
+            // Allocate and copy export items
+            const hir_items = try allocator.alloc(hir.HIR.ExportStmt.ExportItem, export_stmt_ast.items.len);
+            errdefer allocator.free(hir_items);
+            
+            for (export_stmt_ast.items, 0..) |item, i| {
+                hir_items[i] = .{
+                    .name = try allocator.dupe(u8, item.name),
+                    .alias = if (item.alias) |a| try allocator.dupe(u8, a) else null,
+                };
+            }
+            
+            export_stmt.* = hir.HIR.ExportStmt{
+                .items = hir_items,
+            };
+            
+            return hir.HIR.Expression{ .export_stmt = export_stmt };
         },
         .InstanceCreation => |inst| {
             // Convert InstanceCreation to HIR

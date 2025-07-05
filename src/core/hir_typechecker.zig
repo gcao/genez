@@ -228,7 +228,7 @@ pub const HIRTypeChecker = struct {
 
                 // Type checking for binary operations
                 switch (bin_op.op) {
-                    .add, .sub, .mul, .div => {
+                    .add, .sub, .mul, .div, .mod => {
                         // Arithmetic operations require numeric types
                         if (left_type.type_enum != .int and left_type.type_enum != .float) {
                             try self.addError("Left operand of arithmetic operation must be numeric", .{});
@@ -245,11 +245,23 @@ pub const HIRTypeChecker = struct {
                         }
                         return TypeInfo{ .type_enum = .int };
                     },
-                    .lt, .gt, .eq => {
+                    .lt, .gt, .eq, .ne, .le, .ge => {
                         // Comparison operations return bool
                         if (left_type.type_enum != right_type.type_enum) {
                             try self.addError("Comparison operands must have the same type", .{});
                             return TypeError.TypeMismatch;
+                        }
+                        return TypeInfo{ .type_enum = .bool };
+                    },
+                    .and_op, .or_op => {
+                        // Logical operations require bool types and return bool
+                        if (left_type.type_enum != .bool) {
+                            try self.addError("Left operand of logical operation must be boolean", .{});
+                            return TypeError.InvalidOperandType;
+                        }
+                        if (right_type.type_enum != .bool) {
+                            try self.addError("Right operand of logical operation must be boolean", .{});
+                            return TypeError.InvalidOperandType;
                         }
                         return TypeInfo{ .type_enum = .bool };
                     },

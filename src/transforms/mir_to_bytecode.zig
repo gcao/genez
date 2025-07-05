@@ -752,11 +752,33 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
 
             // For now, just evaluate both sides (no short-circuit)
             // TODO: Implement proper short-circuit evaluation
+            // Since we don't have And opcode, use Call to && builtin
+            const and_op = try func.allocator.dupe(u8, "&&");
             try func.instructions.append(.{
-                .op = bytecode.OpCode.And,
-                .src1 = left_reg,
-                .src2 = right_reg,
+                .op = bytecode.OpCode.LoadVar,
                 .dst = dst_reg,
+                .var_name = and_op,
+            });
+            // Move operands to correct positions for call
+            const temp1 = next_reg.*;
+            next_reg.* += 1;
+            const temp2 = next_reg.*;  
+            next_reg.* += 1;
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Move,
+                .dst = temp1,
+                .src1 = left_reg,
+            });
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Move,
+                .dst = temp2,
+                .src1 = right_reg,
+            });
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Call,
+                .dst = dst_reg,
+                .src1 = dst_reg,
+                .immediate = types.Value{ .Int = 2 },
             });
         },
         .LogicalOr => {
@@ -774,11 +796,33 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
 
             // For now, just evaluate both sides (no short-circuit)
             // TODO: Implement proper short-circuit evaluation
+            // Since we don't have Or opcode, use Call to || builtin
+            const or_op = try func.allocator.dupe(u8, "||");
             try func.instructions.append(.{
-                .op = bytecode.OpCode.Or,
-                .src1 = left_reg,
-                .src2 = right_reg,
+                .op = bytecode.OpCode.LoadVar,
                 .dst = dst_reg,
+                .var_name = or_op,
+            });
+            // Move operands to correct positions for call
+            const temp1 = next_reg.*;
+            next_reg.* += 1;
+            const temp2 = next_reg.*;  
+            next_reg.* += 1;
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Move,
+                .dst = temp1,
+                .src1 = left_reg,
+            });
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Move,
+                .dst = temp2,
+                .src1 = right_reg,
+            });
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Call,
+                .dst = dst_reg,
+                .src1 = dst_reg,
+                .immediate = types.Value{ .Int = 2 },
             });
         },
         .LogicalNot => {
@@ -793,6 +837,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             next_reg.* += 1;
             try stack.push(dst_reg);
 
+            // We DO have Not opcode!
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Not,
                 .src1 = operand_reg,
@@ -1344,6 +1389,69 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .op = bytecode.OpCode.IsMap,
                 .dst = dst_reg,
                 .src1 = src_reg,
+            });
+        },
+        
+        .CreateModule => {
+            // Pop module name from stack
+            const name_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.CreateModule,
+                .dst = dst_reg,
+                .src1 = name_reg,
+            });
+            
+            try stack.push(dst_reg);
+        },
+        
+        .PushModule => {
+            // Push module onto context stack
+            const module_reg = stack.pop();
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.PushModule,
+                .src1 = module_reg,
+            });
+        },
+        
+        .PopModule => {
+            // Pop module from context stack
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.PopModule,
+                .dst = dst_reg,
+            });
+            
+            try stack.push(dst_reg);
+        },
+        
+        .MarkExport => {
+            // Mark name for export (name is on stack)
+            const name_reg = stack.pop();
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.MarkExport,
+                .src1 = name_reg,
+            });
+        },
+        
+        .Export => {
+            // Export value with name (both on stack)
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: Export needs 2 operands but stack has {}\n", .{stack.len()});
+                return error.StackUnderflow;
+            }
+            
+            const name_reg = stack.pop();
+            const value_reg = stack.pop();
+            
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Export,
+                .src1 = value_reg,
+                .src2 = name_reg,
             });
         },
     }

@@ -139,6 +139,11 @@ pub const VM = struct {
         variables.put("gc_enable", .{ .BuiltinOperator = .GCEnable }) catch unreachable;
         variables.put("gc_stats", .{ .BuiltinOperator = .GCStats }) catch unreachable;
         
+        // Reference functions for mutable state
+        variables.put("ref", .{ .BuiltinOperator = .MakeRef }) catch unreachable;
+        variables.put("deref", .{ .BuiltinOperator = .RefGet }) catch unreachable;
+        variables.put("set!", .{ .BuiltinOperator = .RefSet }) catch unreachable;
+        
         // Register standard library functions
         // File I/O
         variables.put("file_open", .{ .StdlibFunction = .FileOpen }) catch unreachable;
@@ -1284,6 +1289,19 @@ pub const VM = struct {
                     .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}\n", .{name}),
                     .NativeFunction => try self.stdout.print("NativeFunction\n", .{}),
                     .CCallback => |cb| try self.stdout.print("CCallback({s})\n", .{cb.signature orelse "dynamic"}),
+                    .Ref => |ref| {
+                        try self.stdout.print("Ref -> ", .{});
+                        // Print the referenced value recursively
+                        const ref_copy = ref.*;
+                        switch (ref_copy) {
+                            .Int => |val| try self.stdout.print("{d}\n", .{val}),
+                            .String => |str| try self.stdout.print("{s}\n", .{str}),
+                            .Bool => |b| try self.stdout.print("{}\n", .{b}),
+                            .Float => |f| try self.stdout.print("{d}\n", .{f}),
+                            .Nil => try self.stdout.print("nil\n", .{}),
+                            else => try self.stdout.print("<complex value>\n", .{}),
+                        }
+                    },
                 }
             },
             .Call => {
@@ -1399,6 +1417,18 @@ pub const VM = struct {
                                 .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
                                 .NativeFunction => try self.stdout.print("NativeFunction", .{}),
                                 .CCallback => |cb| try self.stdout.print("CCallback({s})", .{cb.signature orelse "dynamic"}),
+                                .Ref => |ref| {
+                                    try self.stdout.print("Ref -> ", .{});
+                                    // Print referenced value (simplified)
+                                    switch (ref.*) {
+                                        .Int => |val| try self.stdout.print("{d}", .{val}),
+                                        .String => |str| try self.stdout.print("{s}", .{str}),
+                                        .Bool => |b| try self.stdout.print("{}", .{b}),
+                                        .Float => |f| try self.stdout.print("{d}", .{f}),
+                                        .Nil => try self.stdout.print("nil", .{}),
+                                        else => try self.stdout.print("<ref>", .{}),
+                                    }
+                                },
                             }
 
                             // Add space between arguments except for the last one
@@ -1481,6 +1511,18 @@ pub const VM = struct {
                                 .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
                                 .NativeFunction => try self.stdout.print("NativeFunction", .{}),
                                 .CCallback => |cb| try self.stdout.print("CCallback({s})", .{cb.signature orelse "dynamic"}),
+                                .Ref => |ref| {
+                                    try self.stdout.print("Ref -> ", .{});
+                                    // Print referenced value (simplified)
+                                    switch (ref.*) {
+                                        .Int => |val| try self.stdout.print("{d}", .{val}),
+                                        .String => |str| try self.stdout.print("{s}", .{str}),
+                                        .Bool => |b| try self.stdout.print("{}", .{b}),
+                                        .Float => |f| try self.stdout.print("{d}", .{f}),
+                                        .Nil => try self.stdout.print("nil", .{}),
+                                        else => try self.stdout.print("<ref>", .{}),
+                                    }
+                                },
                             }
 
                             // Add space between arguments except for the last one
@@ -2052,6 +2094,67 @@ pub const VM = struct {
                         return;
                     }
 
+                    // Handle reference operations
+                    if (builtin_op == .MakeRef) {
+                        if (arg_count != 1) {
+                            debug.log("ref requires exactly 1 argument, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        const value = try self.getRegister(func_reg + 1);
+                        const ref_value = try self.allocator.create(types.Value);
+                        ref_value.* = try value.clone(self.allocator);
+                        
+                        try self.setRegister(dst_reg, .{ .Ref = ref_value });
+                        return;
+                    }
+
+                    if (builtin_op == .RefGet) {
+                        if (arg_count != 1) {
+                            debug.log("deref requires exactly 1 argument, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        var ref_val = try self.getRegister(func_reg + 1);
+                        defer ref_val.deinit(self.allocator);
+                        
+                        if (ref_val != .Ref) {
+                            debug.log("deref requires a reference, got {}", .{ref_val});
+                            return error.TypeMismatch;
+                        }
+                        
+                        const value = try ref_val.Ref.clone(self.allocator);
+                        try self.setRegister(dst_reg, value);
+                        return;
+                    }
+
+                    if (builtin_op == .RefSet) {
+                        if (arg_count != 2) {
+                            debug.log("set! requires exactly 2 arguments, got {}", .{arg_count});
+                            return error.ArgumentCountMismatch;
+                        }
+
+                        const ref_val = try self.getRegister(func_reg + 1);
+                        
+                        if (ref_val != .Ref) {
+                            debug.log("set! requires a reference as first argument, got {}", .{ref_val});
+                            return error.TypeMismatch;
+                        }
+                        
+                        const new_value = try self.getRegister(func_reg + 2);
+                        
+                        // Get the actual reference pointer
+                        const ref_ptr = ref_val.Ref;
+                        
+                        // Deinit old value and replace with new
+                        ref_ptr.deinit(self.allocator);
+                        ref_ptr.* = try new_value.clone(self.allocator);
+                        
+                        // set! returns the new value
+                        try self.setRegister(dst_reg, try new_value.clone(self.allocator));
+                        return;
+                    }
+
                     // Handle less than or equal operator
                     if (builtin_op == .LessEqual) {
                         if (arg_count != 2) {
@@ -2248,6 +2351,18 @@ pub const VM = struct {
                                 .FFIFunction => |name| try self.stdout.print("FFIFunction: {s}", .{name}),
                                 .NativeFunction => try self.stdout.print("NativeFunction", .{}),
                                 .CCallback => |cb| try self.stdout.print("CCallback({s})", .{cb.signature orelse "dynamic"}),
+                                .Ref => |ref| {
+                                    try self.stdout.print("Ref -> ", .{});
+                                    // Print referenced value (simplified)
+                                    switch (ref.*) {
+                                        .Int => |val| try self.stdout.print("{d}", .{val}),
+                                        .String => |str| try self.stdout.print("{s}", .{str}),
+                                        .Bool => |b| try self.stdout.print("{}", .{b}),
+                                        .Float => |f| try self.stdout.print("{d}", .{f}),
+                                        .Nil => try self.stdout.print("nil", .{}),
+                                        else => try self.stdout.print("<ref>", .{}),
+                                    }
+                                },
                             }
 
                             // Add space between arguments except for the last one
@@ -3518,6 +3633,269 @@ pub const VM = struct {
 
                 try self.setRegister(dst_reg, .{ .String = str });
             },
+            .StringSplit => {
+                // Split string: StringSplit Rd, str_reg, separator_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const sep_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+                var sep_val = try self.getRegister(sep_reg);
+                defer sep_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringSplit requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+                if (sep_val != .String) {
+                    debug.log("StringSplit separator must be String, got {}", .{sep_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const sep = sep_val.String;
+
+                // Split the string
+                var parts = std.ArrayList(types.Value).init(self.allocator);
+                defer parts.deinit();
+
+                if (sep.len == 0) {
+                    // Split into individual characters
+                    for (str) |ch| {
+                        const char_str = try self.allocator.alloc(u8, 1);
+                        char_str[0] = ch;
+                        try parts.append(.{ .String = char_str });
+                    }
+                } else {
+                    // Split by separator
+                    var it = std.mem.splitSequence(u8, str, sep);
+                    while (it.next()) |part| {
+                        const part_copy = try self.allocator.dupe(u8, part);
+                        try parts.append(.{ .String = part_copy });
+                    }
+                }
+
+                const result_array = try parts.toOwnedSlice();
+                try self.setRegister(dst_reg, .{ .Array = result_array });
+            },
+            .StringTrim => {
+                // Trim whitespace: StringTrim Rd, str_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringTrim requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const trimmed = std.mem.trim(u8, str, " \t\n\r");
+                const result = try self.allocator.dupe(u8, trimmed);
+                
+                try self.setRegister(dst_reg, .{ .String = result });
+            },
+            .StringIndexOf => {
+                // Find substring index: StringIndexOf Rd, str_reg, substr_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const substr_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+                var substr_val = try self.getRegister(substr_reg);
+                defer substr_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringIndexOf requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+                if (substr_val != .String) {
+                    debug.log("StringIndexOf substring must be String, got {}", .{substr_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const substr = substr_val.String;
+
+                const index = std.mem.indexOf(u8, str, substr);
+                const result: i64 = if (index) |idx| @intCast(idx) else -1;
+                
+                try self.setRegister(dst_reg, .{ .Int = result });
+            },
+            .StringContains => {
+                // Check if contains substring: StringContains Rd, str_reg, substr_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const substr_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+                var substr_val = try self.getRegister(substr_reg);
+                defer substr_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringContains requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+                if (substr_val != .String) {
+                    debug.log("StringContains substring must be String, got {}", .{substr_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const substr = substr_val.String;
+                const contains = std.mem.indexOf(u8, str, substr) != null;
+                
+                try self.setRegister(dst_reg, .{ .Bool = contains });
+            },
+            .StringStartsWith => {
+                // Check if starts with prefix: StringStartsWith Rd, str_reg, prefix_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const prefix_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+                var prefix_val = try self.getRegister(prefix_reg);
+                defer prefix_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringStartsWith requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+                if (prefix_val != .String) {
+                    debug.log("StringStartsWith prefix must be String, got {}", .{prefix_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const prefix = prefix_val.String;
+                const starts_with = std.mem.startsWith(u8, str, prefix);
+                
+                try self.setRegister(dst_reg, .{ .Bool = starts_with });
+            },
+            .StringEndsWith => {
+                // Check if ends with suffix: StringEndsWith Rd, str_reg, suffix_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const suffix_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+                var suffix_val = try self.getRegister(suffix_reg);
+                defer suffix_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringEndsWith requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+                if (suffix_val != .String) {
+                    debug.log("StringEndsWith suffix must be String, got {}", .{suffix_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const suffix = suffix_val.String;
+                const ends_with = std.mem.endsWith(u8, str, suffix);
+                
+                try self.setRegister(dst_reg, .{ .Bool = ends_with });
+            },
+            .StringReplace => {
+                // Replace first occurrence: StringReplace Rd, str_reg, old_reg, new_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const old_reg = instruction.src2 orelse return error.InvalidInstruction;
+                // Get new string register from immediate (contains register index)
+                const new_reg = if (instruction.immediate) |imm| switch (imm) {
+                    .Int => @as(u16, @intCast(imm.Int)),
+                    else => return error.TypeMismatch,
+                } else return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+                var old_val = try self.getRegister(old_reg);
+                defer old_val.deinit(self.allocator);
+                var new_val = try self.getRegister(new_reg);
+                defer new_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringReplace requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+                if (old_val != .String) {
+                    debug.log("StringReplace old must be String, got {}", .{old_val});
+                    return error.TypeMismatch;
+                }
+                if (new_val != .String) {
+                    debug.log("StringReplace new must be String, got {}", .{new_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const old = old_val.String;
+                const new = new_val.String;
+
+                // Find first occurrence and replace
+                if (std.mem.indexOf(u8, str, old)) |idx| {
+                    const result = try self.allocator.alloc(u8, str.len - old.len + new.len);
+                    @memcpy(result[0..idx], str[0..idx]);
+                    @memcpy(result[idx..idx + new.len], new);
+                    @memcpy(result[idx + new.len..], str[idx + old.len..]);
+                    try self.setRegister(dst_reg, .{ .String = result });
+                } else {
+                    // No match, return original string
+                    const result = try self.allocator.dupe(u8, str);
+                    try self.setRegister(dst_reg, .{ .String = result });
+                }
+            },
+            .StringToUpper => {
+                // Convert to uppercase: StringToUpper Rd, str_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringToUpper requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const result = try self.allocator.alloc(u8, str.len);
+                
+                for (str, 0..) |ch, i| {
+                    result[i] = std.ascii.toUpper(ch);
+                }
+                
+                try self.setRegister(dst_reg, .{ .String = result });
+            },
+            .StringToLower => {
+                // Convert to lowercase: StringToLower Rd, str_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const str_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var str_val = try self.getRegister(str_reg);
+                defer str_val.deinit(self.allocator);
+
+                if (str_val != .String) {
+                    debug.log("StringToLower requires a String, got {}", .{str_val});
+                    return error.TypeMismatch;
+                }
+
+                const str = str_val.String;
+                const result = try self.allocator.alloc(u8, str.len);
+                
+                for (str, 0..) |ch, i| {
+                    result[i] = std.ascii.toLower(ch);
+                }
+                
+                try self.setRegister(dst_reg, .{ .String = result });
+            },
             .CreateArray => {
                 // Create array from N elements: CreateArray Rd, #count
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
@@ -3787,6 +4165,59 @@ pub const VM = struct {
                 callback_value.CCallback.function.* = try func_val.clone(self.allocator);
                 
                 try self.setRegister(dst_reg, callback_value);
+            },
+            .CreateModule => {
+                // Create module: CreateModule Rd (name from src1)
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const name_reg = instruction.src1 orelse return error.InvalidInstruction;
+                
+                var name_val = try self.getRegister(name_reg);
+                defer name_val.deinit(self.allocator);
+                
+                if (name_val != .String) {
+                    debug.log("CreateModule requires a String name, got {}", .{name_val});
+                    return error.TypeMismatch;
+                }
+                
+                // For now, create an empty module (Map-based)
+                const module_map = std.StringHashMap(types.Value).init(self.allocator);
+                try self.setRegister(dst_reg, .{ .Map = module_map });
+            },
+            .PushModule => {
+                // Push module onto context stack: PushModule Rs
+                const module_reg = instruction.src1 orelse return error.InvalidInstruction;
+                var module_val = try self.getRegister(module_reg);
+                
+                // For now, just consume the value (no module stack implemented yet)
+                module_val.deinit(self.allocator);
+            },
+            .PopModule => {
+                // Pop module from context stack: PopModule Rd
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                
+                // For now, return an empty module
+                const module_map = std.StringHashMap(types.Value).init(self.allocator);
+                try self.setRegister(dst_reg, .{ .Map = module_map });
+            },
+            .MarkExport => {
+                // Mark name for export: MarkExport (name from src1)
+                const name_reg = instruction.src1 orelse return error.InvalidInstruction;
+                var name_val = try self.getRegister(name_reg);
+                
+                // For now, just consume the value
+                name_val.deinit(self.allocator);
+            },
+            .Export => {
+                // Export value with name: Export Rs1 (value), Rs2 (name)
+                const value_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const name_reg = instruction.src2 orelse return error.InvalidInstruction;
+                
+                var value_val = try self.getRegister(value_reg);
+                var name_val = try self.getRegister(name_reg);
+                
+                // For now, just consume the values
+                value_val.deinit(self.allocator);
+                name_val.deinit(self.allocator);
             },
         }
     }
