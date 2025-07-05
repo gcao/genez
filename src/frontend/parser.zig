@@ -1352,6 +1352,33 @@ fn parseList(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Parse
         }
     }
 
+    // Special handling for complex literals (arrays, maps) with method calls
+    if (first.kind == .LBracket or first.kind == .LBrace) {
+        // Parse the array/map literal first
+        const literal_result = try parseExpression(alloc, toks[1..], depth + 1);
+        const after_literal = 1 + literal_result.consumed;
+        
+        // Check if there's a dot after the literal
+        if (after_literal < toks.len and toks[after_literal].kind == .Dot) {
+            // This is a method call on array/map literal
+            return parseMethodCall(alloc, toks, depth + 1);
+        }
+        
+        // Otherwise, it might be a regular call with array/map as first argument
+        // Fall through to regular handling
+    }
+    
+    // Check for method call pattern on simple literals: (literal .method ...)
+    if (current_pos_after_first < toks.len and toks[current_pos_after_first].kind == .Dot) {
+        switch (first.kind) {
+            .Int, .Bool, .String, .Float => {
+                // This is a method call on a literal
+                return parseMethodCall(alloc, toks, depth + 1);
+            },
+            else => {},
+        }
+    }
+
     // Handle (Literal op Expr)
     // `first` is toks[1]. `current_pos_after_first` is 2 (points to token after `first`)
     // Due to parseExpression dispatch, `first` here will not be Fn, If, Var, Do, Ident.
@@ -3345,18 +3372,63 @@ fn parseMethodCall(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
     // Parse the object expression
     // Special case: if it's just an identifier, parse it directly to avoid postfix issues
     var obj_ptr: *ast.Expression = undefined;
-    if (current_pos < toks.len and toks[current_pos].kind == .Ident) {
-        // Simple identifier - parse directly
-        const name = try alloc.dupe(u8, toks[current_pos].kind.Ident);
-        obj_ptr = try alloc.create(ast.Expression);
-        obj_ptr.* = .{ .Variable = .{ .name = name } };
-        current_pos += 1;
+    if (current_pos < toks.len) {
+        switch (toks[current_pos].kind) {
+            .Ident => |name| {
+                // Simple identifier - parse directly
+                const name_copy = try alloc.dupe(u8, name);
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = .{ .Variable = .{ .name = name_copy } };
+                current_pos += 1;
+            },
+            .String => |str| {
+                // String literal
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = .{ .Literal = .{ .value = .{ .String = str } } };
+                current_pos += 1;
+            },
+            .Int => |val| {
+                // Integer literal
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = .{ .Literal = .{ .value = .{ .Int = val } } };
+                current_pos += 1;
+            },
+            .Float => |val| {
+                // Float literal
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = .{ .Literal = .{ .value = .{ .Float = val } } };
+                current_pos += 1;
+            },
+            .Bool => |val| {
+                // Boolean literal
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = .{ .Literal = .{ .value = .{ .Bool = val } } };
+                current_pos += 1;
+            },
+            .LBracket => {
+                // Array literal - parse the full array
+                const array_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = array_result.node.Expression;
+                current_pos += array_result.consumed;
+            },
+            .LBrace => {
+                // Map literal - parse the full map
+                const map_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = map_result.node.Expression;
+                current_pos += map_result.consumed;
+            },
+            else => {
+                // Complex expression - use parseExpression
+                const obj_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+                obj_ptr = try alloc.create(ast.Expression);
+                obj_ptr.* = obj_result.node.Expression;
+                current_pos += obj_result.consumed;
+            },
+        }
     } else {
-        // Complex expression - use parseExpression
-        const obj_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        obj_ptr = try alloc.create(ast.Expression);
-        obj_ptr.* = obj_result.node.Expression;
-        current_pos += obj_result.consumed;
+        return error.UnexpectedEOF;
     }
 
     // Expect a dot

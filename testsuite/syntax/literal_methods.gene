@@ -1,0 +1,20 @@
+# Test method calls on literals
+
+# String literal methods
+(println ("hello" .length))
+
+# Number literal methods
+(println (10 .+ 5))
+(println (10 .- 3))
+(println (10 .* 2))
+(println (10 ./ 5))
+
+# Float literal methods
+(println (3.5 .+ 1.5))
+(println (4.0 .* 2.5))
+
+# Array literal methods
+(println ([1 2 3 4] .length))
+(println ([10 20 30] .at 1))
+(println ([] .length))
+
