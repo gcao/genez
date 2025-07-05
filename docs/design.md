@@ -96,7 +96,7 @@ Gene uses S-expressions as its foundation with extensions for common patterns:
 (+ 1 2 3)           # Function call
 (var x = 10)        # Variable declaration
 x                   # Variable reference
-:x                  # Design: would be quoted symbol (not implemented)
+`x                  # Quote
 %x                  # Unquote in macro context (implemented)
 ```
 
@@ -116,7 +116,7 @@ true false nil     # Boolean and null literals
 #"Hello #{name}"   # String interpolation (implemented)
 """multi-line
    string"""       # Multi-line string (not yet implemented)
-'symbol            # Design: character literal (not implemented)
+'symbol'           # Design: character literal (not implemented)
 symbol             # Bare symbols in data context
 
 # Symbols and Keywords

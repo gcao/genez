@@ -1223,12 +1223,45 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *Con
             return length_check_jump;
         },
         .map => |map| {
-            // Map pattern matching - simplified version
-            // For now, just succeed and bind variables
+            // Map pattern matching - extract and bind fields
+            // The scrutinee (map being matched) is already on the stack
 
-            _ = map;
+            // For each field pattern, extract the value and match
+            for (map.fields) |field| {
+                // Load the scrutinee map again
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
+                
+                // Load the key
+                try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, field.key) });
+                
+                // Get map value for the key
+                try block.instructions.append(.MapGet);
+                
+                // Now handle the field pattern
+                switch (field.pattern) {
+                    .variable => |var_pat| {
+                        // Store the extracted value in the variable
+                        const var_name_copy = try block.allocator.dupe(u8, var_pat.name);
+                        try block.instructions.append(.{ .StoreVariable = var_name_copy });
+                    },
+                    .literal => |lit| {
+                        // Compare with literal
+                        try convertExpressionWithContext(block, lit.value.*, context);
+                        try block.instructions.append(.Equal);
+                        // For now, we don't handle nested pattern failures properly
+                    },
+                    .wildcard => {
+                        // Just discard the extracted value
+                        try block.instructions.append(.Pop);
+                    },
+                    else => {
+                        // For other patterns, just pop for now
+                        try block.instructions.append(.Pop);
+                    },
+                }
+            }
 
-            // Map patterns always succeed for now
+            // Map patterns always succeed for now (we should check if keys exist)
             return 0;
         },
         .or_pattern => |or_pat| {

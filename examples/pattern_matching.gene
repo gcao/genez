@@ -1,0 +1,117 @@
+#!/usr/bin/env gene run
+
+# Pattern Matching in Gene
+#
+# Gene supports pattern matching on various data types including
+# literals, arrays, and maps. Pattern matching is commonly used
+# in functional programming for destructuring and control flow.
+
+(println "=== Basic Pattern Matching ===")
+
+# Match on literal values
+(fn describe_number [num]
+  (match num
+    (0 "zero")
+    (1 "one")
+    (2 "two")
+    (_ "other")))
+
+(println (describe_number 0))    # zero
+(println (describe_number 1))    # one
+(println (describe_number 5))    # other
+
+(println "\n=== Variable Patterns ===")
+
+# Variable patterns bind the matched value
+(fn process_value [val]
+  (match val
+    (0 "got zero")
+    (n (do 
+      (println "Got value:" n)
+      "non-zero"))))
+
+(process_value 42)               # Got value: 42
+
+(println "\n=== Array Patterns ===")
+
+# Match on array structure and extract elements
+(fn sum_pair [arr]
+  (match arr
+    ([a b] (+ a b))
+    (_ 0)))
+
+(println (sum_pair [10 20]))     # 30
+(println (sum_pair [5 15]))      # 20
+(println (sum_pair [1 2 3]))     # 0 (doesn't match [a b])
+
+# Match arrays of different lengths
+(fn describe_array [arr]
+  (match arr
+    ([] "empty array")
+    ([single] "one element")
+    ([first second] "two elements")
+    ([a b c] "three elements")
+    (_ "many elements")))
+
+(println (describe_array []))           # empty array
+(println (describe_array [42]))         # one element
+(println (describe_array [1 2]))        # two elements
+(println (describe_array [1 2 3 4]))    # many elements
+
+(println "\n=== Map Patterns ===")
+
+# Match on map structure and extract values
+(fn process_config [config]
+  (match config
+    ({^host h ^port p} 
+      (println "Server at" h "port" p))
+    ({^name n ^version v}
+      (println "App" n "version" v))
+    (_ 
+      (println "Unknown config"))))
+
+(process_config {^host "localhost" ^port 8080})
+(process_config {^name "MyApp" ^version "1.0"})
+(process_config {^foo "bar"})
+
+# Extract specific fields from maps
+(fn get_name [person]
+  (match person
+    ({^name nm} nm)
+    (_ "anonymous")))
+
+(println (get_name {^name "Alice" ^age 30}))    # Alice
+(println (get_name {^age 25}))                  # anonymous
+
+(println "\n=== Combining Patterns ===")
+
+# Use pattern matching for complex data processing
+(fn process_command [cmd]
+  (match cmd
+    (["move" direction steps] 
+      (println "Moving" direction "by" steps "units"))
+    (["rotate" angle]
+      (println "Rotating by" angle "degrees"))
+    (["stop"]
+      (println "Stopping"))
+    (_
+      (println "Unknown command"))))
+
+(process_command ["move" "north" 10])
+(process_command ["rotate" 90])
+(process_command ["stop"])
+(process_command ["jump"])
+
+(println "\n=== Pattern Matching in Functions ===")
+
+# Pattern matching is great for recursive functions
+(fn factorial [n]
+  (match n
+    (0 1)
+    (1 1)
+    (n (* n (factorial (- n 1))))))
+
+(println "5! =" (factorial 5))    # 120
+
+# Nested patterns - currently limited support
+# Future versions will support full nested pattern matching

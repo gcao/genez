@@ -8,7 +8,7 @@ Gene is a dynamic programming language with a working 4-stage compilation pipeli
 
 **Current State**: Gene is a fully functional language with OOP, macros, modules, pattern matching, exception handling, FFI, and a growing standard library. Recent additions include string interpolation, mutable references, comprehensive string methods, and proper logical operators.
 
-**Last Updated**: 2025-01-21 - Added mutable references (ref/deref/set!), string methods, logical operators returning values, and various operator support.
+**Last Updated**: 2025-01-24 - Implemented array and map pattern matching, extending pattern matching capabilities beyond basic literal/variable/wildcard patterns.
 
 ## Language Philosophy
 
@@ -41,7 +41,17 @@ Gene aims to be a modern dynamic language that combines:
 - **Higher-order functions** ✓
 - **Closures** (basic support) ✓
 - **Tail call optimization** (in MIR) ✓
-- **Pattern matching** (literal, variable, wildcard) ✓
+- **Pattern matching** ✓
+  - Literal patterns (match exact values) ✓
+  - Variable patterns (bind values) ✓
+  - Wildcard patterns (_) ✓
+  - Array patterns ([x y]) ✓
+  - Map patterns ({^key val}) ✓
+  - Nested patterns (limited) ⚠️
+  - Constructor patterns ✗
+  - Or patterns ✗
+  - Range patterns ✗
+  - Pattern guards (when clauses) ✗
 - **Recursion** with proper stack frames ✓
 
 ### 4. **Macro System**
