@@ -1,0 +1,32 @@
+#!/usr/bin/env gene run
+
+# Test: If-elif-else conditionals (using nested if workaround)
+# Note: elif syntax is not yet working due to parser limitations
+
+(fn grade_for_score [score]
+  # This is how elif should work (currently broken):
+  # (if (>= score 90)
+  #   (then "A")
+  #   (elif (>= score 80) "B")
+  #   (elif (>= score 70) "C")
+  #   (else "F"))
+  
+  # Current workaround using nested if:
+  (if (>= score 90)
+    "A"
+  else
+    (if (>= score 80)
+      "B"
+    else
+      (if (>= score 70)
+        "C"
+      else
+        "F"))))
+
+# Test various scores
+(print "Score: 95 Grade:" (grade_for_score 95))
+(print "Score: 85 Grade:" (grade_for_score 85))
+(print "Score: 75 Grade:" (grade_for_score 75))
+(print "Score: 65 Grade:" (grade_for_score 65))
+(print "Score: 100 Grade:" (grade_for_score 100))
+(print "Score: 0 Grade:" (grade_for_score 0))

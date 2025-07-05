@@ -168,8 +168,36 @@ pub const FuncCall = struct {
 };
 
 pub const If = struct {
+    pub const ElifClause = struct {
+        condition: *Expression,
+        then_branch: *Expression,
+
+        pub fn deinit(self: *ElifClause, allocator: std.mem.Allocator) void {
+            self.condition.deinit(allocator);
+            allocator.destroy(self.condition);
+            self.then_branch.deinit(allocator);
+            allocator.destroy(self.then_branch);
+        }
+
+        pub fn clone(self: ElifClause, allocator: std.mem.Allocator) error{OutOfMemory}!ElifClause {
+            const condition = try allocator.create(Expression);
+            errdefer allocator.destroy(condition);
+            condition.* = try self.condition.clone(allocator);
+
+            const then_branch = try allocator.create(Expression);
+            errdefer allocator.destroy(then_branch);
+            then_branch.* = try self.then_branch.clone(allocator);
+
+            return ElifClause{
+                .condition = condition,
+                .then_branch = then_branch,
+            };
+        }
+    };
+
     condition: *Expression,
     then_branch: *Expression,
+    elif_clauses: []ElifClause, // Array of elif clauses
     else_branch: *Expression, // Made mandatory
 
     pub fn deinit(self: *If, allocator: std.mem.Allocator) void {
@@ -178,6 +206,13 @@ pub const If = struct {
         allocator.destroy(self.condition);
         self.then_branch.deinit(allocator);
         allocator.destroy(self.then_branch);
+        
+        // Deinit elif clauses
+        for (self.elif_clauses) |*elif_clause| {
+            elif_clause.deinit(allocator);
+        }
+        allocator.free(self.elif_clauses);
+        
         self.else_branch.deinit(allocator); // No longer optional
         allocator.destroy(self.else_branch);
     }
@@ -191,6 +226,13 @@ pub const If = struct {
         errdefer allocator.destroy(then_branch);
         then_branch.* = try self.then_branch.clone(allocator);
 
+        // Clone elif clauses
+        const elif_clauses = try allocator.alloc(ElifClause, self.elif_clauses.len);
+        errdefer allocator.free(elif_clauses);
+        for (self.elif_clauses, 0..) |elif_clause, i| {
+            elif_clauses[i] = try elif_clause.clone(allocator);
+        }
+
         const else_branch = try allocator.create(Expression); // No longer optional
         errdefer allocator.destroy(else_branch);
         else_branch.* = try self.else_branch.clone(allocator);
@@ -198,6 +240,7 @@ pub const If = struct {
         return If{
             .condition = condition,
             .then_branch = then_branch,
+            .elif_clauses = elif_clauses,
             .else_branch = else_branch,
         };
     }

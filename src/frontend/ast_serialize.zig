@@ -52,11 +52,22 @@ fn serializeExpression(writer: anytype, expr: ast.Expression, indent: usize) !vo
         .If => |if_expr| {
             try writer.writeAll("(if ");
             try serializeExpression(writer, if_expr.condition.*, indent + 1);
-            try writer.writeAll(" ");
+            try writer.writeAll(" (then ");
             try serializeExpression(writer, if_expr.then_branch.*, indent + 1);
-            try writer.writeAll(" ");
-            try serializeExpression(writer, if_expr.else_branch.*, indent + 1);
             try writer.writeAll(")");
+            
+            // Serialize elif clauses
+            for (if_expr.elif_clauses) |elif_clause| {
+                try writer.writeAll(" (elif ");
+                try serializeExpression(writer, elif_clause.condition.*, indent + 1);
+                try writer.writeAll(" ");
+                try serializeExpression(writer, elif_clause.then_branch.*, indent + 1);
+                try writer.writeAll(")");
+            }
+            
+            try writer.writeAll(" (else ");
+            try serializeExpression(writer, if_expr.else_branch.*, indent + 1);
+            try writer.writeAll("))");
         },
         .FuncDef => |func_def| {
             try writer.print("(fn \"{s}\" [", .{func_def.name});

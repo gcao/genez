@@ -340,13 +340,52 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
             errdefer allocator.destroy(then_branch_ptr);
             then_branch_ptr.* = then_branch;
 
-            // else_branch is no longer optional
-            var else_expr = try lowerExpression(allocator, if_expr.else_branch.*);
-            errdefer else_expr.deinit(allocator);
+            // Handle elif clauses by converting them to nested if expressions
+            var else_branch_ptr: *hir.HIR.Expression = undefined;
+            
+            if (if_expr.elif_clauses.len > 0) {
+                // Build nested if expressions from elif clauses
+                // Start from the last elif and work backwards
+                var else_expr = try lowerExpression(allocator, if_expr.else_branch.*);
+                
+                var i: usize = if_expr.elif_clauses.len;
+                while (i > 0) : (i -= 1) {
+                    const elif_clause = if_expr.elif_clauses[i - 1];
+                    
+                    // Convert elif clause to if expression
+                    const elif_cond = try lowerExpression(allocator, elif_clause.condition.*);
+                    const elif_then = try lowerExpression(allocator, elif_clause.then_branch.*);
+                    
+                    const elif_cond_ptr = try allocator.create(hir.HIR.Expression);
+                    elif_cond_ptr.* = elif_cond;
+                    
+                    const elif_then_ptr = try allocator.create(hir.HIR.Expression);
+                    elif_then_ptr.* = elif_then;
+                    
+                    const elif_else_ptr = try allocator.create(hir.HIR.Expression);
+                    elif_else_ptr.* = else_expr;
+                    
+                    // Create nested if expression
+                    else_expr = hir.HIR.Expression{
+                        .if_expr = .{
+                            .condition = elif_cond_ptr,
+                            .then_branch = elif_then_ptr,
+                            .else_branch = elif_else_ptr,
+                        },
+                    };
+                }
+                
+                else_branch_ptr = try allocator.create(hir.HIR.Expression);
+                else_branch_ptr.* = else_expr;
+            } else {
+                // No elif clauses, just use the else branch directly
+                var else_expr = try lowerExpression(allocator, if_expr.else_branch.*);
+                errdefer else_expr.deinit(allocator);
 
-            const else_branch_ptr = try allocator.create(hir.HIR.Expression);
-            errdefer allocator.destroy(else_branch_ptr);
-            else_branch_ptr.* = else_expr;
+                else_branch_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(else_branch_ptr);
+                else_branch_ptr.* = else_expr;
+            }
 
             return hir.HIR.Expression{
                 .if_expr = .{

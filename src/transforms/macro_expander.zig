@@ -272,12 +272,28 @@ fn expandMacroBody(allocator: std.mem.Allocator, expr: ast.Expression, env: *Mac
             const then_branch = try allocator.create(ast.Expression);
             then_branch.* = try expandMacroBody(allocator, if_expr.then_branch.*, env);
             
+            // Expand elif clauses
+            var elif_clauses = try allocator.alloc(ast.If.ElifClause, if_expr.elif_clauses.len);
+            for (if_expr.elif_clauses, 0..) |elif_clause, i| {
+                const elif_cond = try allocator.create(ast.Expression);
+                elif_cond.* = try expandMacroBody(allocator, elif_clause.condition.*, env);
+                
+                const elif_then = try allocator.create(ast.Expression);
+                elif_then.* = try expandMacroBody(allocator, elif_clause.then_branch.*, env);
+                
+                elif_clauses[i] = .{
+                    .condition = elif_cond,
+                    .then_branch = elif_then,
+                };
+            }
+            
             const else_branch = try allocator.create(ast.Expression);
             else_branch.* = try expandMacroBody(allocator, if_expr.else_branch.*, env);
             
             return ast.Expression{ .If = .{
                 .condition = cond,
                 .then_branch = then_branch,
+                .elif_clauses = elif_clauses,
                 .else_branch = else_branch,
             } };
         },

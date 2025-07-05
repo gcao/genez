@@ -62,6 +62,8 @@ pub const TokenKind = union(enum) {
     RBrace, // New: for map literals
     Equals, // Only for var assignment
     If, // Keyword
+    Then, // Keyword
+    Elif, // Keyword
     Else, // Keyword
     Var, // Keyword
     Fn, // Keyword
@@ -354,7 +356,7 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             var token_kind: TokenKind = undefined;
 
             // Don't allocate Ident tokens here, let the parser handle ownership if needed
-            if (std.mem.eql(u8, word, "if")) token_kind = .If else if (std.mem.eql(u8, word, "else")) token_kind = .Else else if (std.mem.eql(u8, word, "var")) token_kind = .Var else if (std.mem.eql(u8, word, "fn")) token_kind = .Fn else if (std.mem.eql(u8, word, "fnx")) token_kind = .Fnx else if (std.mem.eql(u8, word, "do")) token_kind = .Do // New keyword
+            if (std.mem.eql(u8, word, "if")) token_kind = .If else if (std.mem.eql(u8, word, "then")) token_kind = .Then else if (std.mem.eql(u8, word, "elif")) token_kind = .Elif else if (std.mem.eql(u8, word, "else")) token_kind = .Else else if (std.mem.eql(u8, word, "var")) token_kind = .Var else if (std.mem.eql(u8, word, "fn")) token_kind = .Fn else if (std.mem.eql(u8, word, "fnx")) token_kind = .Fnx else if (std.mem.eql(u8, word, "do")) token_kind = .Do // New keyword
             else if (std.mem.eql(u8, word, "class")) token_kind = .Class // New keyword
             else if (std.mem.eql(u8, word, "new")) token_kind = .New // New keyword
             else if (std.mem.eql(u8, word, "match")) token_kind = .Match // New keyword
@@ -1014,6 +1016,10 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                     // Implicit self method call: (.method args...)
                     return parseImplicitSelfMethodCall(alloc, toks, depth + 1);
                 },
+                .Then, .Elif, .Else => {
+                    // These keywords should only appear within if expressions
+                    return error.UnexpectedToken;
+                },
                 .Ident => {
                     // Parse as a list, which will handle method calls, function calls, etc.
                     return parseList(alloc, toks, depth + 1);
@@ -1605,10 +1611,20 @@ fn parseDoBlock(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pa
 ///   depth: The current recursion depth.
 ///
 /// Returns: A ParseResult containing the parsed node and the number of tokens consumed.
+// parseElifChain is no longer needed since we handle elif directly in parseIf
+// /// Parse an elif chain into nested if expressions.
+// /// Transforms: (elif A B) (elif C D) (else E)
+// /// Into:       (if A B (if C D E))
+// fn parseElifChain(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+//     ...
+// }
+
 fn parseIf(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
-    // Expects (if condition then_branch else_branch) or (if condition then_branch else else_branch)
+    // Supports multiple syntaxes:
+    // 1. (if cond then_expr else_expr) - old syntax
+    // 2. (if cond (then expr) (else expr)) - parenthesized syntax with keywords
+    // 3. (if cond (then expr) (elif cond2 expr2) ... (else expr)) - with elif chains
     // toks[0] is LParen, toks[1] is If
-    // Minimum valid: (if c t e) -> LParen, If, c, t, e, RParen (6 tokens)
     if (toks.len < 6 or toks[0].kind != .LParen or toks[1].kind != .If) return error.UnexpectedToken;
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
 
@@ -1619,25 +1635,97 @@ fn parseIf(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
     const cond_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
     current_pos += cond_result.consumed;
 
-    // Parse then_branch
-    if (current_pos >= toks.len) return error.UnexpectedEOF;
-    const then_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-    current_pos += then_result.consumed;
-
-    // Check if there's an explicit 'else' keyword
+    var then_result: ParseResult = undefined;
+    var elif_clauses = std.ArrayList(ast.If.ElifClause).init(alloc);
+    errdefer elif_clauses.deinit();
     var else_result: ParseResult = undefined;
-    if (current_pos < toks.len and toks[current_pos].kind == .Else) {
-        current_pos += 1; // Consume 'else'
 
-        // Parse else_branch after 'else' keyword
+    // Check if next is a parenthesized (then ...) expression
+    if (current_pos + 2 < toks.len and 
+        toks[current_pos].kind == .LParen and 
+        toks[current_pos + 1].kind == .Then) {
+        // New syntax: (if cond (then expr) (elif ...) ... (else expr))
+        current_pos += 2; // Skip LParen and Then
+        
+        // Parse then expression
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        then_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += then_result.consumed;
+        
+        // Expect RParen to close (then ...)
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+        current_pos += 1;
+        
+        // Now parse any elif clauses
+        while (current_pos + 2 < toks.len and 
+               toks[current_pos].kind == .LParen and 
+               toks[current_pos + 1].kind == .Elif) {
+            current_pos += 2; // Skip LParen and Elif
+            
+            // Parse elif condition
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            const elif_cond_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += elif_cond_result.consumed;
+            
+            // Parse elif then branch
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            const elif_then_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += elif_then_result.consumed;
+            
+            // Expect RParen to close (elif ...)
+            if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+            current_pos += 1;
+            
+            // Create elif clause
+            const elif_cond_ptr = try alloc.create(ast.Expression);
+            elif_cond_ptr.* = try elif_cond_result.node.Expression.clone(alloc);
+            const elif_then_ptr = try alloc.create(ast.Expression);
+            elif_then_ptr.* = try elif_then_result.node.Expression.clone(alloc);
+            
+            try elif_clauses.append(.{
+                .condition = elif_cond_ptr,
+                .then_branch = elif_then_ptr,
+            });
+        }
+        
+        // Now we must have (else ...)
+        if (current_pos + 2 >= toks.len or 
+            toks[current_pos].kind != .LParen or
+            toks[current_pos + 1].kind != .Else) {
+            return error.ExpectedElseKeyword;
+        }
+        
+        current_pos += 2; // Skip LParen and Else
+        
+        // Parse else expression
         if (current_pos >= toks.len) return error.UnexpectedEOF;
         else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
         current_pos += else_result.consumed;
+        
+        // Expect RParen to close (else ...)
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+        current_pos += 1;
     } else {
-        // No 'else' keyword, the next expression is the else branch
+        // Old syntax: (if cond then_expr else_expr) or (if cond then_expr else else_expr)
+        // Parse then_branch
         if (current_pos >= toks.len) return error.UnexpectedEOF;
-        else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
-        current_pos += else_result.consumed;
+        then_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += then_result.consumed;
+
+        // Check if there's an explicit 'else' keyword
+        if (current_pos < toks.len and toks[current_pos].kind == .Else) {
+            current_pos += 1; // Consume 'else'
+
+            // Parse else_branch after 'else' keyword
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += else_result.consumed;
+        } else {
+            // No 'else' keyword, the next expression is the else branch
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += else_result.consumed;
+        }
     }
 
     // Expect and consume RParen
@@ -1650,9 +1738,16 @@ fn parseIf(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseRe
     then_ptr.* = try then_result.node.Expression.clone(alloc);
     const else_ptr = try alloc.create(ast.Expression);
     else_ptr.* = try else_result.node.Expression.clone(alloc);
+    
+    const elif_slice = try elif_clauses.toOwnedSlice();
 
     return .{
-        .node = .{ .Expression = .{ .If = .{ .condition = cond_ptr, .then_branch = then_ptr, .else_branch = else_ptr } } },
+        .node = .{ .Expression = .{ .If = .{ 
+            .condition = cond_ptr, 
+            .then_branch = then_ptr, 
+            .elif_clauses = elif_slice,
+            .else_branch = else_ptr 
+        } } },
         .consumed = current_pos, // Total consumed tokens
     };
 }

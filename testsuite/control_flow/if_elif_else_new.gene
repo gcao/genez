@@ -1,0 +1,55 @@
+#!/usr/bin/env gene run
+
+# Test: If-elif-else with new syntax
+# Note: There's a known bug where if expressions don't return values correctly for true branches
+
+(fn test_elif []
+  # Test 1: Basic elif with score 85
+  (var score 85)
+  (print "Testing elif with score:" score "-> ")
+  (if (>= score 90)
+    (then (print "Grade: A"))
+    (elif (>= score 80) (print "Grade: B"))
+    (elif (>= score 70) (print "Grade: C"))
+    (else (print "Grade: F")))
+  
+  # Test 2: Different scores
+  (print "Score: 95 -> ")
+  (if (>= 95 90)
+    (then (print "Grade: A"))
+    (elif (>= 95 80) (print "Grade: B"))
+    (elif (>= 95 70) (print "Grade: C"))
+    (else (print "Grade: F")))
+    
+  (print "Score: 75 -> ")
+  (if (>= 75 90)
+    (then (print "Grade: A"))
+    (elif (>= 75 80) (print "Grade: B"))
+    (elif (>= 75 70) (print "Grade: C"))
+    (else (print "Grade: F")))
+    
+  (print "Score: 65 -> ")
+  (if (>= 65 90)
+    (then (print "Grade: A"))
+    (elif (>= 65 80) (print "Grade: B"))
+    (elif (>= 65 70) (print "Grade: C"))
+    (else (print "Grade: F")))
+  
+  # Test 3: Time-based greeting
+  (print "Time: 10 hours -> ")
+  (if (< 10 6)
+    (then (print "Too early!"))
+    (elif (< 10 12) (print "Good morning"))
+    (elif (< 10 18) (print "Good afternoon"))
+    (elif (< 10 22) (print "Good evening"))
+    (else (print "Good night")))
+    
+  (print "Time: 20 hours -> ")
+  (if (< 20 6)
+    (then (print "Too early!"))
+    (elif (< 20 12) (print "Good morning"))
+    (elif (< 20 18) (print "Good afternoon"))
+    (elif (< 20 22) (print "Good evening"))
+    (else (print "Good night"))))
+
+(test_elif)
