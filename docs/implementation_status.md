@@ -109,6 +109,22 @@ Gene aims to be a modern dynamic language that combines:
 - **FFI callbacks** (`c-callback`) ✓
 - **Native function definitions** with Gene callbacks ✓
 
+### 11. **Selectors** (Basic Support) ⚡
+- **Path navigation** (`obj/prop`, `arr/0`) ✓
+  - Compiles to `.get_member` method calls
+  - Works with maps, objects, and modules
+- **Chained access** (`obj/a/b/c`) ✓
+- **Assignment** (`obj/prop = value`) ✓
+  - Compiles to `.set_member` method calls
+- **Not yet implemented**:
+  - `./` relative selector syntax
+  - `@` selector operator
+  - Range selection `(0 .. 2)`
+  - Multiple selection `@[0 1]`
+  - Method invocation selectors `@.method`
+  - Type-based selection
+  - Wildcards and predicates
+
 ## Ruby-like Features - Completed ✅
 
 1. **Everything is an object**

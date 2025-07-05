@@ -1161,6 +1161,133 @@ expr/.len                          # Number of children
 # - Small gene: ≤ 2 props, ≤ 2 children - inline storage
 ```
 
+## 4.9 Selectors
+
+Selectors provide a powerful way to navigate and extract data from complex data structures, inspired by XPath, CSS selectors, and jQuery. They enable concise access to nested values with support for pattern matching and transformations.
+
+### 4.9.1 Basic Selector Syntax
+
+#### Path Navigation
+```gene
+# Basic property access
+({^a "A"} ./ "a")              # => "A"
+({^a "A"} ./a)                 # => "A"
+
+# Array indexing
+([1 2 3] ./ 0)                 # => 1
+([1 2 3] ./0)                  # => 1
+
+# Nested access
+([{^test 1}] ./0/test)         # => 1
+({^users [{^name "Alice"}]} ./users/0/name)  # => "Alice"
+
+# Negative indices
+([1 2 3] ./-1)                 # => 3 (last element)
+```
+
+#### Alternative Syntax with @
+```gene
+# @ operator for selector access
+(@test {^test 1})              # => 1
+(@0 [1 2 3])                   # => 1
+(@test/0 {^test [1]})          # => 1
+(@0/test [{^test 1}])          # => 1
+```
+
+### 4.9.2 Advanced Selectors
+
+#### Range Selection
+```gene
+# Select array elements by range
+([0 1 2 3 4] ./ (0 .. 2))      # => [0, 1, 2]
+([0 1 2 3 4] ./ (-2 .. -1))    # => [3, 4]
+([0 1 2 3 4] ./ (1 .. -2))     # => [1, 2, 3]
+```
+
+#### Multiple Selection
+```gene
+# Select multiple indices
+((@ [0 1]) [1 2 3])            # => [1, 2]
+
+# Select multiple properties
+((@ ["a" "b"]) {^a 1 ^b 2 ^c 3})  # => [1, 2]
+
+# Parallel selection with @*
+((@* 0 1) [1 2 3])             # => [1, 2]
+```
+
+#### Method Invocation
+```gene
+# Invoke method through selector
+((@. "test") obj)              # => calls obj.test()
+(@.test obj)                   # => calls obj.test()
+(@0/.test [obj])               # => calls first element's test()
+```
+
+### 4.9.3 Selector with Assignment
+
+```gene
+# Set value using selector
+(var a [0])
+(a/0 = 1)                      # a becomes [1]
+($set a @0 1)                  # Alternative syntax
+
+# Set nested value
+(var data {})
+($set data @test 1)            # data becomes {^test 1}
+
+# Works with any path
+(var obj {^users []})
+($set obj @users/0 {^name "Alice"})
+```
+
+### 4.9.4 Special Selectors
+
+#### Type-based Selection
+```gene
+# Select by Gene type
+((@ :TEST) (_ (:TEST 1)))      # => [(:TEST 1)]
+
+# Future: Select all genes of a type
+((@ :div) html_doc)            # => all div elements
+```
+
+#### Context Usage with $with
+```gene
+# Use selector within context
+($with [{^test 1}]
+  (./ 0 "test")                # => 1
+)
+
+# Implicit self in selector
+($with {^a 1 ^b 2}
+  ./a                          # => 1
+)
+```
+
+### 4.9.5 Selector Semantics
+
+Selectors follow these principles:
+
+1. **Fail-safe**: Non-existent paths return nil rather than error
+2. **Composable**: Selectors can be chained and nested
+3. **Uniform**: Same syntax works for arrays, maps, genes, and objects
+4. **Efficient**: Common patterns are optimized at compile time
+
+### 4.9.6 Future Selector Features
+
+The selector system is designed to be extensible with planned features:
+
+- **Predicates**: `(./users/(fn [u] (> u/age 18)))` - filter with functions
+- **Wildcards**: `(./*/*/name)` - match any intermediate paths
+- **CSS-like shortcuts**:
+  - `&id` for ID matching: `(&user-123 doc)`
+  - `?tag` for tag matching: `(?active?premium users)`
+- **Descendants**: `(.//name)` - find all name fields at any depth
+- **Default values**: `(./missing ^default "N/A")`
+- **Transformations**: Apply functions during selection
+- **Parallel paths**: Select multiple paths simultaneously
+
 ---
 
 # Chapter 5: Control Flow and Expressions
