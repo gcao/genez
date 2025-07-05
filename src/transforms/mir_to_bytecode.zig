@@ -866,6 +866,9 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 std.debug.print("ERROR: Call with {} args but only {} items on stack\n", .{ arg_count, stack.len() });
                 return error.OutOfMemory;
             }
+            
+            // Debug: print stack state
+            // std.debug.print("DEBUG Call: arg_count={}, stack.len={}\n", .{ arg_count, stack.len() });
 
             // Pop arguments from stack (they are on top)
             var arg_regs = std.ArrayList(u16).init(func.allocator);
