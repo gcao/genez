@@ -815,6 +815,68 @@ pub const MatchExpr = struct {
     }
 };
 
+pub const CaseExpr = struct {
+    scrutinee: *Expression, // The value being examined
+    branches: []CaseBranch, // When branches
+    else_branch: ?*Expression, // Optional else branch
+    
+    pub const CaseBranch = struct {
+        condition: *Expression, // The condition after 'when'
+        body: *Expression, // Expression to execute if condition matches
+    };
+    
+    pub fn deinit(self: *CaseExpr, allocator: std.mem.Allocator) void {
+        self.scrutinee.deinit(allocator);
+        allocator.destroy(self.scrutinee);
+        
+        for (self.branches) |*branch| {
+            branch.condition.deinit(allocator);
+            allocator.destroy(branch.condition);
+            branch.body.deinit(allocator);
+            allocator.destroy(branch.body);
+        }
+        allocator.free(self.branches);
+        
+        if (self.else_branch) |else_br| {
+            else_br.deinit(allocator);
+            allocator.destroy(else_br);
+        }
+    }
+    
+    pub fn clone(self: CaseExpr, allocator: std.mem.Allocator) !CaseExpr {
+        const new_scrutinee = try allocator.create(Expression);
+        new_scrutinee.* = try self.scrutinee.clone(allocator);
+        
+        var new_branches = try allocator.alloc(CaseBranch, self.branches.len);
+        errdefer allocator.free(new_branches);
+        
+        for (self.branches, 0..) |branch, i| {
+            const new_condition = try allocator.create(Expression);
+            new_condition.* = try branch.condition.clone(allocator);
+            
+            const new_body = try allocator.create(Expression);
+            new_body.* = try branch.body.clone(allocator);
+            
+            new_branches[i] = .{
+                .condition = new_condition,
+                .body = new_body,
+            };
+        }
+        
+        const new_else = if (self.else_branch) |else_br| blk: {
+            const new_else_expr = try allocator.create(Expression);
+            new_else_expr.* = try else_br.clone(allocator);
+            break :blk new_else_expr;
+        } else null;
+        
+        return CaseExpr{
+            .scrutinee = new_scrutinee,
+            .branches = new_branches,
+            .else_branch = new_else,
+        };
+    }
+};
+
 pub const InstanceCreation = struct {
     class_name: []const u8,
     args: std.ArrayList(*Expression),
@@ -1518,6 +1580,7 @@ pub const Expression = union(enum) {
     PathAssignment: PathAssignment, // New - Field assignment with /
     MethodCall: MethodCall, // New - Method calls with .
     MatchExpr: MatchExpr, // New - Pattern matching expressions
+    CaseExpr: CaseExpr, // New - Case expressions for conditional branching
     ModuleDef: ModuleDef, // New - Module definitions
     ImportStmt: ImportStmt, // New - Import statements
     ExportStmt: ExportStmt, // New - Export statements
@@ -1553,6 +1616,7 @@ pub const Expression = union(enum) {
             .PathAssignment => |*assign| assign.deinit(allocator), // New
             .MethodCall => |*call| call.deinit(allocator), // New
             .MatchExpr => |*match_expr| match_expr.deinit(allocator), // New
+            .CaseExpr => |*case_expr| case_expr.deinit(allocator), // New
             .ModuleDef => |*module_def| module_def.deinit(allocator), // New
             .ImportStmt => |*import_stmt| import_stmt.deinit(allocator), // New
             .ExportStmt => |*export_stmt| export_stmt.deinit(allocator), // New
@@ -1590,6 +1654,7 @@ pub const Expression = union(enum) {
             .PathAssignment => |assign| Expression{ .PathAssignment = try assign.clone(allocator) }, // New
             .MethodCall => |call| Expression{ .MethodCall = try call.clone(allocator) }, // New
             .MatchExpr => |match_expr| Expression{ .MatchExpr = try match_expr.clone(allocator) }, // New
+            .CaseExpr => |case_expr| Expression{ .CaseExpr = try case_expr.clone(allocator) }, // New
             .ModuleDef => |module_def| Expression{ .ModuleDef = try module_def.clone(allocator) }, // New
             .ImportStmt => |import_stmt| Expression{ .ImportStmt = try import_stmt.clone(allocator) }, // New
             .ExportStmt => |export_stmt| Expression{ .ExportStmt = try export_stmt.clone(allocator) }, // New

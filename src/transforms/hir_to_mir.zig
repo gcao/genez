@@ -710,6 +710,57 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 return error.UnsupportedPathAssignment;
             }
         },
+        .case_expr => |case_expr| {
+            // Case expression compilation to MIR
+            // Similar to match but simpler - just conditional branching
+            
+            // Evaluate the scrutinee once and store it
+            try convertExpressionWithContext(block, case_expr.scrutinee.*, context);
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, "__case_scrutinee") });
+            
+            var branch_ends = std.ArrayList(usize).init(block.allocator);
+            defer branch_ends.deinit();
+            
+            // Process each when branch
+            for (case_expr.branches) |branch| {
+                // Load scrutinee
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__case_scrutinee") });
+                
+                // Evaluate condition (comparing with scrutinee)
+                try convertExpressionWithContext(block, branch.condition.*, context);
+                
+                // Compare scrutinee with condition
+                try block.instructions.append(.Equal);
+                
+                // Jump to next branch if not equal
+                const jump_to_next = block.instructions.items.len;
+                try block.instructions.append(.{ .JumpIfFalse = 0 }); // Will be patched
+                
+                // Evaluate body if condition matched
+                try convertExpressionWithContext(block, branch.body.*, context);
+                
+                // Jump to end of case expression
+                const jump_to_end = block.instructions.items.len;
+                try block.instructions.append(.{ .Jump = 0 }); // Will be patched
+                try branch_ends.append(jump_to_end);
+                
+                // Patch jump to next branch
+                block.instructions.items[jump_to_next].JumpIfFalse = block.instructions.items.len;
+            }
+            
+            // Handle else branch or push nil if no else
+            if (case_expr.else_branch) |else_br| {
+                try convertExpressionWithContext(block, else_br.*, context);
+            } else {
+                try block.instructions.append(.LoadNil);
+            }
+            
+            // Patch all branch end jumps to point here
+            const case_end = block.instructions.items.len;
+            for (branch_ends.items) |jump_index| {
+                block.instructions.items[jump_index].Jump = case_end;
+            }
+        },
         .match_expr => |match_expr| {
             // Pattern matching compilation to MIR
             // This is a simplified implementation - full pattern matching would require

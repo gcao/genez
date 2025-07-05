@@ -352,6 +352,26 @@ fn serializeExpression(writer: anytype, expr: hir.HIR.Expression, indent: usize)
             try serializeExpression(writer, path_assign.value.*, indent);
             try writer.writeAll(")");
         },
+        .case_expr => |case_expr| {
+            try writer.writeAll("(case ");
+            try serializeExpression(writer, case_expr.scrutinee.*, indent + 1);
+            
+            for (case_expr.branches) |branch| {
+                try writer.writeAll(" (when ");
+                try serializeExpression(writer, branch.condition.*, indent + 1);
+                try writer.writeAll(" ");
+                try serializeExpression(writer, branch.body.*, indent + 1);
+                try writer.writeAll(")");
+            }
+            
+            if (case_expr.else_branch) |else_br| {
+                try writer.writeAll(" (else ");
+                try serializeExpression(writer, else_br.*, indent + 1);
+                try writer.writeAll(")");
+            }
+            
+            try writer.writeAll(")");
+        },
         .match_expr => |match_expr| {
             try writer.writeAll("(match ");
             try serializeExpression(writer, match_expr.scrutinee.*, indent + 1);

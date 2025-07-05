@@ -1,0 +1,60 @@
+#!/usr/bin/env gene run
+
+# Case and Match in Gene
+#
+# Gene provides two complementary constructs:
+# - case: for conditional branching based on values
+# - match: for destructuring and pattern binding
+
+(println "=== Case Expressions ===")
+
+# Case is used for conditional branching
+(fn describe_day [day]
+  (case day
+    (when "Monday" "Start of the work week")
+    (when "Friday" "TGIF!")
+    (when "Saturday" "Weekend!")
+    (when "Sunday" "Weekend!")
+    (else "Regular day")))
+
+(println (describe_day "Monday"))
+(println (describe_day "Friday"))
+(println (describe_day "Wednesday"))
+
+(println "")
+(println "=== Match for Destructuring ===")
+
+# Match is used for binding values to patterns
+(match x 42)
+(println "Bound x to" x)
+
+# Array destructuring
+(match [a b c] [1 2 3])
+(println "Array destructuring: a=" a "b=" b "c=" c)
+
+# Map destructuring
+(match {^name n ^score s} {^name "Player1" ^score 100})
+(println "Map destructuring:" n "scored" s "points")
+
+(println "")
+(println "=== Combining Case and Match ===")
+
+# You can use them together for powerful patterns
+(fn process_result [result]
+  (case result
+    (when "success" (do
+      (match [code data] [200 "OK"])
+      (println "Success with code" code "and data" data)))
+    (when "error" (do
+      (match [code msg] [500 "Internal Error"])
+      (println "Error" code ":" msg)))
+    (else (println "Unknown result"))))
+
+(process_result "success")
+(process_result "error")
+
+(println "")
+(println "=== Design Philosophy ===")
+(println "- Use 'case' when you need conditional branching")
+(println "- Use 'match' when you need to destructure data")
+(println "- They complement each other for different use cases")

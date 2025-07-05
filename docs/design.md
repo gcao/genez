@@ -5637,7 +5637,18 @@ Comprehensive pattern matching implementation:
 - Map patterns ({^key var})
 - Works in match expressions
 
-### 7.6 Parameters as Patterns (Conceptual Foundation)
+### 7.6 Case Expressions and Match Redesign
+Separated pattern matching into two distinct constructs:
+- **Case expressions**: For conditional branching based on values
+  - Syntax: `(case value (when cond1 expr1) (when cond2 expr2) (else expr))`
+  - Similar to switch/case in other languages
+  - Clear and intuitive for value-based branching
+- **Match expressions**: For destructuring and binding
+  - New syntax: `(match pattern value)` for pure destructuring
+  - Old syntax still supported for compatibility
+  - Focus on binding variables from structured data
+
+### 7.7 Parameters as Patterns (Conceptual Foundation)
 While not yet implemented, the architecture recognizes that function parameter binding is conceptually pattern matching:
 - Simple parameters like `[a b]` are variable patterns matching positional arguments
 - Future extensions could allow `[[x y]]` for destructuring array arguments

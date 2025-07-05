@@ -72,6 +72,8 @@ pub const TokenKind = union(enum) {
     Dot, // New: for field/method access
     Slash, // New: for field access in Gene
     Match, // New: for pattern matching
+    Case, // New: for case expressions (conditional branching)
+    When, // New: for case branches
     Macro, // New: for pseudo macro definitions
     Percent, // New: for unquote syntax (%identifier)
     Backtick, // New: for quote syntax (`symbol or `(...))
@@ -356,6 +358,8 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             else if (std.mem.eql(u8, word, "class")) token_kind = .Class // New keyword
             else if (std.mem.eql(u8, word, "new")) token_kind = .New // New keyword
             else if (std.mem.eql(u8, word, "match")) token_kind = .Match // New keyword
+            else if (std.mem.eql(u8, word, "case")) token_kind = .Case // New keyword
+            else if (std.mem.eql(u8, word, "when")) token_kind = .When // New keyword
             else if (std.mem.eql(u8, word, "macro")) token_kind = .Macro // New keyword
             else if (std.mem.eql(u8, word, "ns")) {
                 debug.log("Tokenizing 'ns' as Ns keyword", .{});
@@ -993,6 +997,7 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 },
                 .New => return parseNew(alloc, toks, depth + 1),
                 .Match => return parseMatch(alloc, toks, depth + 1),
+                .Case => return parseCase(alloc, toks, depth + 1),
                 .Macro => return parseMacro(alloc, toks, depth + 1),
                 .Ns => return parseNamespace(alloc, toks, depth + 1),
                 .Import => return parseImport(alloc, toks, depth + 1),
@@ -3509,13 +3514,76 @@ fn parseMethodCall(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
 }
 
 fn parseMatch(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
-    // Expects (match scrutinee (pattern1 expr1) (pattern2 expr2) ...)
-    // Minimum: (match x (1 "one")) -> at least 7 tokens
-    if (toks.len < 7 or toks[0].kind != .LParen or toks[1].kind != .Match) return error.UnexpectedToken;
+    // Two syntaxes:
+    // 1. Destructuring: (match pattern value) -> binds variables
+    // 2. Old syntax: (match scrutinee (pattern1 expr1) ...) -> conditional branching (deprecated, use case)
+    if (toks.len < 5 or toks[0].kind != .LParen or toks[1].kind != .Match) return error.UnexpectedToken;
     if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
 
     var current_pos: usize = 2; // Skip LParen and Match
 
+    // Try to parse as destructuring syntax first
+    // We need to look ahead to see if this is (match pattern value) or (match value (pattern expr) ...)
+    // The key is: if we see (match <something> (... then it's the old syntax
+    var is_old_syntax = false;
+    var lookahead = current_pos;
+    
+    // Skip the first expression
+    if (lookahead < toks.len) {
+        const first_expr = try parseExpression(alloc, toks[lookahead..], depth + 1);
+        lookahead += first_expr.consumed;
+        
+        // If the next token is LParen, it's the old syntax
+        if (lookahead < toks.len and toks[lookahead].kind == .LParen) {
+            is_old_syntax = true;
+        }
+    }
+    
+    if (!is_old_syntax and current_pos < toks.len) {
+        // This looks like (match pattern value) syntax
+        
+        // Parse pattern
+        const pattern_result = try parsePattern(alloc, toks[current_pos..], depth + 1);
+        current_pos += pattern_result.consumed;
+        
+        // Parse value
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        const value_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+        current_pos += value_result.consumed;
+        
+        // Expect closing paren
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+        current_pos += 1;
+        
+        // Create a single-arm match expression that always succeeds
+        const value_ptr = try alloc.create(ast.Expression);
+        value_ptr.* = try value_result.node.Expression.clone(alloc);
+        
+        // The body is just nil since we only care about binding
+        const body_ptr = try alloc.create(ast.Expression);
+        body_ptr.* = .{ .Literal = .{ .value = .{ .Nil = {} } } };
+        
+        var arms = try alloc.alloc(ast.MatchExpr.MatchArm, 1);
+        arms[0] = .{
+            .pattern = pattern_result.pattern,
+            .guard = null,
+            .body = body_ptr,
+        };
+        
+        return ParseResult{
+            .node = .{
+                .Expression = .{
+                    .MatchExpr = .{
+                        .scrutinee = value_ptr,
+                        .arms = arms,
+                    },
+                },
+            },
+            .consumed = current_pos,
+        };
+    }
+
+    // Otherwise parse as old syntax
     // Parse scrutinee (the value being matched)
     if (current_pos >= toks.len) return error.UnexpectedEOF;
     const scrutinee_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
@@ -3567,6 +3635,97 @@ fn parseMatch(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !Pars
                 .MatchExpr = .{
                     .scrutinee = scrutinee_ptr,
                     .arms = arms_slice,
+                },
+            },
+        },
+        .consumed = current_pos,
+    };
+}
+
+fn parseCase(alloc: std.mem.Allocator, toks: []const Token, depth: usize) !ParseResult {
+    // Expects (case scrutinee (when cond1 expr1) (when cond2 expr2) ... (else expr))
+    // Minimum: (case x (when 1 "one")) -> at least 7 tokens
+    if (toks.len < 7 or toks[0].kind != .LParen or toks[1].kind != .Case) return error.UnexpectedToken;
+    if (depth > MAX_RECURSION_DEPTH) return error.MaxRecursionDepthExceeded;
+
+    var current_pos: usize = 2; // Skip LParen and Case
+
+    // Parse scrutinee (the value being examined)
+    if (current_pos >= toks.len) return error.UnexpectedEOF;
+    const scrutinee_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+    current_pos += scrutinee_result.consumed;
+
+    const scrutinee_ptr = try alloc.create(ast.Expression);
+    scrutinee_ptr.* = try scrutinee_result.node.Expression.clone(alloc);
+
+    // Parse branches
+    var branches = std.ArrayList(ast.CaseExpr.CaseBranch).init(alloc);
+    errdefer branches.deinit();
+    var else_branch: ?*ast.Expression = null;
+
+    while (current_pos < toks.len and toks[current_pos].kind != .RParen) {
+        // Each branch should be (when condition body) or (else body)
+        if (toks[current_pos].kind != .LParen) return error.UnexpectedToken;
+        current_pos += 1; // Skip LParen
+
+        if (current_pos >= toks.len) return error.UnexpectedEOF;
+        
+        // Check for when or else
+        if (toks[current_pos].kind == .When) {
+            current_pos += 1; // Skip When
+            
+            // Parse condition
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            const condition_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += condition_result.consumed;
+            
+            // Parse body
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            const body_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += body_result.consumed;
+            
+            const condition_ptr = try alloc.create(ast.Expression);
+            condition_ptr.* = try condition_result.node.Expression.clone(alloc);
+            
+            const body_ptr = try alloc.create(ast.Expression);
+            body_ptr.* = try body_result.node.Expression.clone(alloc);
+            
+            try branches.append(.{
+                .condition = condition_ptr,
+                .body = body_ptr,
+            });
+        } else if (toks[current_pos].kind == .Else) {
+            current_pos += 1; // Skip Else
+            
+            // Parse else body
+            if (current_pos >= toks.len) return error.UnexpectedEOF;
+            const else_result = try parseExpression(alloc, toks[current_pos..], depth + 1);
+            current_pos += else_result.consumed;
+            
+            const else_ptr = try alloc.create(ast.Expression);
+            else_ptr.* = try else_result.node.Expression.clone(alloc);
+            else_branch = else_ptr;
+        } else {
+            return error.UnexpectedToken;
+        }
+        
+        // Expect closing paren for this branch
+        if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+        current_pos += 1;
+    }
+
+    if (current_pos >= toks.len or toks[current_pos].kind != .RParen) return error.ExpectedRParen;
+    current_pos += 1;
+
+    const branches_slice = try branches.toOwnedSlice();
+
+    return ParseResult{
+        .node = .{
+            .Expression = .{
+                .CaseExpr = .{
+                    .scrutinee = scrutinee_ptr,
+                    .branches = branches_slice,
+                    .else_branch = else_branch,
                 },
             },
         },

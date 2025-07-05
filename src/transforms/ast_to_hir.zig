@@ -774,6 +774,56 @@ fn lowerExpression(allocator: std.mem.Allocator, expr: ast.Expression) !hir.HIR.
 
             return hir.HIR.Expression{ .class_def = hir_class };
         },
+        .CaseExpr => |case_expr| {
+            // Convert AST case expression to HIR case expression
+            var hir_case = try allocator.create(hir.HIR.CaseExpr);
+            errdefer allocator.destroy(hir_case);
+
+            // Convert scrutinee (the value being examined)
+            var hir_scrutinee = try lowerExpression(allocator, case_expr.scrutinee.*);
+            errdefer hir_scrutinee.deinit(allocator);
+            const scrutinee_ptr = try allocator.create(hir.HIR.Expression);
+            errdefer allocator.destroy(scrutinee_ptr);
+            scrutinee_ptr.* = hir_scrutinee;
+            hir_case.scrutinee = scrutinee_ptr;
+
+            // Convert branches
+            hir_case.branches = try allocator.alloc(hir.HIR.CaseBranch, case_expr.branches.len);
+            for (case_expr.branches, 0..) |branch, i| {
+                // Convert condition
+                var hir_condition = try lowerExpression(allocator, branch.condition.*);
+                errdefer hir_condition.deinit(allocator);
+                const condition_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(condition_ptr);
+                condition_ptr.* = hir_condition;
+
+                // Convert body
+                var hir_body = try lowerExpression(allocator, branch.body.*);
+                errdefer hir_body.deinit(allocator);
+                const body_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(body_ptr);
+                body_ptr.* = hir_body;
+
+                hir_case.branches[i] = .{
+                    .condition = condition_ptr,
+                    .body = body_ptr,
+                };
+            }
+
+            // Convert else branch if present
+            if (case_expr.else_branch) |else_br| {
+                var hir_else = try lowerExpression(allocator, else_br.*);
+                errdefer hir_else.deinit(allocator);
+                const else_ptr = try allocator.create(hir.HIR.Expression);
+                errdefer allocator.destroy(else_ptr);
+                else_ptr.* = hir_else;
+                hir_case.else_branch = else_ptr;
+            } else {
+                hir_case.else_branch = null;
+            }
+
+            return hir.HIR.Expression{ .case_expr = hir_case };
+        },
         .MatchExpr => |match_expr| {
             // Convert AST match expression to HIR match expression
             var hir_match = try allocator.create(hir.HIR.MatchExpr);

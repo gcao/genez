@@ -129,6 +129,7 @@ pub const HIR = struct {
         field_access: FieldAccess, // Accessing fields on instances
         path_assignment: PathAssignment, // Assigning fields on instances
         match_expr: *MatchExpr, // Pattern matching expression
+        case_expr: *CaseExpr, // Case expression for conditional branching
         macro_def: *MacroDef, // Macro definition
         macro_call: MacroCall, // Macro call
         for_loop: *ForLoop, // For-in loop
@@ -171,6 +172,10 @@ pub const HIR = struct {
                 .match_expr => |match_ptr| {
                     match_ptr.deinit(allocator);
                     allocator.destroy(match_ptr);
+                },
+                .case_expr => |case_ptr| {
+                    case_ptr.deinit(allocator);
+                    allocator.destroy(case_ptr);
                 },
                 .macro_def => |macro_ptr| {
                     macro_ptr.deinit(allocator);
@@ -730,6 +735,41 @@ pub const HIR = struct {
                 .or_pattern => |*or_pat| or_pat.deinit(allocator),
                 .range => |*range| range.deinit(allocator),
             }
+        }
+    };
+    
+    // Case expression HIR structures
+    pub const CaseExpr = struct {
+        scrutinee: *Expression, // The value being examined
+        branches: []CaseBranch, // When branches
+        else_branch: ?*Expression, // Optional else branch
+        
+        pub fn deinit(self: *CaseExpr, allocator: std.mem.Allocator) void {
+            self.scrutinee.deinit(allocator);
+            allocator.destroy(self.scrutinee);
+            
+            for (self.branches) |*branch| {
+                branch.deinit(allocator);
+            }
+            allocator.free(self.branches);
+            
+            if (self.else_branch) |else_br| {
+                else_br.deinit(allocator);
+                allocator.destroy(else_br);
+            }
+        }
+    };
+    
+    pub const CaseBranch = struct {
+        condition: *Expression, // The condition to check
+        body: *Expression, // Expression to execute if condition is true
+        
+        pub fn deinit(self: *CaseBranch, allocator: std.mem.Allocator) void {
+            self.condition.deinit(allocator);
+            allocator.destroy(self.condition);
+            
+            self.body.deinit(allocator);
+            allocator.destroy(self.body);
         }
     };
 
