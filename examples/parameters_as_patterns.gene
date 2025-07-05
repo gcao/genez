@@ -1,0 +1,102 @@
+#!/usr/bin/env gene run
+
+# Parameters as Patterns - A Conceptual Demonstration
+#
+# In Gene, function parameter binding is conceptually the same as pattern matching.
+# This example demonstrates this connection and explores future possibilities.
+
+(println "=== Current Function Parameters ===")
+
+# Today's Gene: Simple positional parameters
+(fn greet [name age]
+  (println name "is" age "years old"))
+
+(greet "Alice" 30)
+
+# This is conceptually equivalent to:
+(fn greet_with_match [args]
+  (match args
+    ([nm ag] (println nm "is" ag "years old"))
+    (_ (println "Wrong number of arguments"))))
+
+(greet_with_match ["Bob" 25])
+(greet_with_match ["Charlie"])  # Handles wrong arity
+
+(println "")
+(println "=== Simulating Destructuring Parameters ===")
+
+# What we'd like to write (not yet supported):
+# (fn process_point [[x y]] (+ x y))
+
+# What we do today:
+(fn process_point [point]
+  (match point
+    ([x y] (+ x y))
+    (_ 0)))
+
+(println "Sum of point [3 4]:" (process_point [3 4]))
+
+# For maps:
+# What we'd like to write (not yet supported):
+# (fn show_user [{^name n ^email e}] (println n "at" e))
+
+# What we do today:
+(fn show_user [user]
+  (match user
+    ({^name n ^email e} (println n "at" e))
+    ({^name n} (println n "(no email)"))
+    (_ (println "Invalid user"))))
+
+(show_user {^name "Alice" ^email "alice@example.com"})
+(show_user {^name "Bob"})
+
+(println "")
+(println "=== Rest Parameters as Array Patterns ===")
+
+# Rest parameters are already a form of pattern matching
+# They match "all remaining arguments" into an array
+
+(fn list_items [first] rest
+  (println "First:" first)
+  (println "Rest:" rest))
+
+(list_items "a" "b" "c" "d")
+
+# This is like having a pattern [first ...rest]
+# where ...rest captures remaining elements
+
+(println "")
+(println "=== Pattern Matching Power ===")
+
+# With full pattern parameters, we could write elegant functions:
+# 
+# (fn distance [[x1 y1] [x2 y2]]
+#   (sqrt (+ (** (- x2 x1) 2) (** (- y2 y1) 2))))
+#
+# (fn render [{^tag t ^attrs a ^children c}]
+#   (html-element t a c))
+#
+# (fn fold [f init []] init
+#      [f init [x ...xs]] (fold f (f init x) xs))
+
+# Today we simulate with explicit matching:
+(fn distance [p1 p2]
+  (match [p1 p2]
+    ([[x1 y1] [x2 y2]] 
+      (do
+        (var dx (- x2 x1))
+        (var dy (- y2 y1))
+        (println "Distance from" p1 "to" p2 "is"
+                 (* 1.0 (+ (* dx dx) (* dy dy))))))  # No sqrt yet
+    (_ (println "Invalid points"))))
+
+(distance [0 0] [3 4])
+
+(println "")
+(println "=== The Unified View ===")
+(println "Function calls perform pattern matching:")
+(println "1. (f a b c) matches arguments [a b c] against parameter pattern [x y z]")
+(println "2. Each parameter name is a variable pattern that binds the corresponding argument")
+(println "3. Rest parameters are array rest patterns")
+(println "4. Future: Could support full pattern syntax in parameters")
+(println "This unification makes Gene more consistent and powerful!")

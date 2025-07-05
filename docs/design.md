@@ -5628,6 +5628,22 @@ The implementation has evolved to prioritize:
 4. **Ruby-like Ergonomics**: Making the language feel familiar to Ruby developers
 5. **Real-world Usability**: Adding features based on actual programming needs
 
+### 7.5 Pattern Matching
+Comprehensive pattern matching implementation:
+- Literal patterns (exact value matching)
+- Variable patterns (binding values to names)
+- Wildcard patterns (_)
+- Array patterns ([x y])
+- Map patterns ({^key var})
+- Works in match expressions
+
+### 7.6 Parameters as Patterns (Conceptual Foundation)
+While not yet implemented, the architecture recognizes that function parameter binding is conceptually pattern matching:
+- Simple parameters like `[a b]` are variable patterns matching positional arguments
+- Future extensions could allow `[[x y]]` for destructuring array arguments
+- Future extensions could allow `[{^name n}]` for destructuring map arguments
+- This unification would make the language more consistent and powerful
+
 ## Summary
 
 The actual implementation of Gene has stayed true to the core vision of a Lisp-like language with Ruby ergonomics, while making pragmatic changes to simplify initial development. The major shifts have been:
@@ -5636,5 +5652,6 @@ The actual implementation of Gene has stayed true to the core vision of a Lisp-l
 2. Adding practical features like mutable references and string interpolation
 3. Deferring complex features like full type checking and JIT compilation
 4. Maintaining syntactic compatibility for future enhancements
+5. Recognizing deep connections like parameters-as-patterns for future language evolution
 
 These changes have resulted in a more focused, usable language that can grow into the full vision over time.

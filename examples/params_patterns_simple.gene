@@ -1,0 +1,42 @@
+#!/usr/bin/env gene run
+
+# Parameters as Patterns - Core Concept
+#
+# Function parameter binding IS pattern matching!
+
+(println "=== The Core Insight ===")
+(println "When you call (f 1 2), it's like:")
+(println "  (match [1 2] ([a b] ...))")
+(println "")
+
+# Standard function with parameters
+(fn add [a b] (+ a b))
+(println "Standard: (add 3 4) =" (add 3 4))
+
+# Equivalent using explicit match
+(fn add_match [args]
+  (match args
+    ([p q] (+ p q))
+    (_ 0)))
+(println "With match: (add_match [3 4]) =" (add_match [3 4]))
+
+(println "")
+(println "=== Future Possibilities ===")
+
+# Today: Manual destructuring
+(fn point_sum [point]
+  (match point
+    ([px py] (+ px py))
+    (_ 0)))
+
+(println "Manual: (point_sum [10 20]) =" (point_sum [10 20]))
+
+# Future: Could write (fn point_sum [[x y]] (+ x y))
+(println "Future syntax would put the pattern directly in parameters!")
+
+(println "")
+(println "=== Why This Matters ===")
+(println "1. Unifies two concepts into one")
+(println "2. Makes the language more consistent")
+(println "3. Enables powerful destructuring in function signatures")
+(println "4. Pattern matching becomes even more central to Gene")
