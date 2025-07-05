@@ -247,6 +247,15 @@ Gene aims to be a modern dynamic language that combines:
 2. **Standard Library** - Minimal, needs expansion
 3. **Tooling** - Basic REPL, no debugger or profiler
 4. **Documentation** - Needs comprehensive guides
+5. **Match expressions as function arguments** - Currently, match expressions cannot be used directly as function arguments due to stack tracking issues in the bytecode generator. Workaround: assign the match result to a variable first.
+   ```gene
+   # This doesn't work yet:
+   # (print (match x (0 "zero") (_ "other")))
+   
+   # Use this instead:
+   (var result (match x (0 "zero") (_ "other")))
+   (print result)
+   ```
 5. **Error Messages** - Could be more helpful
 
 ## Recommendations for Contributors
