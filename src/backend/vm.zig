@@ -1095,6 +1095,10 @@ pub const VM = struct {
                         .Nil => true, // nil == nil
                         else => false, // nil is not equal to any other type
                     },
+                    .Symbol => |left_val| switch (right) {
+                        .Symbol => |right_val| std.mem.eql(u8, left_val, right_val),
+                        else => false, // Different types are never equal
+                    },
                     else => false, // Other types not supported for equality comparison yet
                 };
 
@@ -1135,6 +1139,10 @@ pub const VM = struct {
                     },
                     .Nil => switch (right) {
                         .Nil => true,
+                        else => false,
+                    },
+                    .Symbol => |left_val| switch (right) {
+                        .Symbol => |right_val| std.mem.eql(u8, left_val, right_val),
                         else => false,
                     },
                     else => false,
@@ -1375,6 +1383,7 @@ pub const VM = struct {
                                         switch (item) {
                                             .Int => |val| try self.stdout.print("{d}", .{val}),
                                             .String => |str| try self.stdout.print("\"{s}\"", .{str}),
+                                            .Symbol => |sym| try self.stdout.print("{s}", .{sym}),
                                             .Bool => |b| try self.stdout.print("{}", .{b}),
                                             .Float => |f| try self.stdout.print("{d}", .{f}),
                                             .Nil => try self.stdout.print("nil", .{}),
@@ -1465,6 +1474,7 @@ pub const VM = struct {
                                         switch (item) {
                                             .Int => |val| try self.stdout.print("{d}", .{val}),
                                             .String => |str| try self.stdout.print("\"{s}\"", .{str}),
+                                            .Symbol => |sym| try self.stdout.print("{s}", .{sym}),
                                             .Bool => |b| try self.stdout.print("{}", .{b}),
                                             .Float => |f| try self.stdout.print("{d}", .{f}),
                                             .Nil => try self.stdout.print("nil", .{}),
@@ -1876,6 +1886,10 @@ pub const VM = struct {
                                 .Nil => true,
                                 else => false,
                             },
+                            .Symbol => |left_val| switch (right) {
+                                .Symbol => |right_val| std.mem.eql(u8, left_val, right_val),
+                                else => false,
+                            },
                             else => false, // Other types not comparable yet
                         };
 
@@ -1919,6 +1933,10 @@ pub const VM = struct {
                             .Nil => switch (right) {
                                 .Nil => false, // nil != nil is false
                                 else => true, // nil != anything else is true
+                            },
+                            .Symbol => |left_val| switch (right) {
+                                .Symbol => |right_val| !std.mem.eql(u8, left_val, right_val),
+                                else => true, // Different types are not equal
                             },
                             else => true, // For other types, assume not equal
                         };
@@ -2305,6 +2323,7 @@ pub const VM = struct {
                                         switch (item) {
                                             .Int => |val| try self.stdout.print("{d}", .{val}),
                                             .String => |str| try self.stdout.print("\"{s}\"", .{str}),
+                                            .Symbol => |sym| try self.stdout.print("{s}", .{sym}),
                                             .Bool => |b| try self.stdout.print("{}", .{b}),
                                             .Float => |f| try self.stdout.print("{d}", .{f}),
                                             .Nil => try self.stdout.print("nil", .{}),
@@ -4215,7 +4234,6 @@ pub const VM = struct {
     }
 
     fn valuesEqual(self: *VM, val1: types.Value, val2: types.Value) !bool {
-
         // Check if types are different
         if (@intFromEnum(val1) != @intFromEnum(val2)) {
             return false;

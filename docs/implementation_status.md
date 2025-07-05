@@ -4,9 +4,11 @@ This document tracks the current implementation status of Gene as a dynamic, Rub
 
 ## Summary
 
-Gene is a functional interpreter with a working 4-stage compilation pipeline (AST → HIR → MIR → Bytecode). The language combines Lisp's powerful macro system and s-expression syntax with Ruby-like object-oriented features and developer ergonomics. The implementation focuses on being a practical, dynamic language first, with type checking and optimization deferred to later phases.
+Gene is a dynamic programming language with a working 4-stage compilation pipeline (AST → HIR → MIR → Bytecode). The language combines Lisp's powerful macro system and s-expression syntax with Ruby-like object-oriented features and developer ergonomics. The implementation focuses on being a practical, dynamic language first, with type checking and optimization deferred to later phases.
 
-**Last Updated**: 2025-01-19 - Added FFI support, exception handling, and identified additional language features from HTTP todo app analysis.
+**Current State**: Gene is a fully functional language with OOP, macros, modules, pattern matching, exception handling, FFI, and a growing standard library. Recent additions include string interpolation, mutable references, comprehensive string methods, and proper logical operators.
+
+**Last Updated**: 2025-01-21 - Added mutable references (ref/deref/set!), string methods, logical operators returning values, and various operator support.
 
 ## Language Philosophy
 
@@ -60,23 +62,32 @@ Gene aims to be a modern dynamic language that combines:
 - **Arrays** with methods (push, pop, map, filter, etc.) ✓
 - **Maps** (hash tables) with methods ✓
 - **Strings** with Unicode support ✓
+- **String methods** (split, trim, indexOf, contains, replace, upper/lower case, etc.) ✓
 - **Numbers** (Int and Float) with full arithmetic ✓
 - **Booleans** and nil ✓
+- **Mutable references** (ref/deref/set!) for imperative programming ✓
 
 ### 7. **Control Flow**
 - **Conditionals** (if/else expressions) ✓
-- **Loops** (for-in) ✓
+- **Loops** (for-in, while) ✓
 - **Do blocks** for sequential execution ✓
 - **Early returns** ✓
 - **Exception handling** (try/catch/finally, throw) ✓
 
-### 8. **Developer Experience**
+### 8. **Operators**
+- **Arithmetic operators** (+, -, *, /, %) ✓
+- **Comparison operators** (==, !=, <, >, <=, >=) ✓
+- **Logical operators** (&&, ||, !) with proper value semantics ✓
+- **Bitwise operators** (&, |, ^, <<, >>) ✓
+- **All operators work as methods** on objects ✓
+
+### 9. **Developer Experience**
 - **REPL** for interactive development ✓
 - **Clear error messages** (basic) ✓
 - **Debug mode** showing compilation stages ✓
 - **Print/println** for debugging ✓
 
-### 9. **Foreign Function Interface (FFI)**
+### 10. **Foreign Function Interface (FFI)**
 - **C function declarations** (`c-extern`) ✓
 - **C struct declarations** (`c-struct`) ✓
 - **C type aliases** (`c-type`) ✓
@@ -111,6 +122,26 @@ Gene aims to be a modern dynamic language that combines:
        (println "Hi, I'm" self/name)))
    ```
 
+4. **String interpolation**
+   ```gene
+   (var name "Gene")
+   (println #"Hello, #{name}!")  # => "Hello, Gene!"
+   ```
+
+5. **Mutable references for imperative code**
+   ```gene
+   (var counter (ref 0))
+   (while (< (deref counter) 5) (do
+     (println (deref counter))
+     (set! counter (+ (deref counter) 1))))
+   ```
+
+6. **Logical operators return values**
+   ```gene
+   (|| false "default")    # => "default"
+   (&& user user/name)     # => user's name if user exists, nil otherwise
+   ```
+
 ## In Progress 🚧
 
 ### 1. **Standard Library**
@@ -136,12 +167,12 @@ Gene aims to be a modern dynamic language that combines:
 - ⏳ Pattern matching with extraction (e.g., `(match [^id ^status] data)`)
 
 ### 4. **Language Features - High Priority**
-- ⏳ **Default parameter values** - `(fn f [a b = 10])` 
-- ⏳ **Rest parameters/varargs** - `(fn f [a b...])` 
+- ✅ **Default parameter values** - `(fn f [a b = 10])` 
+- ✅ **Rest parameters/varargs** - `(fn f [a b...])` 
 - ⏳ **Spread operator** - `(... array)` 
-- ⏳ **String interpolation** - `#"Hello #{name}"` 
-- ⏳ **Logical AND operator** - `&&` 
-- ⏳ **Conditional assignment** - `||=` and `||` for defaults
+- ✅ **String interpolation** - `#"Hello #{name}"` 
+- ✅ **Logical operators** - `&&` and `||` return values (not just booleans)
+- ⏳ **Conditional assignment** - `||=` for defaults
 - ⏳ **For loop destructuring** - `(for [k v] in map)`
 
 ### 5. **Language Features - Medium Priority**
@@ -230,4 +261,4 @@ Where Gene differs from Ruby:
 
 ## Summary
 
-Gene is evolving as a practical dynamic language that combines the best of Lisp and Ruby. The current implementation provides a solid foundation for a developer-friendly language with powerful metaprogramming capabilities. Type checking and advanced optimizations are intentionally deferred to keep the initial implementation simple and focused on being a great dynamic language.
+Gene is evolving as a practical dynamic language that combines the best of Lisp and Ruby. The current implementation provides a solid foundation for a developer-friendly language with powerful metaprogramming capabilities. With recent additions like string interpolation, mutable references, and comprehensive operator support, Gene is becoming increasingly suitable for real-world programming tasks. Type checking and advanced optimizations are intentionally deferred to keep the initial implementation simple and focused on being a great dynamic language.

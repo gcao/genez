@@ -38,6 +38,7 @@ pub const ParserError = error{
     ExpectedFieldName,
     UnexpectedTokenInPackageGene,
     UnterminatedInterpolation,
+    InvalidQuoteSyntax,
 };
 
 // --- Tokenizer (Mostly unchanged, minor fixes) ---
@@ -73,6 +74,7 @@ pub const TokenKind = union(enum) {
     Match, // New: for pattern matching
     Macro, // New: for pseudo macro definitions
     Percent, // New: for unquote syntax (%identifier)
+    Backtick, // New: for quote syntax (`symbol or `(...))
     Ns, // New: for namespace declarations
     Import, // New: for import statements
     For, // New: for for-in loops
@@ -206,6 +208,11 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.ArrayList
             },
             '%' => {
                 try tokens.append(.{ .kind = .Percent, .loc = i });
+                i += 1;
+                continue;
+            },
+            '`' => {
+                try tokens.append(.{ .kind = .Backtick, .loc = i });
                 i += 1;
                 continue;
             },
@@ -1064,6 +1071,32 @@ fn parseExpression(alloc: std.mem.Allocator, toks: []const Token, depth: usize) 
                 .node = .{ .Expression = .{ .Variable = .{ .name = var_name } } },
                 .consumed = 2,
             };
+        },
+        .Backtick => {
+            // Parse quote syntax `symbol or `(...)
+            if (toks.len < 2) return error.UnexpectedEOF;
+            
+            switch (toks[1].kind) {
+                .Ident => {
+                    // `symbol - create a symbol literal
+                    const symbol_name = try alloc.dupe(u8, toks[1].kind.Ident);
+                    return .{
+                        .node = .{ .Expression = .{ .Literal = .{ .value = .{ .Symbol = symbol_name } } } },
+                        .consumed = 2,
+                    };
+                },
+                .LParen => {
+                    // `(...) - quote the entire expression as data
+                    // For now, we'll parse and execute it normally
+                    // TODO: Implement proper quoting that prevents evaluation
+                    const expr_result = try parseExpression(alloc, toks[1..], depth + 1);
+                    return .{
+                        .node = expr_result.node,
+                        .consumed = 1 + expr_result.consumed,
+                    };
+                },
+                else => return error.InvalidQuoteSyntax,
+            }
         },
         .RParen => error.UnexpectedRParen,
         else => {

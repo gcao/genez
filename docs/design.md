@@ -2,6 +2,8 @@
 
 ## Complete Design Document and Reference Implementation
 
+**Note**: This document represents the original design vision for Gene. The actual implementation has evolved with pragmatic changes documented in Appendix C. See [implementation_status.md](implementation_status.md) for the current state of the language.
+
 ---
 
 # Table of Contents
@@ -94,8 +96,8 @@ Gene uses S-expressions as its foundation with extensions for common patterns:
 (+ 1 2 3)           # Function call
 (var x = 10)        # Variable declaration
 x                   # Variable reference
-:x = (quote x)      # Evaluate :x => symbol x
-%x = (unquote x)    # Evaluate :%x => value of x in most cases
+:x                  # Design: would be quoted symbol (not implemented)
+%x                  # Unquote in macro context (implemented)
 ```
 
 ## 2.2 Literals
@@ -111,10 +113,11 @@ true false nil     # Boolean and null literals
 
 # Strings and Characters
 "hello"            # String
+#"Hello #{name}"   # String interpolation (implemented)
 """multi-line
-   string"""       # Multi-line string
-'c'                # Character
-'\n'               # Escape sequence
+   string"""       # Multi-line string (not yet implemented)
+'symbol            # Design: character literal (not implemented)
+symbol             # Bare symbols in data context
 
 # Symbols and Keywords
 keyword            # Keyword (self-evaluating symbol)
@@ -162,8 +165,9 @@ Gene supports infix operators within S-expressions:
 ```gene
 (x + y)                    # Addition
 (a * b + c)                # Precedence: (* a b) + c
-(x > 0 && y < 10)          # Logical operators
-(a == b || c != d)         # Comparison
+(x > 0 && y < 10)          # Logical AND (returns values, not just booleans)
+(a == b || c != d)         # Logical OR (returns first truthy or last value)
+(|| nil "default")         # Common idiom for default values
 ```
 
 ## 2.6 Special Forms
@@ -203,11 +207,19 @@ In Gene's unified design, **functions and methods are the same thing**. Methods 
 (fn add [x y]
   (+ x y))
 
-# With types
+# With default parameters (implemented)
+(fn greet [name = "World"]
+  (println #"Hello, #{name}!"))
+
+# With rest parameters (implemented)
+(fn sum [first ...rest]
+  (reduce + first rest))
+
+# With types (parsed but not enforced)
 (fn add [x :Int y :Int => :Int]
   (+ x y))
 
-# Generic function
+# Generic function (not yet implemented)
 (fn identity ^^T [x :T => :T]
   x)
 
@@ -457,8 +469,8 @@ Any                    # Base class for everything
   (.fn to_str [] => :Str)
   (.fn namespace [] => :(Optional Str)))
 
-('foo .class)          # Returns Symbol
-(foo is Symbol)        # true (when foo is unquoted symbol)
+(foo .class)           # In data context, returns Symbol
+(foo is Symbol)        # true (when foo is parsed as symbol)
 
 # Collection - abstract collection class
 (abstract class Collection extends Any
@@ -975,9 +987,13 @@ if else do ...
 (var y = x)          # Shared structure
 (y .push 4)          # Creates new array
 
-# Explicit mutation
+# Explicit mutation (design - not yet implemented this way)
 (var x = (mutable [1 2 3]))
 (x .push! 4)         # Mutates in place
+
+# Actual implementation uses references
+(var x = (ref [1 2 3]))    # Create mutable reference
+(set! x (push (deref x) 4)) # Update reference
 
 # Value types
 (value Point {^x :float ^y :float})
@@ -5462,3 +5478,163 @@ unquote = '%' expression
 # ... rest of grammar
 ```
 
+
+---
+
+# Appendix C: Implementation Changes from Original Design
+
+**Last Updated**: 2025-01-21
+
+This section documents the major changes made during implementation compared to the original design document. These changes were made based on practical considerations, simplification needs, and lessons learned during development.
+
+## 1. Syntax Simplifications
+
+### 1.1 Symbol Syntax
+- **Original**: Various syntaxes shown (`:x`, backtick, etc.)
+- **Actual**: No quote operator implemented yet; symbols exist in data parsing context
+- **Rationale**: Quote functionality deferred; symbols created contextually
+
+### 1.2 String Interpolation
+- **Original**: Not specified
+- **Actual**: `#"Hello #{name}"` syntax
+- **Rationale**: Ruby-like syntax for familiarity and readability
+
+### 1.3 Property Syntax
+- **Original**: Complex property syntax with `^^active` for boolean properties
+- **Actual**: Simplified to bare property syntax in .gene files: `^name "value"`
+- **Rationale**: Cleaner, more readable configuration files
+
+## 2. Type System Changes
+
+### 2.1 Gradual Typing Implementation
+- **Original**: Full gradual typing system with type annotations
+- **Actual**: Type checking infrastructure exists but disabled by default
+- **Rationale**: Focus on dynamic language features first, types deferred to later phase
+
+### 2.2 Type Annotations
+- **Original**: `:Int`, `:Str` syntax in function parameters
+- **Actual**: Type annotations parsed but not enforced
+- **Rationale**: Maintain syntax compatibility for future type checking
+
+## 3. Core Language Features
+
+### 3.1 Mutable References
+- **Original**: Not explicitly designed, assumed immutable-by-default
+- **Actual**: Added `ref`, `deref`, and `set!` operations for mutable references
+- **Rationale**: Necessary for practical imperative programming patterns (e.g., loop counters)
+
+### 3.2 Logical Operators
+- **Original**: Not specified whether they return booleans or values
+- **Actual**: `&&` and `||` return actual values (JavaScript/Ruby semantics)
+- **Rationale**: More expressive for common patterns like default values
+
+### 3.3 Method Call Syntax
+- **Original**: `.method` syntax planned
+- **Actual**: `(.method obj args...)` or `(obj .method args...)` syntax
+- **Rationale**: Maintains s-expression consistency
+
+### 3.4 Field Access
+- **Original**: `/` for path navigation
+- **Actual**: `/` works and compiles to `.get_member` method calls
+- **Rationale**: Allows customization of field access behavior
+
+## 4. Implementation Architecture
+
+### 4.1 Compilation Pipeline
+- **Original**: 5-stage pipeline (AST → HIR → MIR → LIR → Bytecode)
+- **Actual**: 4-stage pipeline (AST → HIR → MIR → Bytecode), LIR skipped
+- **Rationale**: LIR unnecessary until JIT implementation
+
+### 4.2 VM Design
+- **Original**: Register-based VM as specified
+- **Actual**: Stack-based MIR with register allocation in bytecode
+- **Rationale**: Simpler initial implementation
+
+### 4.3 Memory Management
+- **Original**: Sophisticated GC from the start
+- **Actual**: Basic mark-and-sweep GC with manual API
+- **Rationale**: Simple GC sufficient for current needs
+
+## 5. Standard Library
+
+### 5.1 Module System
+- **Original**: Complex module system with packages
+- **Actual**: Basic import/export with module resolution
+- **Rationale**: Incremental implementation approach
+
+### 5.2 I/O Operations
+- **Original**: Stream-based I/O abstractions
+- **Actual**: Simple file operations (file_open, file_read_all, etc.)
+- **Rationale**: Start with basic functionality
+
+## 6. Features Not Yet Implemented
+
+### 6.1 Advanced Type System
+- Generic types with constraints
+- Union and intersection types
+- Type inference beyond basic cases
+- Compile-time type checking
+
+### 6.2 Concurrency
+- Actors
+- Channels
+- STM (Software Transactional Memory)
+- Parallel execution
+
+### 6.3 Optimization
+- JIT compilation
+- Inline caches
+- Profile-guided optimization
+- Advanced GC strategies
+
+### 6.4 Advanced Macros
+- Hygienic macros with full spec
+- Compile-time code generation
+- Macro expansion control
+
+## 7. Features Added Beyond Original Design
+
+### 7.1 String Methods
+Comprehensive string manipulation methods not in original design:
+- `split`, `trim`, `indexOf`, `contains`
+- `startsWith`, `endsWith`, `replace`
+- `toUpperCase`, `toLowerCase`
+
+### 7.2 Exception Handling
+Full try/catch/finally/throw implementation with:
+- Error values as first-class objects
+- Exception handler stack
+- Proper cleanup with finally blocks
+
+### 7.3 FFI (Foreign Function Interface)
+Complete FFI system supporting:
+- C function declarations (`c-extern`)
+- C struct declarations (`c-struct`)
+- Callbacks from C to Gene
+- Native functions with Gene callbacks
+
+### 7.4 Default and Rest Parameters
+- Default parameter values: `(fn f [a b = 10])`
+- Rest parameters: `(fn f [a b...])`
+- Not in original design but essential for usability
+
+## 8. Design Philosophy Evolution
+
+The implementation has evolved to prioritize:
+
+1. **Pragmatism over Purity**: Adding features like mutable references when needed
+2. **Dynamic First**: Deferring static typing to focus on dynamic language features
+3. **Incremental Development**: Building features as needed rather than all at once
+4. **Ruby-like Ergonomics**: Making the language feel familiar to Ruby developers
+5. **Real-world Usability**: Adding features based on actual programming needs
+
+## Summary
+
+The actual implementation of Gene has stayed true to the core vision of a Lisp-like language with Ruby ergonomics, while making pragmatic changes to simplify initial development. The major shifts have been:
+
+1. Focusing on being an excellent dynamic language first
+2. Adding practical features like mutable references and string interpolation
+3. Deferring complex features like full type checking and JIT compilation
+4. Maintaining syntactic compatibility for future enhancements
+
+These changes have resulted in a more focused, usable language that can grow into the full vision over time.

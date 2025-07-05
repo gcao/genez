@@ -1,0 +1,74 @@
+#!/usr/bin/env gene run
+
+# Symbols in Gene
+# 
+# Symbols are created using the backtick (`) syntax
+# They are immutable identifiers useful for representing names, keys, and labels
+
+(println "=== Creating Symbols ===")
+
+# Basic symbol creation
+(println `foo)                    # Prints: foo
+(println `bar)                    # Prints: bar
+
+# Symbols can contain dashes and underscores
+(println `my-symbol)              # Prints: my-symbol
+(println `another_symbol)         # Prints: another_symbol
+
+(println "\n=== Storing Symbols ===")
+
+# Store symbols in variables
+(var status `active)
+(var mode `debug)
+(println "Status:" status)
+(println "Mode:" mode)
+
+# Use symbols as map keys
+(var config {
+  `host "localhost"
+  `port 8080
+  `debug true
+})
+
+# Note: Map access with symbol keys requires proper map implementation
+# For now, this is a placeholder showing the intended usage
+
+(println "\n=== Symbol Equality ===")
+
+# Symbols with the same name are equal
+(println (== `test `test))        # true
+(println (== `foo `bar))          # false
+
+# Symbols in variables
+(var s1 `hello)
+(var s2 `hello)
+(var s3 `world)
+(println (== s1 s2))              # true
+(println (== s1 s3))              # false
+
+(println "\n=== Symbol Properties ===")
+
+# Symbols are self-evaluating (evaluate to themselves)
+(var x `my-symbol)
+(println x)                       # my-symbol
+
+# Unlike strings, symbols are intended to be compared by identity
+# This makes them efficient for use as keys and identifiers
+
+(println "\n=== Common Use Cases ===")
+
+# 1. Status codes
+(var order-status `pending)
+(if (== order-status `pending)
+  (println "Order is pending")
+  nil)  # else clause required
+
+# 2. Configuration keys
+(var settings [`theme `font-size `auto-save])
+(println "Settings:" settings)
+
+# 3. Method names (when reflection is implemented)
+# (object .send `method-name args...)
+
+# Note: Full quote syntax `(...) for quoting expressions
+# is not yet implemented - it currently evaluates the expression
