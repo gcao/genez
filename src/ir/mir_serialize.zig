@@ -136,7 +136,11 @@ fn serializeInstruction(writer: anytype, instr: mir.MIR.Instruction) !void {
             try writer.writeAll("return");
         },
         .DefineClass => |class_def| {
-            try writer.print("define-class \"{s}\"", .{class_def.name});
+            if (class_def.parent_name) |parent| {
+                try writer.print("define-class \"{s}\" :extends \"{s}\"", .{ class_def.name, parent });
+            } else {
+                try writer.print("define-class \"{s}\"", .{class_def.name});
+            }
         },
         .CreateInstance => |inst_creation| {
             try writer.print("create-instance \"{s}\" {}", .{ inst_creation.class_name, inst_creation.arg_count });

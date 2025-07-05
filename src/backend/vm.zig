@@ -3243,23 +3243,50 @@ pub const VM = struct {
                 try self.setRegister(dst_reg, .{ .String = name });
             },
             .ClassParent => {
-                // Get parent class: ClassParent Rd, class_reg
+                // Two modes:
+                // 1. Get parent class: ClassParent Rd, class_reg (no src2)
+                // 2. Set parent class: ClassParent class_reg, parent_reg (src2 present)
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
-                const class_reg = instruction.src1 orelse return error.InvalidInstruction;
-
-                var class_val = try self.getRegister(class_reg);
-                defer class_val.deinit(self.allocator);
-
-                if (class_val != .Class) {
-                    debug.log("ClassParent requires a Class, got {}", .{class_val});
-                    return error.TypeMismatch;
-                }
-
-                const class = class_val.Class;
-                if (class.parent) |parent| {
-                    try self.setRegister(dst_reg, .{ .Class = parent });
+                const class_reg = instruction.src1;
+                
+                if (class_reg) |parent_reg| {
+                    // Set parent mode: dst_reg is the class, src1 is the parent
+                    var class_val = try self.getRegister(dst_reg);
+                    defer class_val.deinit(self.allocator);
+                    
+                    if (class_val != .Class) {
+                        debug.log("ClassParent set mode requires a Class in dst, got {}", .{class_val});
+                        return error.TypeMismatch;
+                    }
+                    
+                    var parent_val = try self.getRegister(parent_reg);
+                    defer parent_val.deinit(self.allocator);
+                    
+                    if (parent_val != .Class) {
+                        debug.log("ClassParent set mode requires a Class as parent, got {}", .{parent_val});
+                        return error.TypeMismatch;
+                    }
+                    
+                    // Set the parent on the class
+                    const class = class_val.Class;
+                    class.parent = parent_val.Class;
+                    debug.log("Set parent of class {s} to {s}", .{class.name, parent_val.Class.name});
                 } else {
-                    try self.setRegister(dst_reg, .{ .Nil = {} });
+                    // Get parent mode: original behavior
+                    var class_val = try self.getRegister(dst_reg);
+                    defer class_val.deinit(self.allocator);
+
+                    if (class_val != .Class) {
+                        debug.log("ClassParent requires a Class, got {}", .{class_val});
+                        return error.TypeMismatch;
+                    }
+
+                    const class = class_val.Class;
+                    if (class.parent) |parent| {
+                        try self.setRegister(dst_reg, .{ .Class = parent });
+                    } else {
+                        try self.setRegister(dst_reg, .{ .Nil = {} });
+                    }
                 }
             },
             .Length => {

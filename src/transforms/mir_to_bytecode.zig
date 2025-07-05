@@ -1001,9 +1001,12 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             const class_ptr = try func.allocator.create(types.ClassDefinition);
             class_ptr.* = types.ClassDefinition.init(func.allocator, try func.allocator.dupe(u8, class_def.name));
 
-            // Copy parent name if present
-            if (class_def.parent_name) |_| {
-                class_ptr.parent = null; // TODO: Look up parent class
+            // Store parent name for runtime lookup
+            // For now, store the parent_name in the immediate value
+            // The VM will need to resolve it when StoreVar is executed
+            var parent_name_copy: ?[]const u8 = null;
+            if (class_def.parent_name) |parent_name| {
+                parent_name_copy = try func.allocator.dupe(u8, parent_name);
             }
 
             // Copy fields
@@ -1049,6 +1052,28 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .immediate = types.Value{ .Class = class_ptr },
             });
             // std.debug.print("  -> Generated: LoadConst r{} = Class({s})\n", .{ dst_reg, class_def.name });
+            
+            // If there's a parent class, generate code to set it
+            if (parent_name_copy) |parent_name| {
+                // Load the parent class by name
+                const parent_reg = next_reg.*;
+                next_reg.* += 1;
+                
+                try func.instructions.append(.{
+                    .op = bytecode.OpCode.LoadVar,
+                    .dst = parent_reg,
+                    .var_name = parent_name,
+                });
+                
+                // Set the parent on the class using ClassParent opcode
+                // We'll need to add a SetClassParent opcode or use a different approach
+                // For now, let's use a special instruction that the VM will handle
+                try func.instructions.append(.{
+                    .op = bytecode.OpCode.ClassParent,
+                    .dst = dst_reg,  // class register
+                    .src1 = parent_reg,  // parent register
+                });
+            }
         },
         .CreateInstance => |inst_creation| {
             // Pop constructor arguments from stack (they are on top)
