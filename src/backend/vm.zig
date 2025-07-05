@@ -1355,12 +1355,8 @@ pub const VM = struct {
                     if (builtin_op == .Print) {
                         // Print can take any number of arguments
                         for (0..arg_count) |i| {
-                            // For single argument calls, the argument might be in the previous register
-                            // (result of a previous operation)
-                            const arg_reg = if (arg_count == 1)
-                                dst_reg - 1 // Previous register (result of previous call)
-                            else
-                                func_reg + 1 + @as(u16, @intCast(i)); // Arguments follow function register
+                            // Arguments always follow the function register
+                            const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
                             var arg = try self.getRegister(arg_reg);
                             defer arg.deinit(self.allocator);
 
@@ -1449,12 +1445,8 @@ pub const VM = struct {
                     if (builtin_op == .Println) {
                         // Println can take any number of arguments
                         for (0..arg_count) |i| {
-                            // For single argument calls, the argument might be in the previous register
-                            // (result of a previous operation)
-                            const arg_reg = if (arg_count == 1)
-                                dst_reg - 1 // Previous register (result of previous call)
-                            else
-                                func_reg + 1 + @as(u16, @intCast(i)); // Arguments follow function register
+                            // Arguments always follow the function register
+                            const arg_reg = func_reg + 1 + @as(u16, @intCast(i));
                             var arg = try self.getRegister(arg_reg);
                             defer arg.deinit(self.allocator);
 

@@ -747,7 +747,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             const right_reg = stack.pop();
             const left_reg = stack.pop();
             const dst_reg = next_reg.*;
-            next_reg.* += 1;
+            next_reg.* += 3; // Reserve space for function and 2 args
             try stack.push(dst_reg);
 
             // For now, just evaluate both sides (no short-circuit)
@@ -760,18 +760,15 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .var_name = and_op,
             });
             // Move operands to correct positions for call
-            const temp1 = next_reg.*;
-            next_reg.* += 1;
-            const temp2 = next_reg.*;  
-            next_reg.* += 1;
+            // Arguments must be in consecutive registers after the function register
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Move,
-                .dst = temp1,
+                .dst = dst_reg + 1,
                 .src1 = left_reg,
             });
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Move,
-                .dst = temp2,
+                .dst = dst_reg + 2,
                 .src1 = right_reg,
             });
             try func.instructions.append(.{
@@ -791,7 +788,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             const right_reg = stack.pop();
             const left_reg = stack.pop();
             const dst_reg = next_reg.*;
-            next_reg.* += 1;
+            next_reg.* += 3; // Reserve space for function and 2 args
             try stack.push(dst_reg);
 
             // For now, just evaluate both sides (no short-circuit)
@@ -804,18 +801,15 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .var_name = or_op,
             });
             // Move operands to correct positions for call
-            const temp1 = next_reg.*;
-            next_reg.* += 1;
-            const temp2 = next_reg.*;  
-            next_reg.* += 1;
+            // Arguments must be in consecutive registers after the function register
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Move,
-                .dst = temp1,
+                .dst = dst_reg + 1,
                 .src1 = left_reg,
             });
             try func.instructions.append(.{
                 .op = bytecode.OpCode.Move,
-                .dst = temp2,
+                .dst = dst_reg + 2,
                 .src1 = right_reg,
             });
             try func.instructions.append(.{
