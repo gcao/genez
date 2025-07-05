@@ -2,3 +2,8 @@ Array length:  5
 Element at index 0:  10
 Element at index 2:  30
 Element at index 4:  50
+After push:  [10 20 30 40 50 60]
+Original unchanged:  [10 20 30 40 50]
+Popped value:  60
+Push on literal:  [1 2 3 4]
+Pop on empty:  []

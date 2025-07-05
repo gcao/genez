@@ -301,16 +301,18 @@ fn createSubstringMethod(allocator: std.mem.Allocator) !*bytecode.Function {
 
 // Array methods
 fn createPushMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "push", 2, 0);
-    // TODO: Need ArrayPush instruction
-    try func.instructions.append(.{ .op = .Return });
+    const func = try createFunction(allocator, "push", 2, 3);
+    // Push element to array (self in r0, value in r1, result in r2)
+    try func.instructions.append(.{ .op = .ArrayPush, .dst = 2, .src1 = 0, .src2 = 1 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 2 });
     return func;
 }
 
 fn createPopMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "pop", 1, 1);
-    // TODO: Need ArrayPop instruction
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    const func = try createFunction(allocator, "pop", 1, 2);
+    // Pop element from array (self in r0, result in r1)
+    try func.instructions.append(.{ .op = .ArrayPop, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
     return func;
 }
 
@@ -356,9 +358,10 @@ fn createMapContainsMethod(allocator: std.mem.Allocator) !*bytecode.Function {
 }
 
 fn createKeysMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "keys", 1, 1);
-    // TODO: Need MapKeys instruction
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    const func = try createFunction(allocator, "keys", 1, 2);
+    // Get keys of map (self is in register 0)
+    try func.instructions.append(.{ .op = .MapKeys, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
     return func;
 }
 
@@ -389,15 +392,17 @@ fn createNewMethod(allocator: std.mem.Allocator) !*bytecode.Function {
 }
 
 fn createNameMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "name", 1, 1);
-    // TODO: Need ClassName instruction
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    const func = try createFunction(allocator, "name", 1, 2);
+    // Get name of class (self is in register 0)
+    try func.instructions.append(.{ .op = .ClassName, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
     return func;
 }
 
 fn createParentMethod(allocator: std.mem.Allocator) !*bytecode.Function {
-    const func = try createFunction(allocator, "parent", 1, 1);
-    // TODO: Need ClassParent instruction
-    try func.instructions.append(.{ .op = .Return, .src1 = 0 });
+    const func = try createFunction(allocator, "parent", 1, 2);
+    // Get parent of class (self is in register 0)
+    try func.instructions.append(.{ .op = .ClassParent, .dst = 1, .src1 = 0 });
+    try func.instructions.append(.{ .op = .Return, .src1 = 1 });
     return func;
 }

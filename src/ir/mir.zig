@@ -133,6 +133,12 @@ pub const MIR = struct {
         LessThan,
         GreaterThan, // Added GreaterThan instruction
         Equal, // Added Equal instruction
+        NotEqual, // Not equal comparison
+        LessEqual, // Less than or equal comparison
+        GreaterEqual, // Greater than or equal comparison
+        LogicalAnd, // Logical AND (&&)
+        LogicalOr, // Logical OR (||)
+        LogicalNot, // Logical NOT (!)
         Jump: usize,
         JumpIfFalse: usize,
         Call: usize,

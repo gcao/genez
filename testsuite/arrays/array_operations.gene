@@ -10,3 +10,18 @@
 (print "Element at index 0: " (nums .at 0))
 (print "Element at index 2: " (nums .at 2))
 (print "Element at index 4: " (nums .at 4))
+
+# Array push (creates new array)
+(var nums2 (nums .push 60))
+(print "After push: " nums2)
+(print "Original unchanged: " nums)
+
+# Array pop (returns last element)
+(var last (nums2 .pop))
+(print "Popped value: " last)
+
+# Push on literal
+(print "Push on literal: " ([1 2 3] .push 4))
+
+# Pop on empty array
+(print "Pop on empty: " ([] .pop))

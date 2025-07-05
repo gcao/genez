@@ -322,10 +322,61 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                         try convertExpressionWithContext(block, func_call.args.items[1].*, context);
                         try block.instructions.append(.Sub);
                         return;
+                    } else if (std.mem.eql(u8, name, "*")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.Mul);
+                        return;
+                    } else if (std.mem.eql(u8, name, "/")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.Div);
+                        return;
                     } else if (std.mem.eql(u8, name, "<")) {
                         try convertExpressionWithContext(block, func_call.args.items[0].*, context);
                         try convertExpressionWithContext(block, func_call.args.items[1].*, context);
                         try block.instructions.append(.LessThan);
+                        return;
+                    } else if (std.mem.eql(u8, name, ">")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.GreaterThan);
+                        return;
+                    } else if (std.mem.eql(u8, name, "==")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.Equal);
+                        return;
+                    } else if (std.mem.eql(u8, name, "!=")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.NotEqual);
+                        return;
+                    } else if (std.mem.eql(u8, name, "<=")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.LessEqual);
+                        return;
+                    } else if (std.mem.eql(u8, name, ">=")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.GreaterEqual);
+                        return;
+                    } else if (std.mem.eql(u8, name, "&&")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.LogicalAnd);
+                        return;
+                    } else if (std.mem.eql(u8, name, "||")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try convertExpressionWithContext(block, func_call.args.items[1].*, context);
+                        try block.instructions.append(.LogicalOr);
+                        return;
+                    }
+                } else if (func_call.args.items.len == 1) {
+                    if (std.mem.eql(u8, name, "!")) {
+                        try convertExpressionWithContext(block, func_call.args.items[0].*, context);
+                        try block.instructions.append(.LogicalNot);
                         return;
                     }
                 }

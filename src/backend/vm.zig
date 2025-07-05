@@ -3099,6 +3099,43 @@ pub const VM = struct {
                     return error.MethodNotFound;
                 }
             },
+            .ClassName => {
+                // Get class name: ClassName Rd, class_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const class_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var class_val = try self.getRegister(class_reg);
+                defer class_val.deinit(self.allocator);
+
+                if (class_val != .Class) {
+                    debug.log("ClassName requires a Class, got {}", .{class_val});
+                    return error.TypeMismatch;
+                }
+
+                const class = class_val.Class;
+                const name = try self.allocator.dupe(u8, class.name);
+                try self.setRegister(dst_reg, .{ .String = name });
+            },
+            .ClassParent => {
+                // Get parent class: ClassParent Rd, class_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const class_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var class_val = try self.getRegister(class_reg);
+                defer class_val.deinit(self.allocator);
+
+                if (class_val != .Class) {
+                    debug.log("ClassParent requires a Class, got {}", .{class_val});
+                    return error.TypeMismatch;
+                }
+
+                const class = class_val.Class;
+                if (class.parent) |parent| {
+                    try self.setRegister(dst_reg, .{ .Class = parent });
+                } else {
+                    try self.setRegister(dst_reg, .{ .Nil = {} });
+                }
+            },
             .Length => {
                 // Get length: Length Rd, Rs
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;
@@ -3183,6 +3220,65 @@ pub const VM = struct {
                 // Update the array element
                 array[@intCast(index)].deinit(self.allocator);
                 array[@intCast(index)] = try value.clone(self.allocator);
+            },
+            .ArrayPush => {
+                // Push element to array: ArrayPush Rd, array_reg, value_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const array_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const value_reg = instruction.src2 orelse return error.InvalidInstruction;
+
+                var array_val = try self.getRegister(array_reg);
+                defer array_val.deinit(self.allocator);
+                var value = try self.getRegister(value_reg);
+                defer value.deinit(self.allocator);
+
+                if (array_val != .Array) {
+                    debug.log("ArrayPush requires an Array, got {}", .{array_val});
+                    return error.TypeMismatch;
+                }
+
+                const old_array = array_val.Array;
+                
+                // Create new array with one more element
+                var new_array = try self.allocator.alloc(types.Value, old_array.len + 1);
+                errdefer self.allocator.free(new_array);
+                
+                // Copy old elements
+                for (old_array, 0..) |elem, i| {
+                    new_array[i] = try elem.clone(self.allocator);
+                }
+                
+                // Add new element
+                new_array[old_array.len] = try value.clone(self.allocator);
+                
+                // Set result
+                try self.setRegister(dst_reg, .{ .Array = new_array });
+            },
+            .ArrayPop => {
+                // Pop element from array: ArrayPop Rd, array_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const array_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var array_val = try self.getRegister(array_reg);
+                defer array_val.deinit(self.allocator);
+
+                if (array_val != .Array) {
+                    debug.log("ArrayPop requires an Array, got {}", .{array_val});
+                    return error.TypeMismatch;
+                }
+
+                const array = array_val.Array;
+                if (array.len == 0) {
+                    // Return nil for empty array
+                    try self.setRegister(dst_reg, .{ .Nil = {} });
+                } else {
+                    // Return the last element
+                    const last_elem = array[array.len - 1];
+                    try self.setRegister(dst_reg, try last_elem.clone(self.allocator));
+                    
+                    // Note: We don't modify the original array - Gene uses immutable data structures
+                    // If we wanted to return a new array without the last element, we'd need a different approach
+                }
             },
             .Substring => {
                 // Get substring: Substring Rd, str_reg, start_reg, end_reg
@@ -3361,6 +3457,34 @@ pub const VM = struct {
                 const has_key = map.contains(key);
 
                 try self.setRegister(dst_reg, .{ .Bool = has_key });
+            },
+            .MapKeys => {
+                // Get map keys as array: MapKeys Rd, map_reg
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const map_reg = instruction.src1 orelse return error.InvalidInstruction;
+
+                var map_val = try self.getRegister(map_reg);
+                defer map_val.deinit(self.allocator);
+
+                if (map_val != .Map) {
+                    debug.log("MapKeys requires a Map, got {}", .{map_val});
+                    return error.TypeMismatch;
+                }
+
+                const map = map_val.Map;
+                
+                // Create array of keys
+                var keys = try self.allocator.alloc(types.Value, map.count());
+                errdefer self.allocator.free(keys);
+                
+                var iterator = map.iterator();
+                var i: usize = 0;
+                while (iterator.next()) |entry| {
+                    keys[i] = .{ .String = try self.allocator.dupe(u8, entry.key_ptr.*) };
+                    i += 1;
+                }
+
+                try self.setRegister(dst_reg, .{ .Array = keys });
             },
             .ToString => {
                 // Convert value to string: ToString Rd, Rs

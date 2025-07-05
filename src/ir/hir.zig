@@ -321,9 +321,15 @@ pub const HIR = struct {
         lt,
         gt, // Added greater than
         eq, // Added equals
+        ne, // Not equal
+        le, // Less than or equal
+        ge, // Greater than or equal
         mul,
         div,
-        // TODO: Add neq, lte, gte etc.
+        mod, // Modulo
+        // Logical operators
+        and_op, // Logical AND (&&)
+        or_op,  // Logical OR (||)
     };
 
     pub const If = struct {

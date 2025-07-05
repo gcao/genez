@@ -677,6 +677,128 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 .dst = dst_reg,
             });
         },
+        .NotEqual => {
+            // Use register-based instruction
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: NotEqual needs 2 operands but only {} on stack\n", .{stack.len()});
+                return error.OutOfMemory;
+            }
+
+            const right_reg = stack.pop();
+            const left_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Ne,
+                .src1 = left_reg,
+                .src2 = right_reg,
+                .dst = dst_reg,
+            });
+        },
+        .LessEqual => {
+            // Use register-based instruction
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: LessEqual needs 2 operands but only {} on stack\n", .{stack.len()});
+                return error.OutOfMemory;
+            }
+
+            const right_reg = stack.pop();
+            const left_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Le,
+                .src1 = left_reg,
+                .src2 = right_reg,
+                .dst = dst_reg,
+            });
+        },
+        .GreaterEqual => {
+            // Use register-based instruction
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: GreaterEqual needs 2 operands but only {} on stack\n", .{stack.len()});
+                return error.OutOfMemory;
+            }
+
+            const right_reg = stack.pop();
+            const left_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Ge,
+                .src1 = left_reg,
+                .src2 = right_reg,
+                .dst = dst_reg,
+            });
+        },
+        .LogicalAnd => {
+            // For && we need short-circuit evaluation, but for now we'll do simple evaluation
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: LogicalAnd needs 2 operands but only {} on stack\n", .{stack.len()});
+                return error.OutOfMemory;
+            }
+
+            const right_reg = stack.pop();
+            const left_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+
+            // For now, just evaluate both sides (no short-circuit)
+            // TODO: Implement proper short-circuit evaluation
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.And,
+                .src1 = left_reg,
+                .src2 = right_reg,
+                .dst = dst_reg,
+            });
+        },
+        .LogicalOr => {
+            // For || we need short-circuit evaluation, but for now we'll do simple evaluation
+            if (stack.len() < 2) {
+                std.debug.print("ERROR: LogicalOr needs 2 operands but only {} on stack\n", .{stack.len()});
+                return error.OutOfMemory;
+            }
+
+            const right_reg = stack.pop();
+            const left_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+
+            // For now, just evaluate both sides (no short-circuit)
+            // TODO: Implement proper short-circuit evaluation
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Or,
+                .src1 = left_reg,
+                .src2 = right_reg,
+                .dst = dst_reg,
+            });
+        },
+        .LogicalNot => {
+            // Unary operator
+            if (stack.len() < 1) {
+                std.debug.print("ERROR: LogicalNot needs 1 operand but only {} on stack\n", .{stack.len()});
+                return error.OutOfMemory;
+            }
+
+            const operand_reg = stack.pop();
+            const dst_reg = next_reg.*;
+            next_reg.* += 1;
+            try stack.push(dst_reg);
+
+            try func.instructions.append(.{
+                .op = bytecode.OpCode.Not,
+                .src1 = operand_reg,
+                .dst = dst_reg,
+            });
+        },
         .Jump => |target| try func.instructions.append(.{
             .op = bytecode.OpCode.Jump,
             .immediate = types.Value{ .Int = @as(i64, @intCast(target)) },

@@ -47,6 +47,8 @@ pub const OpCode = enum {
     Length, // Get length: Length Rd, Rs (string/array/map)
     ArrayGet, // Get array element: ArrayGet Rd, array_reg, index_reg
     ArraySet, // Set array element: ArraySet array_reg, index_reg, value_reg
+    ArrayPush, // Push element to array: ArrayPush array_reg, value_reg -> returns new array in Rd
+    ArrayPop, // Pop element from array: ArrayPop Rd, array_reg -> returns popped value in Rd
     MapGet, // Get map value: MapGet Rd, map_reg, key_reg
     MapSet, // Set map value: MapSet map_reg, key_reg, value_reg
     
@@ -60,6 +62,8 @@ pub const OpCode = enum {
     Get, // Universal get for maps, arrays, fields
     Set, // Universal set for maps, arrays, fields
     CallMethod, // Call method: CallMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
+    ClassName, // Get class name: ClassName Rd, class_reg
+    ClassParent, // Get parent class: ClassParent Rd, class_reg
     
     // Type checking operations
     IsArray, // Check if value is array: IsArray Rd, Rs
@@ -68,6 +72,7 @@ pub const OpCode = enum {
     // Collection contains operations
     ArrayContains, // Check if array contains value: ArrayContains Rd, array_reg, value_reg
     MapHas, // Check if map has key: MapHas Rd, map_reg, key_reg
+    MapKeys, // Get map keys as array: MapKeys Rd, map_reg
     
     // Stack operations (needed for pattern matching)
     Dup, // Duplicate top of stack: Dup Rs -> push Rs value again
