@@ -23,15 +23,8 @@
 (println "Status:" status)
 (println "Mode:" mode)
 
-# Use symbols as map keys
-(var config {
-  `host "localhost"
-  `port 8080
-  `debug true
-})
-
-# Note: Map access with symbol keys requires proper map implementation
-# For now, this is a placeholder showing the intended usage
+# Symbols can be used in collections
+(var status-list [`active `pending `completed])
 
 (println "\n=== Symbol Equality ===")
 
