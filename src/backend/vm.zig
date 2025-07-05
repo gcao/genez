@@ -3225,6 +3225,85 @@ pub const VM = struct {
                     return error.MethodNotFound;
                 }
             },
+            .CallSuperMethod => {
+                // Call parent's method: CallSuperMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
+                const dst_reg = instruction.dst orelse return error.InvalidInstruction;
+                const obj_reg = instruction.src1 orelse return error.InvalidInstruction;
+                const method_name = instruction.var_name orelse return error.InvalidInstruction;
+                const arg_count = if (instruction.immediate) |imm|
+                    if (imm == .Int) @as(usize, @intCast(imm.Int)) else 0
+                else
+                    0;
+
+                var obj_val = try self.getRegister(obj_reg);
+                defer obj_val.deinit(self.allocator);
+
+                // Get the class for the object
+                const class = if (obj_val == .Object) blk: {
+                    const obj = self.getObjectById(obj_val.Object) orelse {
+                        debug.log("Object with ID {} not found in pool", .{obj_val.Object});
+                        return error.InvalidInstruction;
+                    };
+                    break :blk obj.class;
+                } else {
+                    debug.log("Super method call requires an object, got {}", .{obj_val});
+                    return error.TypeMismatch;
+                };
+
+                // Get the parent class
+                const parent_class = class.parent orelse {
+                    debug.log("Class {s} has no parent for super call", .{class.name});
+                    return error.MethodNotFound;
+                };
+
+                // Look up the method in the parent class
+                debug.log("Looking for method {s} in parent class {s}", .{ method_name, parent_class.name });
+                
+                if (parent_class.methods.get(method_name)) |method| {
+                    debug.log("Calling parent method {s} from class {s}", .{ method_name, parent_class.name });
+
+                    // Set up new call frame for the method
+                    const new_register_base = self.next_free_register;
+                    const frame = CallFrame.init(self.current_func, new_register_base, self.current_register_base, self.pc + 1, dst_reg);
+                    try self.call_frames.append(frame);
+
+                    // Allocate registers for the method (self + parameters + locals)
+                    const needed_regs = @as(u16, @intCast(method.param_count + method.register_count));
+                    const allocated_base = try self.allocateRegisters(needed_regs);
+
+                    // Set 'self' as first parameter (use the current object)
+                    const self_value = try obj_val.clone(self.allocator);
+                    // Directly store 'self' into the absolute register of the new frame
+                    while (allocated_base >= self.registers.items.len) {
+                        try self.registers.append(.{ .Nil = {} });
+                    }
+                    self.registers.items[allocated_base].deinit(self.allocator);
+                    self.registers.items[allocated_base] = self_value;
+
+                    // Copy arguments to parameter registers (after 'self')
+                    for (0..arg_count) |i| {
+                        const arg_reg = obj_reg + 1 + @as(u16, @intCast(i));
+                        const arg = try self.getRegister(arg_reg);
+                        const dest_reg = allocated_base + 1 + @as(u16, @intCast(i));
+                        // Directly store argument into the absolute register of the new frame
+                        while (dest_reg >= self.registers.items.len) {
+                            try self.registers.append(.{ .Nil = {} });
+                        }
+                        self.registers.items[dest_reg].deinit(self.allocator);
+                        self.registers.items[dest_reg] = arg;
+                    }
+
+                    // Switch to the method
+                    self.current_func = method;
+                    self.pc = 0;
+                    self.current_register_base = allocated_base;
+                    self.next_free_register = allocated_base + needed_regs;
+                    self.function_called = true;
+                } else {
+                    debug.log("Method {s} not found in parent class {s}", .{ method_name, parent_class.name });
+                    return error.MethodNotFound;
+                }
+            },
             .ClassName => {
                 // Get class name: ClassName Rd, class_reg
                 const dst_reg = instruction.dst orelse return error.InvalidInstruction;

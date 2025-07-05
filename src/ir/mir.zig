@@ -189,6 +189,7 @@ pub const MIR = struct {
     pub const MethodCall = struct {
         method_name: []const u8,
         arg_count: usize,
+        is_super: bool = false,
     };
 
     pub const InstanceCreation = struct {

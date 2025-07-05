@@ -1262,8 +1262,9 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             next_reg.* += 1;
             try stack.push(dst_reg);
 
+            const opcode = if (method_call.is_super) bytecode.OpCode.CallSuperMethod else bytecode.OpCode.CallMethod;
             try func.instructions.append(.{
-                .op = bytecode.OpCode.CallMethod,
+                .op = opcode,
                 .dst = dst_reg,
                 .src1 = instance_reg,
                 .var_name = try func.allocator.dupe(u8, method_call.method_name),

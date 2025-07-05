@@ -71,6 +71,7 @@ pub const OpCode = enum {
     Get, // Universal get for maps, arrays, fields
     Set, // Universal set for maps, arrays, fields
     CallMethod, // Call method: CallMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
+    CallSuperMethod, // Call parent's method: CallSuperMethod Rd, obj_reg, method_name, [arg1, arg2, ...]
     ClassName, // Get class name: ClassName Rd, class_reg
     ClassParent, // Get parent class: ClassParent Rd, class_reg
     

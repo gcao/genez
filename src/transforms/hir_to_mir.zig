@@ -639,19 +639,48 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             } });
         },
         .method_call => |method_call| {
-            // Evaluate the instance
-            try convertExpressionWithContext(block, method_call.object.*, context);
+            // Check if this is a super method call
+            if (method_call.object.* == .variable and 
+                std.mem.eql(u8, method_call.object.variable.name, "super")) {
+                // This is a super method call
+                // Load self (should be parameter 0 in methods)
+                if (context.isParameter("self")) |self_index| {
+                    try block.instructions.append(.{ .LoadParameter = self_index });
+                } else {
+                    // Fallback to loading self as variable
+                    try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "self") });
+                }
+                
+                // Evaluate method arguments
+                for (method_call.args.items) |arg| {
+                    try convertExpressionWithContext(block, arg.*, context);
+                }
+                
+                // Use a special CallSuperMethod instruction
+                // For now, we'll use CallMethod with a special marker
+                // The VM will need to recognize this pattern
+                try block.instructions.append(.{ .CallMethod = .{
+                    .method_name = try block.allocator.dupe(u8, method_call.method_name),
+                    .arg_count = method_call.args.items.len,
+                    .is_super = true,
+                } });
+            } else {
+                // Normal method call
+                // Evaluate the instance
+                try convertExpressionWithContext(block, method_call.object.*, context);
 
-            // Evaluate method arguments
-            for (method_call.args.items) |arg| {
-                try convertExpressionWithContext(block, arg.*, context);
+                // Evaluate method arguments
+                for (method_call.args.items) |arg| {
+                    try convertExpressionWithContext(block, arg.*, context);
+                }
+
+                // Call the method
+                try block.instructions.append(.{ .CallMethod = .{
+                    .method_name = try block.allocator.dupe(u8, method_call.method_name),
+                    .arg_count = method_call.args.items.len,
+                    .is_super = false,
+                } });
             }
-
-            // Call the method
-            try block.instructions.append(.{ .CallMethod = .{
-                .method_name = try block.allocator.dupe(u8, method_call.method_name),
-                .arg_count = method_call.args.items.len,
-            } });
         },
         .field_access => |field_access| {
             // Field access x/a compiles to (x .get_member 'a')
