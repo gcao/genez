@@ -1,0 +1,16 @@
+Basic map patterns:
+Name: Alice
+Age: 30
+empty map
+
+Map patterns with specific values:
+Success
+Not Found
+
+Partial map patterns:
+User ID: 123
+User Name: Bob
+
+Nested map patterns:
+Database host: localhost
+Database port: 5432

@@ -1,0 +1,20 @@
+Empty array pattern:
+empty array
+non-empty array
+
+Fixed-length array patterns:
+pair
+triple
+
+Variable binding in array patterns:
+x = 5
+y = 10
+
+Array patterns with literals:
+Success
+Not found
+
+Nested array patterns:
+Matrix elements:
+a = 1 b = 2
+c = 3 d = 4

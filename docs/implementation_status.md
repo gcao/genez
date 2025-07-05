@@ -8,7 +8,7 @@ Gene is a dynamic programming language with a working 4-stage compilation pipeli
 
 **Current State**: Gene is a fully functional language with OOP, macros, modules, pattern matching, exception handling, FFI, and a growing standard library. Recent additions include string interpolation, mutable references, comprehensive string methods, and proper logical operators.
 
-**Last Updated**: 2025-01-24 - Implemented case expressions for conditional branching and redesigned match for destructuring/binding. Gene now has clearer separation between case (for branching) and match (for destructuring).
+**Last Updated**: 2025-01-24 - Implemented case expressions for conditional branching, redesigned match for destructuring/binding, and added new if/then/else syntax. Gene now has clearer separation between case (for branching) and match (for destructuring). The new if syntax `(if cond (then expr) (else expr))` maps better to indented Gene where then/else are indented deeper than if.
 
 ## Language Philosophy
 
@@ -79,6 +79,8 @@ Gene aims to be a modern dynamic language that combines:
 
 ### 7. **Control Flow**
 - **Conditionals** (if/else expressions) ✓
+  - Old syntax: `(if cond then_expr else_expr)`
+  - New syntax: `(if cond (then expr) (else expr))` - better for indented Gene
 - **Case expressions** for value-based branching ✓
 - **Match expressions** for destructuring/binding ✓
 - **Loops** (for-in, while) ✓

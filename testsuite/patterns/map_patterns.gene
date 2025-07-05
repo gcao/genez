@@ -1,0 +1,76 @@
+#!/usr/bin/env gene run
+
+# Test: Map pattern matching
+
+# Test 1: Basic map patterns
+(fn test_basic_map_patterns []
+  (print "Basic map patterns:")
+  
+  (var person {^name "Alice" ^age 30})
+  (var empty_map {})
+  
+  # Match person map
+  (match person
+    ({^name n ^age a} (do
+      (print "Name:" n)
+      (print "Age:" a)))
+    (_ (print "Not a person")))
+  
+  # Match empty map
+  (print (match empty_map
+    ({} "empty map")
+    (_ "non-empty map"))))
+
+# Test 2: Map patterns with specific values
+(fn test_map_with_values []
+  (print "")
+  (print "Map patterns with specific values:")
+  
+  (var response1 {^status 200 ^body "OK"})
+  (var response2 {^status 404 ^body "Not Found"})
+  
+  (fn describe_response [resp]
+    (match resp
+      ({^status 200} "Success")
+      ({^status 404} "Not Found")
+      ({^status 500} "Server Error")
+      (_ "Unknown response")))
+  
+  (print (describe_response response1))
+  (print (describe_response response2)))
+
+# Test 3: Partial map patterns
+(fn test_partial_patterns []
+  (print "")
+  (print "Partial map patterns:")
+  
+  (var user {^id 123 ^name "Bob" ^email "bob@example.com" ^active true})
+  
+  # Match only some fields
+  (match user
+    ({^id id ^name name} (do
+      (print "User ID:" id)
+      (print "User Name:" name)))
+    (_ (print "Not a user"))))
+
+# Test 4: Nested map patterns
+(fn test_nested_maps []
+  (print "")
+  (print "Nested map patterns:")
+  
+  (var config {
+    ^database {^host "localhost" ^port 5432}
+    ^cache {^enabled true ^ttl 3600}
+  })
+  
+  (match config
+    ({^database {^host h ^port p}} (do
+      (print "Database host:" h)
+      (print "Database port:" p)))
+    (_ (print "Invalid config"))))
+
+# Run all tests
+(test_basic_map_patterns)
+(test_map_with_values)
+(test_partial_patterns)
+(test_nested_maps)

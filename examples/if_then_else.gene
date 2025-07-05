@@ -1,0 +1,67 @@
+#!/usr/bin/env gene run
+
+# If/Then/Else in Gene
+#
+# Gene supports two syntaxes for if expressions:
+# 1. Traditional: (if cond then_expr else_expr)
+# 2. Parenthesized: (if cond (then expr) (else expr))
+#
+# The parenthesized form maps better to indented Gene (.geni files)
+
+(println "=== If/Then/Else Examples ===")
+
+# Traditional syntax
+(var score 85)
+(println "\nTraditional syntax:")
+(println (if (> score 90) "A" "B or below"))
+
+# Parenthesized syntax
+(println "\nParenthesized syntax:")
+(println (if (> score 90) 
+  (then "A") 
+  (else "B or below")))
+
+# Complex example with nested if
+(println "\nNested example:")
+(var grade 
+  (if (>= score 90)
+    (then "A")
+    (else (if (>= score 80)
+      (then "B")
+      (else (if (>= score 70)
+        (then "C")
+        (else "F")))))))
+
+(println "Score:" score "Grade:" grade)
+
+# The parenthesized form in indented Gene would look like:
+#
+# var grade
+#   if score >= 90
+#     then
+#       "A"
+#     else
+#       if score >= 80
+#         then
+#           "B"
+#         else
+#           if score >= 70
+#             then
+#               "C"
+#             else
+#               "F"
+#
+# Notice how then/else are indented deeper than if,
+# which provides clear visual structure
+
+# With side effects
+(println "\nWith side effects:")
+(if (> score 80)
+  (then (do
+    (println "Good job!")
+    (println "Keep it up!")))
+  (else (do
+    (println "Need improvement")
+    (println "Study harder!"))))
+
+(println "\nDone!")

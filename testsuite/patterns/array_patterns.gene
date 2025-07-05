@@ -1,0 +1,89 @@
+#!/usr/bin/env gene run
+
+# Test: Array pattern matching
+
+# Test 1: Empty array pattern
+(fn test_empty_array []
+  (print "Empty array pattern:")
+  (var arr1 [])
+  (var arr2 [1 2 3])
+  
+  (print (match arr1
+    ([] "empty array")
+    (_ "non-empty array")))
+  
+  (print (match arr2
+    ([] "empty array")
+    (_ "non-empty array"))))
+
+# Test 2: Fixed-length array patterns
+(fn test_fixed_length []
+  (print "")
+  (print "Fixed-length array patterns:")
+  
+  (var pair [10 20])
+  (var triple [1 2 3])
+  
+  # Match pair
+  (print (match pair
+    ([x y] "pair")
+    ([x y z] "triple")
+    (_ "other")))
+  
+  # Match triple
+  (print (match triple
+    ([x y] "pair")
+    ([x y z] "triple")
+    (_ "other"))))
+
+# Test 3: Array patterns with variable binding
+(fn test_variable_binding []
+  (print "")
+  (print "Variable binding in array patterns:")
+  
+  (var coords [5 10])
+  
+  (match coords
+    ([x y] (do
+      (print "x =" x)
+      (print "y =" y)))
+    (_ (print "not a pair"))))
+
+# Test 4: Array patterns with literals
+(fn test_literal_patterns []
+  (print "")
+  (print "Array patterns with literals:")
+  
+  (var status_ok [200 "OK"])
+  (var status_err [404 "Not Found"])
+  
+  (fn describe_status [status]
+    (match status
+      ([200 msg] "Success")
+      ([404 msg] "Not found")
+      ([500 msg] "Server error")
+      (_ "Unknown status")))
+  
+  (print (describe_status status_ok))
+  (print (describe_status status_err)))
+
+# Test 5: Nested array patterns
+(fn test_nested_patterns []
+  (print "")
+  (print "Nested array patterns:")
+  
+  (var matrix [[1 2] [3 4]])
+  
+  (match matrix
+    ([[a b] [c d]] (do
+      (print "Matrix elements:")
+      (print "a =" a "b =" b)
+      (print "c =" c "d =" d)))
+    (_ (print "Not a 2x2 matrix"))))
+
+# Run all tests
+(test_empty_array)
+(test_fixed_length)
+(test_variable_binding)
+(test_literal_patterns)
+(test_nested_patterns)

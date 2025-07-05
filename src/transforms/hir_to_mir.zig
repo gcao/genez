@@ -812,6 +812,9 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
                 // Pattern (and guard if present) succeeded, evaluate body
                 try convertExpressionWithContext(block, arm.body.*, context);
 
+                // Store the result in a temporary variable before jumping
+                try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, "__match_result") });
+
                 // Jump to end of match expression
                 const branch_end_jump = block.instructions.items.len;
                 try block.instructions.append(.{ .Jump = 0 }); // Will be patched
@@ -828,12 +831,16 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
             // If no pattern matched, this would be a runtime error
             // For now, just push nil
             try block.instructions.append(.LoadNil);
+            try block.instructions.append(.{ .StoreVariable = try block.allocator.dupe(u8, "__match_result") });
 
             // Patch all branch end jumps to point here
             const match_end = block.instructions.items.len;
             for (branch_ends.items) |jump_index| {
                 block.instructions.items[jump_index].Jump = match_end;
             }
+
+            // Load the result from the temporary variable
+            try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_result") });
         },
         .macro_def => {
             // Macro definitions are not evaluated at runtime in the traditional sense

@@ -1,0 +1,39 @@
+#!/usr/bin/env gene run
+
+# If/Then/Else in Gene - Simple Example
+#
+# Gene supports two syntaxes for if expressions:
+# 1. Traditional: (if cond then_expr else_expr)
+# 2. Parenthesized: (if cond (then expr) (else expr))
+
+(println "=== If/Then/Else Syntax Demo ===")
+
+# Traditional syntax
+(println "\n1. Traditional syntax:")
+(if true 
+  (println "  This is the THEN branch (old syntax)")
+  (println "  This is the ELSE branch (old syntax)"))
+
+# Parenthesized syntax  
+(println "\n2. Parenthesized syntax:")
+(if true
+  (then (println "  This is the THEN branch (new syntax)"))
+  (else (println "  This is the ELSE branch (new syntax)")))
+
+# Another example
+(var temperature 25)
+(println "\n3. Temperature check (temp =" temperature "degrees):")
+
+(if (> temperature 30)
+  (then (println "  It's hot!"))
+  (else (println "  It's comfortable.")))
+
+# Nested example
+(println "\n4. Nested if example:")
+(if (> temperature 30)
+  (then (println "  Hot weather"))
+  (else (if (< temperature 10)
+    (then (println "  Cold weather"))
+    (else (println "  Mild weather")))))
+
+(println "\nBoth syntaxes work correctly!")

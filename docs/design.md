@@ -4875,7 +4875,37 @@ When assumptions fail:
 - **Memory Manager**: Coordinates with GC
 - **Exception Handler**: Stack unwinding, error propagation
 
-## 21.2 Object Model
+## 21.2 Application Instance
+
+An application instance represents a complete execution context for a Gene program. Each instance is isolated and contains all the necessary components for running Gene code.
+
+### Application Instance Components:
+- **Entry Package**: The main package or an ad-hoc package for scripts
+- **Entry Program**: The main program or a code string to execute
+- **Environment**: Environment variables and system configuration
+- **Working Directory**: The current working directory for file operations
+- **Arguments**: Command-line arguments passed to the application
+- **Start Time**: Timestamp when the application instance was created
+- **Gene Runtime**: The runtime system managing execution
+
+### Global Namespace:
+The `global` object serves as the root namespace of the application instance. All top-level definitions and imports are accessible through this namespace, providing a unified view of the application's symbols.
+
+### Instance Isolation:
+Each application instance maintains its own:
+- Symbol tables and namespaces
+- Memory allocation pools
+- Module cache and loaded modules
+- Runtime configuration
+- Error handlers and signal handlers
+
+This isolation enables:
+- Running multiple Gene applications in the same process
+- Sandboxing and security boundaries
+- Testing with isolated environments
+- Hot reloading without affecting other instances
+
+## 21.3 Object Model
 
 ### Class Representation:
 - Class metadata object
@@ -4895,7 +4925,7 @@ When assumptions fail:
 - Hash table for expando properties
 - Inline caching for fast access
 
-## 21.3 Module System
+## 21.4 Module System
 
 ### Module Loading Process:
 1. Parse module file
@@ -4910,7 +4940,7 @@ When assumptions fail:
 - Lazy loading supported
 - Hot reloading capability
 
-## 22.4 Native Interface (FFI)
+## 21.5 Native Interface (FFI)
 
 The FFI system is a critical component of the Gene runtime, providing seamless bidirectional interoperability with C and other native code. See Chapter 13 for the complete FFI design and usage.
 
@@ -5005,7 +5035,7 @@ gene_value* gene_call_method(gene_runtime* rt, gene_value* obj,
 - Type-specialized call stubs
 - Profile-guided optimization
 
-## 22.5 Actor Runtime
+## 21.6 Actor Runtime
 
 ### Actor Scheduling:
 - Work-stealing scheduler
