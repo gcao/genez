@@ -444,7 +444,7 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
             next_reg.* += 1;
 
             // The CreateArray instruction expects the elements to be in consecutive registers
-            // starting from src1. We'll collect the registers that hold the elements.
+            // starting from src1. We need to ensure they are consecutive.
             var src_regs = try func.allocator.alloc(u16, count);
             defer func.allocator.free(src_regs);
 
@@ -454,14 +454,63 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 i -= 1;
                 src_regs[i] = stack.pop();
             }
+            
+            // Check if registers are consecutive
+            var consecutive = true;
+            if (count > 1) {
+                for (1..count) |j| {
+                    if (src_regs[j] != src_regs[j-1] + 1) {
+                        consecutive = false;
+                        break;
+                    }
+                }
+            }
+            
+            // If not consecutive, we need to move them to consecutive registers
+            var first_reg: u16 = if (count > 0) src_regs[0] else 0;
+            if (!consecutive and count > 0) {
+                // Allocate consecutive registers
+                first_reg = next_reg.*;
+                next_reg.* += @intCast(count);
+                
+                // Move elements to consecutive registers
+                for (0..count) |j| {
+                    const new_reg = first_reg + @as(u16, @intCast(j));
+                    if (new_reg != src_regs[j]) {
+                        try func.instructions.append(.{
+                            .op = bytecode.OpCode.Move,
+                            .dst = new_reg,
+                            .src1 = src_regs[j],
+                        });
+                    }
+                }
+            }
+            
+            // Debug: print the source registers
+            const build_options = @import("build_options");
+            if (build_options.debug_mode) {
+                std.debug.print("[DEBUG] CreateArray: count={}, src_regs=", .{count});
+                for (src_regs) |reg| {
+                    std.debug.print(" R{}", .{reg});
+                }
+                std.debug.print("\n", .{});
+            }
 
             // Generate CreateArray instruction
             // src1 will be the first element register (if any)
             // immediate will contain the count
+            const src1_reg = if (count > 0) first_reg else null;
+            if (build_options.debug_mode) {
+                std.debug.print("[DEBUG] CreateArray instruction: dst=R{}, src1={}, count={}\n", .{
+                    dst_reg,
+                    if (src1_reg) |r| r else 9999,
+                    count
+                });
+            }
             try func.instructions.append(.{
                 .op = bytecode.OpCode.CreateArray,
                 .dst = dst_reg,
-                .src1 = if (count > 0) src_regs[0] else null,
+                .src1 = src1_reg,
                 .immediate = types.Value{ .Int = @intCast(count) },
             });
 
@@ -483,13 +532,58 @@ fn convertInstructionWithStack(func: *bytecode.Function, instr: *mir.MIR.Instruc
                 src_regs[i] = stack.pop();
             }
 
+            // Debug: print the source registers for map
+            const build_options = @import("build_options");
+            if (build_options.debug_mode) {
+                std.debug.print("[DEBUG] CreateMap: count={}, src_regs=", .{count});
+                for (src_regs, 0..) |reg, idx| {
+                    if (idx % 2 == 0) {
+                        std.debug.print(" [key:R{}", .{reg});
+                    } else {
+                        std.debug.print(" val:R{}]", .{reg});
+                    }
+                }
+                std.debug.print("\n", .{});
+            }
+            
+            // Check if registers are consecutive for key-value pairs
+            var consecutive = true;
+            if (count > 0) {
+                for (1..src_regs.len) |j| {
+                    if (src_regs[j] != src_regs[j-1] + 1) {
+                        consecutive = false;
+                        break;
+                    }
+                }
+            }
+            
+            // If not consecutive, move them to consecutive registers
+            var first_reg = if (count > 0) src_regs[0] else 0;
+            if (!consecutive and count > 0) {
+                // Allocate consecutive registers for all key-value pairs
+                first_reg = next_reg.*;
+                next_reg.* += @intCast(count * 2);
+                
+                // Move key-value pairs to consecutive registers
+                for (0..src_regs.len) |j| {
+                    const new_reg = first_reg + @as(u16, @intCast(j));
+                    if (new_reg != src_regs[j]) {
+                        try func.instructions.append(.{
+                            .op = bytecode.OpCode.Move,
+                            .dst = new_reg,
+                            .src1 = src_regs[j],
+                        });
+                    }
+                }
+            }
+            
             // Generate CreateMap instruction
             // src1 will be the first key register (if any)
             // immediate will contain the count of key-value pairs
             try func.instructions.append(.{
                 .op = bytecode.OpCode.CreateMap,
                 .dst = dst_reg,
-                .src1 = if (count > 0) src_regs[0] else null,
+                .src1 = if (count > 0) first_reg else null,
                 .immediate = types.Value{ .Int = @intCast(count) },
             });
 

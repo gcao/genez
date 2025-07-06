@@ -17,9 +17,10 @@
     (_ (print "Not a person")))
   
   # Match empty map
-  (print (match empty_map
+  (var empty_result (match empty_map
     ({} "empty map")
-    (_ "non-empty map"))))
+    (_ "non-empty map")))
+  (print empty_result))
 
 # Test 2: Map patterns with specific values
 (fn test_map_with_values []
@@ -36,8 +37,10 @@
       ({^status 500} "Server Error")
       (_ "Unknown response")))
   
-  (print (describe_response response1))
-  (print (describe_response response2)))
+  (var resp1_result (describe_response response1))
+  (print resp1_result)
+  (var resp2_result (describe_response response2))
+  (print resp2_result))
 
 # Test 3: Partial map patterns
 (fn test_partial_patterns []

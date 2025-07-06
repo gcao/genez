@@ -58,7 +58,10 @@
       "Bash(git commit:*)",
       "Bash(GENE_DEBUG=1 ./zig-out/bin/gene run tmp/test_tokenize.gene)",
       "Bash(lldb:*)",
-      "Bash(./run_single_test.sh:*)"
+      "Bash(./run_single_test.sh:*)",
+      "Bash(./check.py:*)",
+      "Bash(python:*)",
+      "Bash(bash:*)"
     ],
     "deny": []
   },

@@ -4034,6 +4034,7 @@ pub const VM = struct {
                 if (first_reg) |start_reg| {
                     for (0..count) |i| {
                         const src_reg = start_reg + @as(u16, @intCast(i));
+                        // debug.log("CreateArray: array[{}] = R{}", .{i, src_reg});
                         array[i] = try self.getRegister(src_reg);
                     }
                 } else {
@@ -4079,6 +4080,8 @@ pub const VM = struct {
                             .Int => |int_val| try std.fmt.allocPrint(self.allocator, "{}", .{int_val}),
                             else => try self.allocator.dupe(u8, "unknown_key"),
                         };
+                        
+                        // debug.log("CreateMap: putting key={s} value={}", .{key_str, value_val});
 
                         try map.put(key_str, value_val);
                     }

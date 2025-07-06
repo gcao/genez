@@ -1200,6 +1200,10 @@ fn convertExpressionWithContext(block: *mir.MIR.Block, expr: hir.HIR.Expression,
 // Helper function to compile HIR patterns to MIR instructions
 // Returns the instruction index where pattern matching succeeds
 fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *ConversionContext) !usize {
+    return compilePatternWithScrutinee(block, pattern, context, "__match_scrutinee");
+}
+
+fn compilePatternWithScrutinee(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *ConversionContext, scrutinee_var: []const u8) !usize {
     switch (pattern) {
         .literal => |lit| {
             // Generate code to compare scrutinee with literal value
@@ -1271,7 +1275,7 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *Con
             // We need to load the scrutinee again for each element extraction
             for (arr.elements, 0..) |elem_pattern, i| {
                 // Load the scrutinee array again
-                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, scrutinee_var) });
 
                 // Load the index
                 try block.instructions.append(.{ .LoadInt = @intCast(i) });
@@ -1297,6 +1301,18 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *Con
                         // Just discard the extracted value
                         try block.instructions.append(.Pop);
                     },
+                    .array => {
+                        // Handle nested array patterns
+                        // The extracted array is on the stack, store it as the new scrutinee
+                        const nested_scrutinee = try std.fmt.allocPrint(block.allocator, "__match_scrutinee_{}", .{i});
+                        try block.instructions.append(.{ .StoreVariable = nested_scrutinee });
+                        
+                        // Load it back for pattern matching
+                        try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, nested_scrutinee) });
+                        
+                        // Recursively compile the nested pattern
+                        _ = try compilePatternWithScrutinee(block, elem_pattern, context, nested_scrutinee);
+                    },
                     else => {
                         // For other patterns, just pop for now
                         try block.instructions.append(.Pop);
@@ -1316,7 +1332,7 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *Con
             // For each field pattern, extract the value and match
             for (map.fields) |field| {
                 // Load the scrutinee map again
-                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, "__match_scrutinee") });
+                try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, scrutinee_var) });
                 
                 // Load the key
                 try block.instructions.append(.{ .LoadString = try block.allocator.dupe(u8, field.key) });
@@ -1340,6 +1356,18 @@ fn compilePattern(block: *mir.MIR.Block, pattern: hir.HIR.Pattern, context: *Con
                     .wildcard => {
                         // Just discard the extracted value
                         try block.instructions.append(.Pop);
+                    },
+                    .map => {
+                        // Handle nested map patterns
+                        // The extracted map is on the stack, store it as the new scrutinee
+                        const nested_scrutinee = try std.fmt.allocPrint(block.allocator, "__match_scrutinee_map_{s}", .{field.key});
+                        try block.instructions.append(.{ .StoreVariable = nested_scrutinee });
+                        
+                        // Load it back for pattern matching
+                        try block.instructions.append(.{ .LoadVariable = try block.allocator.dupe(u8, nested_scrutinee) });
+                        
+                        // Recursively compile the nested pattern
+                        _ = try compilePatternWithScrutinee(block, field.pattern, context, nested_scrutinee);
                     },
                     else => {
                         // For other patterns, just pop for now

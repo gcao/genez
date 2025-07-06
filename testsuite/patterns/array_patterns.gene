@@ -8,13 +8,15 @@
   (var arr1 [])
   (var arr2 [1 2 3])
   
-  (print (match arr1
+  (var result1 (match arr1
     ([] "empty array")
     (_ "non-empty array")))
+  (print result1)
   
-  (print (match arr2
+  (var result2 (match arr2
     ([] "empty array")
-    (_ "non-empty array"))))
+    (_ "non-empty array")))
+  (print result2))
 
 # Test 2: Fixed-length array patterns
 (fn test_fixed_length []
@@ -25,16 +27,18 @@
   (var triple [1 2 3])
   
   # Match pair
-  (print (match pair
+  (var pair_result (match pair
     ([x y] "pair")
     ([x y z] "triple")
     (_ "other")))
+  (print pair_result)
   
   # Match triple
-  (print (match triple
+  (var triple_result (match triple
     ([x y] "pair")
     ([x y z] "triple")
-    (_ "other"))))
+    (_ "other")))
+  (print triple_result))
 
 # Test 3: Array patterns with variable binding
 (fn test_variable_binding []
@@ -64,8 +68,10 @@
       ([500 msg] "Server error")
       (_ "Unknown status")))
   
-  (print (describe_status status_ok))
-  (print (describe_status status_err)))
+  (var ok_result (describe_status status_ok))
+  (print ok_result)
+  (var err_result (describe_status status_err))
+  (print err_result))
 
 # Test 5: Nested array patterns
 (fn test_nested_patterns []

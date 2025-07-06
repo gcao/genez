@@ -8,7 +8,7 @@
 
 # Test 2: Namespace with macro definition
 (ns macros
-  (macro when [condition body]
+  (macro when-true [condition body]
     (if %condition %body nil)))
 
 # Test 3: Namespace with mixed content
