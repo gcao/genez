@@ -96,7 +96,7 @@ Gene
 
 ### 3. Compilation Pipeline
 
-Compilation occurs when all information is available. Some code is pre-compiled, other is compiled on demand. Part of a function body can be compiled first while the rest is compiled later.
+Most compilation happens at runtime on demand due to the dynamic nature of the language. Compilation occurs when all information is available. Some code is pre-compiled, other is compiled on demand. Part of a function body can be compiled first while the rest is compiled later.
 
 ```
 Source Code

@@ -2,11 +2,36 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Important**: This repository contains two implementations:
-> - **v1** (this directory) - Feature-complete implementation with traditional architecture
-> - **v2** (`v2/` directory) - New implementation based on unified Gene data format
-> 
-> See [V1_VS_V2.md](V1_VS_V2.md) for details. Active development is in v2/.
+## 🎯 IMPORTANT: Two Implementations
+
+This repository contains **two separate Gene implementations**:
+
+### v1 (This Directory)
+- **Status**: Feature-complete, maintenance mode
+- **Location**: Root directory
+- **Architecture**: Traditional AST → HIR → MIR → Bytecode
+- **Use for**: Running Gene code today, understanding the language features
+
+### v2 (v2/ Directory) 
+- **Status**: Active development, foundation complete
+- **Location**: `v2/` subdirectory  
+- **Architecture**: Unified Gene format - everything is `(type ^prop1 value1 child1 child2)`
+- **Use for**: Future of Gene, current development focus
+
+## 📍 Where to Start
+
+**For v2 Development** (recommended):
+1. Go to `v2/` directory
+2. Read `v2/QUICK_START.md`
+3. Check `v2/docs/IMPLEMENTATION_STATUS.md`
+
+**For v1 Maintenance**:
+1. Continue reading below
+2. Run `./testsuite/run_tests.sh` before changes
+
+---
+
+# v1 Development Guide (Below)
 
 ## Development Commands
 

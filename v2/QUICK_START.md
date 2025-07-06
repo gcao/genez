@@ -1,82 +1,133 @@
 # Gene v2 Quick Start Guide
 
-## For Developers Resuming Work
+## 🎯 For Developers Starting/Resuming Work
 
-### 1. Check Current Status
+### Step 1: Understand Current State (2 min)
+
 ```bash
-cat docs/IMPLEMENTATION_STATUS.md   # See what's done and what's next
-cat docs/SESSION_LOG.md            # See what was done in last session
+# See what's implemented and what's next
+cat docs/IMPLEMENTATION_STATUS.md | grep -A 10 "Current Focus"
+
+# Check recent work
+tail -30 docs/SESSION_LOG.md
 ```
 
-### 2. Build and Test
+### Step 2: Verify Everything Works (1 min)
+
 ```bash
-zig build          # Build everything
-zig build test     # Run tests (should all pass)
-zig build bench    # Run benchmarks
-./zig-out/bin/gene test  # Run built-in tests
+zig build test     # All tests should pass
+zig build bench    # Check performance baseline
 ```
 
-### 3. Understand the Code Structure
-- `src/gene.zig` - Core Gene type with optimized storage
-- `src/value.zig` - Value representation (union type)
-- `src/main.zig` - CLI entry point
-- `src/tests.zig` - Test suite
-- `src/bench.zig` - Benchmarks
+### Step 3: Current Priority - Parser Implementation
 
-### 4. Next Implementation Steps
+The foundation is complete. **Next task: Build the parser**.
 
-**Parser (Priority 1)**:
-1. Create `src/parser/lexer.zig` for tokenization
-2. Create `src/parser/parser.zig` for Gene AST generation
-3. Integrate with REPL in `main.zig`
+#### Create Parser Structure:
 
-**Simple Interpreter (Priority 2)**:
-1. Create `src/interpreter.zig` for tree-walking evaluation
-2. Test with examples before building full VM
-
-### 5. Key Design Decisions Made
-
-- **Optimized Storage**: Properties and children use None/Single/Few/Many tiers
-- **Direct AST**: Parser generates Gene objects, not intermediate AST
-- **Everything is Gene**: Even primitives are internally `(Int ^value 42)`
-- **Method Calls**: All operations become method calls `(+ 1 2)` → `(1 .+ 2)`
-
-### 6. Testing Your Changes
-
-When adding new features:
-1. Add unit tests in the relevant module
-2. Run `zig build test` frequently
-3. Update `docs/IMPLEMENTATION_STATUS.md`
-4. Add notes to `docs/SESSION_LOG.md` before finishing
-
-### 7. Performance Targets
-
-Current benchmarks show:
-- Property access: 2ns (Single), 9ns (Few)
-- Child access: 1ns
-- Gene creation: ~5μs (needs pooling)
-
-Maintain or improve these numbers!
-
-### 8. Examples
-
-Run the REPL:
 ```bash
-./zig-out/bin/gene repl
-> hello
-You entered: hello
-> exit
+mkdir -p src/parser
 ```
 
-The parser will make this actually evaluate Gene expressions!
+#### Files to Create:
 
-### 9. Documentation
+1. **src/parser/token.zig**
+   ```zig
+   pub const TokenType = enum {
+       // Literals
+       Int, Float, String, Symbol,
+       // Delimiters  
+       LeftParen, RightParen, LeftBracket, RightBracket,
+       // Special
+       Property, // ^name
+       Method,   // .method
+       // ... etc
+   };
+   ```
 
-Key references:
-- `docs/GENE_FORMAT_REFERENCE.md` - Syntax examples
-- `docs/architecture.md` - Overall design
-- `docs/unified_gene_migration.md` - Why v2 exists
+2. **src/parser/lexer.zig**
+   - Token stream generation
+   - Handle numbers, strings, symbols
+   - Property syntax `^name`
+   - Method syntax `.method`
 
-### 10. Getting Help
+3. **src/parser/parser.zig**
+   - Recursive descent parser
+   - Generate Gene objects directly
+   - No intermediate AST!
 
-The codebase is designed to be self-documenting. Each major type has doc comments explaining its purpose and usage.
+### Step 4: Integration Points
+
+Update `main.zig` runRepl function:
+```zig
+// Instead of just echoing:
+const gene = try parser.parse(allocator, line);
+const result = try interpreter.eval(allocator, gene);
+try stdout.print("{}\n", .{result});
+```
+
+### Step 5: Test Your Parser
+
+Create test files:
+```gene
+# test/parser/basics.gene
+42
+"hello"
+(+ 1 2)
+[1 2 3]
+{^x 1 ^y 2}
+```
+
+### 📋 Today's Checklist
+
+- [ ] Create token types enum
+- [ ] Implement basic lexer (numbers, strings, symbols)
+- [ ] Parse simple expressions (atoms)
+- [ ] Parse lists `(a b c)`
+- [ ] Update IMPLEMENTATION_STATUS.md
+- [ ] Add session notes to SESSION_LOG.md
+
+### 🏃 Quick Commands
+
+```bash
+# Run tests after changes
+zig build test
+
+# Test parser on a file
+./zig-out/bin/gene run test.gene
+
+# Quick benchmark
+zig build bench
+```
+
+### 📊 Performance Guidelines
+
+Keep these benchmarks in mind:
+- Property access: < 10ns
+- Method dispatch: < 20ns (future)
+- Parse time: < 1ms for typical files
+
+### 🔑 Key Reminders
+
+1. **Parser outputs Gene objects** - not a separate AST
+2. **Everything is a Gene** - even `42` becomes `(Int ^value 42)`
+3. **Properties are first-class** - parse `^prop value` syntax
+4. **Update docs** - Track progress in IMPLEMENTATION_STATUS.md
+
+### 📚 Essential References
+
+While implementing the parser, refer to:
+- **[Gene Format Reference](docs/GENE_FORMAT_REFERENCE.md)** - What to parse
+- **[Architecture](docs/architecture.md#compilation-pipeline)** - How parser fits in
+- **[Unified Format](docs/unified_gene_format.md)** - Why we parse this way
+
+### 💡 Pro Tips
+
+1. Start with atoms (numbers, strings, symbols)
+2. Then lists and basic calls
+3. Properties can be added incrementally
+4. Use the existing Gene type - it's ready!
+
+---
+
+**Remember**: The goal is to get Gene code running ASAP. Start simple, iterate quickly!

@@ -1,63 +1,81 @@
-# Gene v2 - Unified Data Format Implementation
+# Gene v2
 
-A ground-up reimplementation of the Gene programming language with a unified data format where everything can be represented as:
+A ground-up reimplementation of the Gene programming language based on the revolutionary unified data format.
+
+## 🚀 Quick Start
+
+```bash
+# Build and test
+zig build test           # Run tests (all should pass)
+zig build bench          # Run performance benchmarks
+
+# Run Gene
+./zig-out/bin/gene repl  # Start REPL
+./zig-out/bin/gene test  # Run built-in tests
+```
+
+See **[QUICK_START.md](QUICK_START.md)** for development guide.
+
+## 🎯 Core Concept
+
+In Gene v2, **everything** is represented uniformly as:
 
 ```
 (type ^prop1 value1 ^prop2 value2 child1 child2)
 ```
 
-## Key Design Principles
+This means:
+- `42` is really `(Int ^value 42)`
+- `(+ 1 2)` is really `(Call ^target + 1 2)` 
+- Even control flow follows this pattern
 
-1. **Everything is a Gene**: All values, including primitives, are represented in the uniform Gene format
-2. **Everything is an Object**: All operations are methods on objects
-3. **Properties Everywhere**: Any expression can have properties attached
-4. **Performance by Design**: Optimizations built-in from the start (small object optimization, inline caching)
+See **[docs/unified_gene_format.md](docs/unified_gene_format.md)** for the philosophy.
 
-## Architecture
+## 📊 Current Status
 
-- **Gene Type**: Core data structure with optimized storage for properties and children
-- **Register-based VM**: 256 general-purpose registers with specialized Gene operations
-- **LIR**: Low-level IR in SSA form for optimizations
-- **Inline Caching**: Fast property and method access
-- **Generational GC**: Precise garbage collection with stack maps
+✅ **Completed**
+- Core Gene type with optimized storage
+- Value system with all types
+- Test suite (100% passing)
+- Benchmark framework
+- CLI structure
 
-## Building
+🚧 **Next: Parser Implementation**
+- Direct Gene AST generation
+- No intermediate representation
 
-```bash
-zig build                 # Build the interpreter
-zig build test           # Run tests
-zig build bench          # Run benchmarks
-zig build run -- file.gene  # Run a Gene file
-```
+See **[docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)** for detailed progress.
 
-## Status
+## 📚 Documentation
 
-This is a complete rewrite focusing on the unified Gene format.
+- **[Quick Start](QUICK_START.md)** - Start developing
+- **[Implementation Status](docs/IMPLEMENTATION_STATUS.md)** - Track progress  
+- **[Gene Format Reference](docs/GENE_FORMAT_REFERENCE.md)** - Syntax guide
+- **[Architecture](docs/architecture.md)** - System design
+- **[All Docs](docs/)** - Complete documentation
 
-**Key Documents**:
-- [Implementation Status](docs/IMPLEMENTATION_STATUS.md) - Current progress tracker
-- [Session Log](docs/SESSION_LOG.md) - Development history
-- [Format Reference](docs/GENE_FORMAT_REFERENCE.md) - Unified format examples
-- [Architecture](docs/architecture.md) - Overall design
+## 🏗️ Architecture Highlights
 
-See [docs/](docs/) for all design documents.
+- **Optimized Storage**: Properties and children use None/Single/Few/Many tiers
+- **Direct AST**: Parser generates Gene objects, not intermediate forms
+- **Everything is an Object**: `(1 .+ 2)` - even primitives have methods
+- **Properties Everywhere**: `(add ^checked true 1 2)` - attach metadata to any expression
 
-- [x] Project structure
-- [x] Design documents
-- [x] Gene type implementation with optimized storage
-- [x] Value representation with NaN-boxing concept
-- [x] Basic test suite
-- [x] Memory benchmark framework
-- [ ] Parser implementation
-- [ ] LIR generation
-- [ ] VM execution
-- [ ] Method dispatch
-- [ ] Standard library
+## 🔧 Development
 
-## Differences from v1
+When resuming work:
+1. Check `docs/IMPLEMENTATION_STATUS.md` for current state
+2. Read `docs/SESSION_LOG.md` for recent changes
+3. Run `zig build test` to ensure everything works
+4. Update status docs when making progress
 
-- Unified data format from the ground up
-- No separate AST node types - everything is a Gene
-- Register-based VM instead of stack-based
-- LIR for better optimizations
-- Methods on primitive types
+## 📈 Performance
+
+Current benchmarks show excellent performance:
+- Property access: 2ns (Single), 9ns (Few)
+- Child access: 1ns
+- Gene creation: ~5μs (needs object pooling)
+
+## 🤝 Contributing
+
+This is a research project exploring the unified data format concept. The current priority is implementing the parser to enable actual Gene code execution.

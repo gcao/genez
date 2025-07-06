@@ -1,5 +1,13 @@
 # Gene Programming Language
 
+> **📢 Active Development in v2**: We're building Gene v2 with a revolutionary unified data format where everything is `(type ^prop1 value1 child1 child2)`. 
+> 
+> 👉 **[Go to v2/](v2/)** for the new implementation or see **[V1_VS_V2.md](V1_VS_V2.md)** for details.
+
+---
+
+## Gene v1 (This Directory)
+
 Gene is a programming language implementation written in Zig. It features:
 
 - Custom syntax parser
