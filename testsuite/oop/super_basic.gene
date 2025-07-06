@@ -1,0 +1,42 @@
+# Test basic super method calls
+
+# Simple super call
+(class Base
+  (.fn greet []
+    (println "Hello from Base")))
+
+(class Child < Base
+  (.fn greet []
+    (println "Hello from Child")
+    (super .greet)))
+
+(var child (new Child))
+(child .greet)
+
+# Super with return value
+(class Animal
+  (.fn sound []
+    "Generic animal sound"))
+
+(class Dog < Animal
+  (.fn sound []
+    (var base-sound (super .sound))
+    (println "Base sound:" base-sound)
+    "Woof!"))
+
+(var dog (new Dog))
+(println "Dog sound:" (dog .sound))
+
+# Super with arguments
+(class Calculator
+  (.fn add [a b]
+    (+ a b)))
+
+(class AdvancedCalc < Calculator
+  (.fn add [a b]
+    (var sum (super .add a b))
+    (println "Sum of" a "and" b "is" sum)
+    sum))
+
+(var calc (new AdvancedCalc))
+(println "Result:" (calc .add 5 3))

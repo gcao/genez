@@ -1,0 +1,40 @@
+# Test basic inheritance without super
+
+# Simple inheritance
+(class Animal
+  (.fn speak []
+    (println "Animal speaks"))
+  
+  (.fn eat []
+    (println "Animal eats")))
+
+(class Dog < Animal
+  (.fn speak []
+    (println "Dog barks"))
+  
+  (.fn wagTail []
+    (println "Dog wags tail")))
+
+# Test inherited and overridden methods
+(var dog (new Dog))
+(dog .speak)      # Overridden
+(dog .eat)        # Inherited
+(dog .wagTail)    # New method
+
+# Test multi-level inheritance
+(class Mammal
+  (.fn breathe []
+    (println "Mammal breathes")))
+
+(class Cat < Mammal
+  (.fn meow []
+    (println "Cat meows")))
+
+(class Lion < Cat
+  (.fn roar []
+    (println "Lion roars")))
+
+(var lion (new Lion))
+(lion .breathe)   # From Mammal
+(lion .meow)      # From Cat
+(lion .roar)      # Own method

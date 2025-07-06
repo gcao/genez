@@ -1,0 +1,40 @@
+# Test simple super method calls
+
+# Basic super call
+(class Base
+  (.fn greet []
+    (println "Hello from Base")))
+
+(class Child < Base
+  (.fn greet []
+    (println "Hello from Child")
+    (super .greet)))
+
+(var child (new Child))
+(child .greet)
+
+# Super with different method names (no infinite loop risk)
+(class Animal
+  (.fn make-sound []
+    (println "Generic animal sound")))
+
+(class Dog < Animal
+  (.fn bark []
+    (println "Woof!")
+    (super .make-sound)))
+
+(var dog (new Dog))
+(dog .bark)
+
+# Super with return values
+(class Calculator
+  (.fn compute [x]
+    (* x 2)))
+
+(class AdvancedCalc < Calculator
+  (.fn compute [x]
+    (var base-result (super .compute x))
+    (+ base-result 10)))
+
+(var calc (new AdvancedCalc))
+(println "Result:" (calc .compute 5))

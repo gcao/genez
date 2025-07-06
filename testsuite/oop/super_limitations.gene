@@ -1,0 +1,31 @@
+# Test documenting current super limitations
+
+# LIMITATION: Multi-level super calls can cause infinite loops
+# This is because super looks at the object's class parent,
+# not the current method's class context
+
+# This would cause infinite loop:
+# (class A (.fn m [] "A"))
+# (class B < A (.fn m [] (super .m)))
+# (class C < B (.fn m [] (super .m)))
+# ((new C) .m)  # C calls B.m, which calls super, but sees C's parent (B) again
+
+# WORKAROUND: Use different method names or avoid deep super chains
+(class Base
+  (.fn base-method []
+    (println "Base method")))
+
+(class Middle < Base
+  (.fn middle-method []
+    (println "Middle method")
+    (self .base-method)))
+
+(class Top < Middle
+  (.fn top-method []
+    (println "Top method")
+    (super .middle-method)))
+
+(var obj (new Top))
+(obj .top-method)
+
+# This pattern works because each level calls a different parent method
