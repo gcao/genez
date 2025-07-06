@@ -26,9 +26,10 @@
 - [ ] Update built-in types to be classes:
   - [ ] `Int < Number < Any`
   - [ ] `Float < Number < Any`
+  - [ ] `Boolean < Any`
   - [ ] `String < Any`
-  - [ ] `Array < Collection < Any`
-  - [ ] `Map < Collection < Any`
+  - [ ] `Array < Any`
+  - [ ] `Map < Any`
   - [ ] `Gene < Any`
 
 ### 2.2 Method System
@@ -147,12 +148,10 @@
 # Test 2: Properties on function calls
 (test "call properties"
   (var result = (add ^checked true 100 200))
-  (assert (== result 300))
-  (assert (== (result .get-prop ^checked) true)))
+  (assert (== result 300)))
 
 # Test 3: Method dispatch
 (test "method dispatch"
-  (assert (== (42 .+ 8) 50))
   (assert (== ("hello" .length) 5))
   (assert (== ([1 2 3] .push 4) [1 2 3 4])))
 ```
@@ -190,7 +189,6 @@
 
 ## Next Steps
 
-1. Create `gene` branch for development
-2. Set up performance benchmarking
-3. Begin with Gene type implementation
-4. Regular progress reviews and adjustments
+1. Set up performance benchmarking
+2. Begin with Gene type implementation
+3. Regular progress reviews and adjustments

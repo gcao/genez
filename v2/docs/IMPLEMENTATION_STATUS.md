@@ -2,7 +2,7 @@
 
 This document tracks the implementation progress of Gene v2. Update this file whenever you complete or start work on a component.
 
-Last Updated: 2025-01-06
+Last Updated: 2025-07-06
 
 ## Overview
 
@@ -62,12 +62,10 @@ Gene v2 is a complete rewrite implementing the unified data format where everyth
   - [ ] Property attachment
   - [ ] Method call syntax `(obj .method args)`
   - [ ] Quote syntax with backtick
-  - [ ] Macro syntax `($ name ...)`
+  - [ ] Macro syntax `(macro name ...)`
 - [ ] **Reader Macros**
-  - [ ] Quote `'expr`
-  - [ ] Quasiquote `~expr`
-  - [ ] Unquote `,expr`
-  - [ ] Unquote-splicing `,@expr`
+  - [ ] Quote `expr
+  - [ ] Unquote `%expr`
 
 ### 🚧 Type System (NOT STARTED)
 
@@ -134,6 +132,7 @@ Gene v2 is a complete rewrite implementing the unified data format where everyth
 - [ ] **Core Classes** (`src/stdlib/core.gene`)
   - [ ] Any (root class)
   - [ ] Nil
+  - [ ] Void
   - [ ] Bool
   - [ ] Number (Int, Float)
   - [ ] String

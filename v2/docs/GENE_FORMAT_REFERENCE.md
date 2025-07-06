@@ -11,12 +11,12 @@ Everything in Gene is represented as:
 
 ### Literals
 ```gene
-42                  →  (Int ^value 42)
+42                 →  (Int ^value 42)
 3.14               →  (Float ^value 3.14)
 "hello"            →  (String ^value "hello")
 true               →  (Bool ^value true)
 nil                →  (Nil)
-:symbol            →  (Symbol ^name "symbol")
+`symbol            →  (Symbol ^value "symbol")
 ```
 
 ### Collections
@@ -28,6 +28,18 @@ nil                →  (Nil)
 
 ## Expressions
 
+### Symbol resolution
+```gene
+if                 →  (Keyword ^value "if")
+gene               →  (Builtin ^value "gene")
+$env               →  (Special ^value "$env")
+x                  →  First look up in local scope
+                   →  Then look up in parent scope until root
+                   →  If not found, look up from current namespace
+                   →  Then look up from parent namespace until root (global)
+                   →  If still not found, throw error
+```
+
 ### Function Calls
 ```gene
 (f x y)            →  (Call ^target f x y)
@@ -36,9 +48,9 @@ nil                →  (Nil)
 
 ### Method Calls
 ```gene
-(obj .method arg)  →  (MethodCall ^receiver obj ^method method arg)
-(x .+ y)           →  (MethodCall ^receiver x ^method + y)
-("hello" .length)  →  (MethodCall ^receiver "hello" ^method length)
+(obj .method arg)  →  (MethodCall ^receiver obj ^method <method object: method> arg)
+(x .+ y)           →  (MethodCall ^receiver x ^method <method object: +> y)
+("hello" .length)  →  (MethodCall ^receiver "hello" ^<method object: length>)
 ```
 
 ### Property Access
@@ -58,7 +70,7 @@ obj/prop           →  (PropertyAccess ^object obj ^property prop)
 ### Variables
 ```gene
 (var x 42)         →  (Var ^name x 42)
-(let x 42)         →  (Let ^name x 42)
+(let x 42)         →  (Let ^name x 42) # can't be reassigned
 ```
 
 ### Functions
@@ -66,7 +78,7 @@ obj/prop           →  (PropertyAccess ^object obj ^property prop)
 (fn add [x y]      →  (Function ^name add ^params [x y]
   (+ x y))              (+ x y))
 
-(fn [x] (* x x))   →  (Function ^params [x] (* x x))  # Anonymous
+(fnx [x] (* x x))  →  (Function ^params [x] (* x x))  # Anonymous
 ```
 
 ### Classes
@@ -79,7 +91,7 @@ obj/prop           →  (PropertyAccess ^object obj ^property prop)
 
 ### Methods
 ```gene
-(.fn method [x]    →  (Method ^name method ^params [x]
+(.fn method [x]    →  (Method ^class self ^name method ^params [x]
   body)                 body)
 ```
 
@@ -94,14 +106,17 @@ obj/prop           →  (PropertyAccess ^object obj ^property prop)
 
 ### Pattern Matching
 ```gene
-(match value       →  (Match value
-  pattern1 expr1        (Case pattern1 expr1)
-  pattern2 expr2)       (Case pattern2 expr2))
+(case value       →  (Match value
+  when pattern1 expr1        (Case pattern1 expr1)
+  when pattern2 expr2)       (Case pattern2 expr2))
 ```
 
 ### Loops
 ```gene
-(for [x coll]      →  (For ^binding x ^collection coll
+(loop
+  body)
+
+(for [i x] in coll →  (For ^binding x ^collection coll
   body)                 body)
 
 (while test        →  (While test body)
@@ -110,37 +125,31 @@ obj/prop           →  (PropertyAccess ^object obj ^property prop)
 
 ## Properties on Expressions
 
-Any expression can have properties:
+Any gene expression can have properties:
 ```gene
 (add ^checked true 1 2)       # Call with property
 (loop ^parallel true ...)     # Loop with property
-[1 2 3] ^immutable true      # Array with property
 ```
 
 ## Macros
 
 ```gene
-($ macro-name args)   →  (Macro ^name macro-name args)
-(defmacro when [test body]
-  ~(if ,test ,body nil))
+(macro m [x y]     →  (Macro ^name m ^params [x y] body)
+  body)
 ```
 
 ## Quote Forms
 
 ```gene
-'expr              →  (Quote expr)
-~expr              →  (Quasiquote expr)
-,expr              →  (Unquote expr)
-,@expr             →  (UnquoteSplice expr)
-`symbol            →  (Symbol ^name "symbol")  # Backtick quote
+`expr              →  (Quote expr)
+%expr              →  (Unquote expr)
+`symbol            →  (Quote (Symbol ^value "symbol"))
 ```
 
 ## Module System
 
 ```gene
-(import foo)       →  (Import ^module foo)
-(import foo.bar)   →  (Import ^module foo.bar)
-(import {x y} from foo)  →  (Import ^names [x y] ^from foo)
+(import [x y] from "foo")  →  (Import ^names [x y] ^from "foo") # "foo" is module path
 (export x)         →  (Export x)
 ```
 
@@ -155,7 +164,6 @@ Any expression can have properties:
 ## Implementation Notes
 
 1. The parser generates Gene objects directly - no separate AST
-2. All operations become method calls on objects
-3. Properties are first-class and can be attached to any expression
-4. The unified format simplifies metaprogramming
-5. Pattern matching works on the Gene structure itself
+2. Operations are grouped into functions and methods
+3. The unified format simplifies metaprogramming
+4. Pattern matching works on the Gene structure itself

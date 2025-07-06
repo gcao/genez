@@ -24,17 +24,25 @@ All values in the language are represented using the Gene type:
 
 ### 2. Everything is an Object
 
-All operations are method calls on objects:
-
 ```gene
-(+ 1 2)        →  (1 .+ 2)        →  (Int.+ 1 2)
-("hi" .length) →  (String.length "hi")
-([1 2] .push 3) → (Array.push [1 2] 3)
+1                 → (Int ^value 1)  # 1 is an instance of Int
+"hello"           → (String ^value "hello") # "hello" is an instance of String
+[1 2 3]           → (Array 1 2 3) # [1 2 3] is an instance of Array
+(add 1 2)         → (Call ^target add 1 2) # (Call ^target add 1 2) is an instance of Call (function call or macro call)
+(x .add 5)        → (MethodCall ^receiver x ^method add 5)
+("hello" .length) → (MethodCall ^receiver "hello" ^method length)
 ```
 
-### 3. Uniform Property Access
+Method calls can be translated to function calls:
 
-Any expression can have properties attached:
+```gene
+("hi" .length)  → ((String .get_method "length") "hi")
+([1 2] .push 3) → ((Array .get_method "push") [1 2] 3)
+```
+
+### 3. Property Access
+
+Any gene expression can have properties attached:
 
 ```gene
 (add ^checked true ^optimize false 1 2)
@@ -52,11 +60,14 @@ Value (64-bit)
 │   ├── Bool
 │   ├── Int (48-bit)
 │   ├── Float
-│   └── SmallString (≤6 bytes)
+│   ├── SmallString (≤6 bytes)
+│   └── SmallSymbol (≤6 bytes)
 └── Heap pointers
     ├── Gene
     ├── String
+    ├── Symbol
     ├── Array
+    ├── Set
     ├── Map
     ├── Class
     ├── Object
@@ -84,6 +95,8 @@ Gene
 ```
 
 ### 3. Compilation Pipeline
+
+Compilation occurs when all information is available. Some code is pre-compiled, other is compiled on demand. Part of a function body can be compiled first while the rest is compiled later.
 
 ```
 Source Code
@@ -176,16 +189,16 @@ Stack allocate non-escaping objects:
 ```
 Any
 ├── Nil
+├── Void
 ├── Bool
 ├── Number
 │   ├── Int
 │   └── Float
 ├── String
 ├── Symbol
-├── Collection
-│   ├── Array
-│   ├── Map
-│   └── Set
+├── Array
+├── Map
+├── Set
 ├── Gene
 ├── Class
 ├── Function
@@ -236,12 +249,11 @@ Built-in methods for each type:
 
 # Parser output (Gene AST)
 Gene {
-  head: Symbol("Call"),
+  head: Symbol("add"),
   props: {
     "checked": Bool(true)
   },
   children: [
-    Symbol("add"),
     Int(1),
     Int(2)
   ]

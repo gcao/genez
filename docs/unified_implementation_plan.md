@@ -27,8 +27,8 @@
   - [ ] `Int < Number < Any`
   - [ ] `Float < Number < Any`
   - [ ] `String < Any`
-  - [ ] `Array < Collection < Any`
-  - [ ] `Map < Collection < Any`
+  - [ ] `Array < Any`
+  - [ ] `Map < Any`
   - [ ] `Gene < Any`
 
 ### 2.2 Method System
