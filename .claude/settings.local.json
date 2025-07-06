@@ -61,7 +61,8 @@
       "Bash(./run_single_test.sh:*)",
       "Bash(./check.py:*)",
       "Bash(python:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(./zig-out/bin/bench:*)"
     ],
     "deny": []
   },

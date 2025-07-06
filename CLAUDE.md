@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Important**: This repository contains two implementations:
+> - **v1** (this directory) - Feature-complete implementation with traditional architecture
+> - **v2** (`v2/` directory) - New implementation based on unified Gene data format
+> 
+> See [V1_VS_V2.md](V1_VS_V2.md) for details. Active development is in v2/.
+
 ## Development Commands
 
 **Build and Run:**

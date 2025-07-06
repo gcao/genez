@@ -1,0 +1,34 @@
+# Gene v2 Example
+# Everything is represented as (type ^prop1 value1 child1 child2)
+
+# Primitives
+42                  # (Int ^value 42)
+"hello"            # (String ^value "hello")
+true               # (Bool ^value true)
+
+# Arrays
+[1 2 3]            # (Array 1 2 3)
+
+# Maps  
+{^x 1 ^y 2}        # (Map ^x 1 ^y 2)
+
+# Function calls
+(add 1 2)          # (Call ^target add 1 2)
+
+# Method calls
+(x .add 5)         # (MethodCall ^receiver x ^method add 5)
+("hello" .length)  # (MethodCall ^receiver "hello" ^method length)
+
+# Properties can be attached to any expression
+(add ^checked true 1 2)  # Call with property
+
+# Function definition
+(fn square [x] 
+  (* x x))         # (Function ^name square ^params [x] (* x x))
+
+# Class definition  
+(class Point
+  ^fields [x y]
+  (.fn distance [other]
+    (sqrt (+ (square (- x other/x))
+             (square (- y other/y))))))

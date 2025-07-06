@@ -1,6 +1,10 @@
 # Gene Implementation Status
 
-This document tracks the current implementation status of Gene as a dynamic, Ruby+Lisp-like language.
+> **Note**: Active development has moved to [v2/](../v2/) which implements the unified Gene data format where everything is represented as `(type ^prop1 value1 child1 child2)`. 
+> 
+> This document tracks the v1 implementation status. V1 is feature-complete with OOP, pattern matching, modules, and more.
+
+This document tracks the current implementation status of Gene v1 as a dynamic, Ruby+Lisp-like language.
 
 ## Summary
 
